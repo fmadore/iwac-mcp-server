@@ -24,7 +24,8 @@ wheels/
 venv/
 ENV/
 env/
-.venv
+.venv/
+.venv-*/
 
 # uv
 # Note: uv.lock should be committed for reproducible builds
@@ -56,3 +57,4 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+.claude/settings.local.json
