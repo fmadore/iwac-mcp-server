@@ -1,11 +1,14 @@
 [project]
 name = "iwac-mcp-server"
-version = "0.1.0"
-description = "A read-only MCP server that exposes the Islam West Africa Collection (IWAC) through the Omeka S API"
+version = "0.2.0"
+description = "A read-only MCP server that exposes the Islam West Africa Collection (IWAC) via Hugging Face datasets"
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.2.0",
-    "httpx>=0.27.0",
+    "datasets>=2.14.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
 ]
 
