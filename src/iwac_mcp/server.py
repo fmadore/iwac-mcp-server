@@ -107,17 +107,16 @@ def search_articles(
 def get_article(article_id: int) -> str:
     """Get detailed information about a specific IWAC article.
 
-    Includes full metadata, OCR text, sentiment analysis, and topic information.
+    Includes full metadata, OCR text, and sentiment analysis.
 
     Args:
         article_id: The article ID (o:id field)
 
     Returns:
-        JSON object with full article metadata including OCR text, topics, and sentiment
+        JSON object with full article metadata including OCR text and sentiment
     """
     df = client.articles
-    # o:id is stored as string in the dataset
-    article = df[df["o:id"] == str(article_id)]
+    article = df[df["o:id"].astype(str) == str(article_id)]
 
     if article.empty:
         return _to_json({"error": f"Article {article_id} not found"})
@@ -142,10 +141,6 @@ def get_article(article_id: int) -> str:
         "word_count": row.get("nb_mots"),
         "lexical_richness": row.get("Richesse_Lexicale_OCR"),
         "readability": row.get("Lisibilite_OCR"),
-        # Topic modeling
-        "topic_id": row.get("topic_id"),
-        "topic_label": row.get("topic_label"),
-        "topic_probability": row.get("topic_prob"),
         # DistilCamemBERT sentiment
         "sentiment_label": row.get("sentiment_label"),
         "sentiment_score": row.get("sentiment_score"),
@@ -282,8 +277,7 @@ def compare_ai_sentiments(article_id: int) -> str:
         JSON comparing Gemini, ChatGPT, and Mistral analyses side-by-side
     """
     df = client.articles
-    # o:id is stored as string in the dataset
-    article = df[df["o:id"] == str(article_id)]
+    article = df[df["o:id"].astype(str) == str(article_id)]
 
     if article.empty:
         return _to_json({"error": f"Article {article_id} not found"})
@@ -307,116 +301,6 @@ def compare_ai_sentiments(article_id: int) -> str:
         }
 
     return _to_json(result)
-
-
-# =============================================================================
-# TOPIC TOOLS (3 tools)
-# =============================================================================
-
-
-@mcp.tool()
-def search_by_topic(
-    topic_id: int | None = None,
-    topic_label: str | None = None,
-    country: str | None = None,
-    limit: int = 20,
-) -> str:
-    """Search articles by BERTopic topic assignment.
-
-    Args:
-        topic_id: Filter by topic ID (use list_topics to see available IDs)
-        topic_label: Filter by topic label (partial match)
-        country: Filter by country
-        limit: Maximum results to return (default 20, max 100)
-
-    Returns:
-        JSON array of articles in the specified topic
-    """
-    limit = min(limit, 100)
-    df = client.articles.copy()
-
-    if topic_id is not None:
-        df = df[df["topic_id"] == topic_id]
-
-    if topic_label:
-        df = df[df["topic_label"].fillna("").str.contains(topic_label, case=False, na=False)]
-
-    if country:
-        df = df[df["country"].fillna("").str.contains(country, case=False, na=False)]
-
-    output_cols = [
-        "o:id", "title", "newspaper", "country", "pub_date",
-        "topic_id", "topic_label", "topic_prob", "url",
-    ]
-    results = _df_to_records(df.head(limit), output_cols)
-
-    return _to_json({
-        "count": len(results),
-        "total_matches": len(df),
-        "results": results,
-    })
-
-
-@mcp.tool()
-def get_topic_distribution(country: str | None = None) -> str:
-    """Get topic distribution statistics.
-
-    Args:
-        country: Filter by country (optional)
-
-    Returns:
-        JSON with topic counts and labels
-    """
-    df = client.articles.copy()
-
-    if country:
-        df = df[df["country"].fillna("").str.contains(country, case=False, na=False)]
-
-    # Group by topic
-    topic_stats = (
-        df.groupby(["topic_id", "topic_label"])
-        .size()
-        .reset_index(name="count")
-        .sort_values("count", ascending=False)
-    )
-
-    return _to_json({
-        "country": country,
-        "total_articles": len(df),
-        "unique_topics": len(topic_stats),
-        "topics": topic_stats.to_dict(orient="records"),
-    })
-
-
-@mcp.tool()
-def list_topics() -> str:
-    """List all BERTopic topics with article counts.
-
-    Returns:
-        JSON array of topics with IDs, labels, and counts
-    """
-    df = client.articles
-
-    # Group by topic, get counts and sample titles
-    topic_stats = (
-        df.groupby(["topic_id", "topic_label"])
-        .agg(
-            count=("o:id", "count"),
-            avg_probability=("topic_prob", "mean"),
-        )
-        .reset_index()
-        .sort_values("count", ascending=False)
-    )
-
-    # Filter out outliers (topic_id = -1)
-    main_topics = topic_stats[topic_stats["topic_id"] != -1]
-    outliers = topic_stats[topic_stats["topic_id"] == -1]
-
-    return _to_json({
-        "total_topics": len(main_topics),
-        "outlier_count": int(outliers["count"].sum()) if not outliers.empty else 0,
-        "topics": main_topics.to_dict(orient="records"),
-    })
 
 
 # =============================================================================
@@ -473,8 +357,7 @@ def get_index_entry(entry_id: int) -> str:
         JSON object with full entry details including frequency statistics
     """
     df = client.index
-    # o:id is stored as string in the dataset
-    entry = df[df["o:id"] == str(entry_id)]
+    entry = df[df["o:id"].astype(str) == str(entry_id)]
 
     if entry.empty:
         return _to_json({"error": f"Index entry {entry_id} not found"})

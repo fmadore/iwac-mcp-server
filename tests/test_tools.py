@@ -12,9 +12,6 @@ from iwac_mcp.server import (
     search_by_sentiment,
     get_sentiment_distribution,
     compare_ai_sentiments,
-    search_by_topic,
-    get_topic_distribution,
-    list_topics,
     search_index,
     get_index_entry,
     list_subjects,
@@ -47,9 +44,9 @@ def mock_articles_df():
         "nb_mots": [100, 200, 150],
         "Richesse_Lexicale_OCR": [0.5, 0.6, 0.55],
         "Lisibilite_OCR": [60.0, 65.0, 62.0],
-        "topic_id": [1, 2, 1],
-        "topic_label": ["Topic A", "Topic B", "Topic A"],
-        "topic_prob": [0.8, 0.9, 0.85],
+        "lda_topic_id": [1, 2, 1],
+        "lda_topic_label": ["Topic A", "Topic B", "Topic A"],
+        "lda_topic_prob": [0.8, 0.9, 0.85],
         "sentiment_label": ["POSITIVE", "NEUTRAL", "NEGATIVE"],
         "sentiment_score": [0.9, 0.5, 0.7],
         "gemini_centralite_islam_musulmans": ["Très central", "Central", "Secondaire"],
@@ -191,7 +188,6 @@ def test_get_article(mock_client):
     assert int(data["id"]) == 123
     assert data["title"] == "Test Article 1"
     assert "ocr_text" in data
-    assert "topic_id" in data
     assert "gemini_polarity" in data
 
 
@@ -245,37 +241,6 @@ def test_compare_ai_sentiments(mock_client):
     assert "gemini" in data["comparison"]
     assert "chatgpt" in data["comparison"]
     assert "mistral" in data["comparison"]
-
-
-# =============================================================================
-# Topic Tests
-# =============================================================================
-
-
-def test_search_by_topic(mock_client):
-    """Test searching by topic."""
-    result = search_by_topic(topic_id=1, limit=10)
-    data = json.loads(result)
-
-    assert data["count"] == 2
-
-
-def test_get_topic_distribution(mock_client):
-    """Test getting topic distribution."""
-    result = get_topic_distribution()
-    data = json.loads(result)
-
-    assert "topics" in data
-    assert data["total_articles"] == 3
-
-
-def test_list_topics(mock_client):
-    """Test listing topics."""
-    result = list_topics()
-    data = json.loads(result)
-
-    assert "topics" in data
-    assert "total_topics" in data
 
 
 # =============================================================================
