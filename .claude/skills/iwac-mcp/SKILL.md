@@ -28,23 +28,25 @@ For data schema details, defer to the `iwac-dataset` skill. For Omeka S API deta
 
 ## Research Depth
 
-Before starting, ask the user which depth they prefer:
+**Before any research, present the user with an explicit choice:**
 
-| Mode | Phases | What you get | Typical time |
-|------|--------|-------------|-------------|
-| **Brief** | Scoping + focused search | Collection stats, article counts, key article titles, top organizations/persons. No full-text reading or sentiment comparison. A concise summary with source links. | ~2-3 minutes |
-| **Extended** | All five phases | Full systematic search across multiple term variants, deep reading of OCR text for key articles, AI sentiment comparison, cross-subset triangulation, and a detailed synthesis with confidence grading and limitations. | ~10-15 minutes |
+> How deep should I go?
+> - [ ] **Brief** -- Quick overview: article counts, key titles, top actors. ~2-3 min.
+> - [ ] **Extended** -- Full 5-phase analysis: multiple search variants, full-text reading, sentiment comparison, cross-subset triangulation, confidence grading. ~10-15 min.
+
+Wait for the user to choose before proceeding.
 
 ### Brief mode workflow
 1. Run Phase 1 scoping (stats, country comparison, relevant subjects) in a single parallel batch.
 2. Run Phase 2 with **one primary search per filter combination** (e.g., subject tag + country + date range). Skip keyword variants and supplementary searches. Use limit=10.
-3. Skip Phases 3-4 entirely. Do not call `get_article`, `compare_ai_sentiments`, or `get_sentiment_distribution`.
-4. Produce a Phase 5 synthesis based on article metadata only (titles, dates, newspapers, subjects). Flag that no OCR text was examined and evidence strength is preliminary.
+3. Run a **lightweight Phase 3**: pick the 2-3 most relevant articles from search results and call `get_article` to read their OCR text. Skip `compare_ai_sentiments` and `get_sentiment_distribution`.
+4. Skip Phase 4 (triangulation).
+5. Produce a Phase 5 synthesis that draws on both metadata and the articles read. Keep it concise but substantive.
 
 ### Extended mode workflow
 Follow the full five-phase workflow described below. Use multiple search term variants, read key articles in full, run sentiment comparisons, and produce a detailed synthesis with confidence grading.
 
-If the user does not specify, **default to brief mode** and mention that an extended analysis is available.
+If the user does not specify, **default to Brief mode** and mention that an extended analysis is available.
 
 ## Critical Search Rules
 
@@ -118,6 +120,7 @@ If the user does not specify, **default to brief mode** and mention that an exte
 3. Document null results alongside positive findings
 4. Separate primary evidence (articles, publications) from secondary evidence (references, index metadata) from AI-derived evidence (sentiment)
 5. Note any limitations specific to the research question (see biases-and-limitations.md)
+6. **Offer follow-up questions.** End every synthesis with 2-4 concrete follow-up research questions the user could explore next. These should branch naturally from the findings -- e.g., drilling into a specific actor, comparing with another country, examining a different time period, or exploring a related theme the data surfaced. Frame them as actionable prompts the user can pick up directly.
 
 ## Confidence Grading
 
