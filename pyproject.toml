@@ -2,6 +2,7 @@
 name = "iwac-mcp-server"
 version = "0.2.0"
 description = "A read-only MCP server that exposes the Islam West Africa Collection (IWAC) via Hugging Face datasets"
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.2.0",
