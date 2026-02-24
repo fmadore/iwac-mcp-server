@@ -60,8 +60,8 @@ Search authority records (persons, places, organizations, subjects, events).
 
 ### search_by_sentiment
 Search articles by AI sentiment analysis.
-- `polarity` (optional): "Tres positif", "Positif", "Neutre", "Negatif", "Tres negatif"
-- `centrality` (optional): "Tres central", "Central", "Secondaire", "Marginal", "Non aborde"
+- `polarity` (optional): "Très positif", "Positif", "Neutre", "Négatif", "Très négatif" (unaccented variants also accepted)
+- `centrality` (optional): "Très central", "Central", "Secondaire", "Marginal", "Non abordé" (unaccented variants also accepted)
 - `model` (default "gemini"): "gemini", "chatgpt", "mistral"
 - `country` (optional): filter
 - `limit` (default 20)
@@ -122,10 +122,10 @@ Aggregated sentiment statistics across the collection.
 **IMPORTANT:** Côte d'Ivoire requires the accent on the "ô". Use `Côte d'Ivoire`, not `Cote d'Ivoire`. Other country names: Benin, Burkina Faso, Niger, Togo, Nigeria.
 
 ### Polarity Scale
-Tres positif, Positif, Neutre, Negatif, Tres negatif
+Très positif, Positif, Neutre, Négatif, Très négatif (unaccented variants also accepted)
 
 ### Centrality Scale
-Tres central, Central, Secondaire, Marginal, Non aborde
+Très central, Central, Secondaire, Marginal, Non abordé (unaccented variants also accepted)
 
 ### Sentiment Models
 gemini, chatgpt, mistral

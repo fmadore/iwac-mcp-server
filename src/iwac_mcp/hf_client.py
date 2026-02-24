@@ -66,7 +66,7 @@ class HuggingFaceClient:
 
             # Convert date columns
             if "pub_date" in df.columns:
-                df["pub_date"] = pd.to_datetime(df["pub_date"], errors="coerce")
+                df["pub_date"] = pd.to_datetime(df["pub_date"], errors="coerce", utc=True)
 
             self._cache[subset_name] = df
             logger.info(f"Loaded {len(df)} records from {subset_name}")

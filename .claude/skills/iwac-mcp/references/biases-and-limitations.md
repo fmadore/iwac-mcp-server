@@ -4,10 +4,11 @@ Systematic biases and constraints to disclose when producing research outputs.
 
 ## 1. Francophone Bias
 
-~96% of articles are in French. This reflects the collection's focus on francophone West African press, but creates systematic distortions:
+~96% of articles are in French. This specifically reflects the perspective of **Western-educated Muslims** who followed French-speaking, secular, or Christian school curricula. The collection offers less direct access to *Arabisants* -- prominent Muslim leaders trained in madrasas and major Islamic universities who use Arabic or national languages (Moore, Dioula, Fulfulde, Hausa) to reach non-French-speaking audiences.
 
 - **Overrepresentation** of Western-educated Muslim perspectives, state-affiliated media, and mainstream press framing
 - **Underrepresentation** of Arabic-language Islamic scholarship, Hausa-language media (especially Nigerian), vernacular-language religious discourse, and community-internal publications not mediated through French
+- **Partial mitigation:** The French-language press regularly gives voice to Arabic-speaking leaders (through interviews, reported speech, and coverage of their activities). The audiovisual subset also includes recordings in Hausa and Arabic.
 - **Implication:** Research questions about Islamic intellectual life, internal community debates, or non-francophone Muslim communities require acknowledging that IWAC captures primarily the French-language public sphere
 
 ## 2. Geographic Coverage Imbalance
@@ -30,7 +31,8 @@ The collection has **deep coverage** for some countries and **very thin coverage
 - Coverage begins in the 1960s but is sparse before the 1990s
 - Post-2000 coverage is significantly denser
 - Some newspapers appear only for specific periods (e.g., ceased publication, or only recently digitized)
-- **Implication:** Apparent temporal trends (e.g., "rising coverage of X after 2010") may reflect increasing digitization rather than changing reality
+- **Thematic shift over time:** Before the late 1980s, mainstream press coverage of Islam was narrow, focusing mainly on major religious celebrations (Eid al-Adha, Eid al-Fitr), the pilgrimage to Mecca, mosque inaugurations, and the passing of religious leaders. From the late 1980s onward, political liberalization and the growth of Islamic associations prompted much broader coverage of community activities, internal debates, leadership dynamics, and Muslim public presence. An apparent "increase" in coverage of a topic after 1990 may partly reflect this broadening of press interest, not just changing reality.
+- **Implication:** Apparent temporal trends (e.g., "rising coverage of X after 2010") may reflect increasing digitization or evolving press interests rather than changing reality
 - **Tip:** Use `date_from` and `date_to` parameters to filter by time period (e.g., `date_from="1970-01-01"`, `date_to="1979-12-31"` for the 1970s)
 
 ## 4. OCR Quality Variation
@@ -38,6 +40,7 @@ The collection has **deep coverage** for some countries and **very thin coverage
 - **1960s-1980s newsprint:** Often poor OCR quality due to degraded print, low-resolution scans, mixed fonts. Keyword searches may miss relevant articles due to OCR errors
 - **1990s-2000s:** Moderate quality, depends on print condition
 - **2010s-present:** Generally good quality, especially for web-archived articles
+- **Born-digital content:** Over 4,000 online articles have been preserved through the Wayback Machine. These born-digital items have clean text and are not affected by OCR quality issues. However, digital content in sub-Saharan Africa is particularly transient -- platforms disappear and URLs break -- so these preserved snapshots may represent only a fraction of what once existed online.
 - **Arabic script:** OCR on Arabic-script text within French-language articles is unreliable
 - **Implication:** Word counts (`nb_mots`), lexical metrics (`Richesse_Lexicale_OCR`, `Lisibilite_OCR`), and keyword search completeness are all affected by OCR quality. Earlier periods are systematically disadvantaged in keyword searches.
 
@@ -72,11 +75,23 @@ IWAC contains two structurally different source types:
 
 **Note on publications subset:** Most Islamic publications in IWAC are stored as entire issues (not individual articles), with limited metadata. The individual articles within each issue are not separated. This limits searchability of Islamic press content through the `search_publications` tool.
 
-## 7. Index vs. Full Text
+## 7. Editorial and Political Bias
+
+Mainstream newspapers are not neutral observers. Pro-government outlets grant privileged visibility to Muslim groups and leaders close to political power, while marginalizing movements and individuals suspected of opposition sympathies. Opposition press may do the reverse. This editorial framing affects:
+
+- **Who appears:** Which Muslim leaders, associations, and movements receive coverage
+- **How they are framed:** Sympathetic vs. critical treatment of the same events or actors
+- **What is omitted:** Activities or perspectives that do not align with editorial interests
+
+**Example:** In Burkina Faso, young Francophone "Muslim intellectuals" eclipsed traditional community spokespersons in press coverage during the transition period following the fall of President Blaise Compaore in October 2014. The press reveals who gains media visibility -- and who is marginalized.
+
+**Implication:** When analyzing how a person, organization, or movement appears in coverage, consider which newspaper is reporting and its political orientation. Filter by newspaper to compare framing across outlets.
+
+## 8. Index vs. Full Text
 
 The 4,697 index entries (persons, organizations, places, events, subjects) represent curated authority records, not exhaustive extraction from the full-text corpus. A person may appear in many articles but have no index entry, or vice versa. The `frequency` field in index entries counts links from items, not text mentions.
 
-## 8. Search Limitations
+## 9. Search Limitations
 
 - **Keyword search** (`keyword` parameter) searches title and OCR text only. It does NOT search subject or spatial fields. To find articles by subject, use the `subject` parameter instead.
 - **Country filter** requires exact accent matching. You must use `Côte d'Ivoire` (with circumflex ô), not `Cote d'Ivoire`. Other country names do not have accents.

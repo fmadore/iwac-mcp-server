@@ -84,10 +84,10 @@ def search_articles(
         df = df[mask]
 
     if date_from:
-        df = df[df["pub_date"] >= pd.to_datetime(date_from)]
+        df = df[df["pub_date"] >= pd.to_datetime(date_from, utc=True)]
 
     if date_to:
-        df = df[df["pub_date"] <= pd.to_datetime(date_to)]
+        df = df[df["pub_date"] <= pd.to_datetime(date_to, utc=True)]
 
     # Select output columns
     output_cols = [
@@ -189,6 +189,20 @@ def search_by_sentiment(
     # Build column names based on model
     polarity_col = f"{model}_polarite"
     centrality_col = f"{model}_centralite_islam_musulmans"
+
+    # Normalize accent variants so unaccented input matches accented data
+    _accent_map = {
+        "tres positif": "Très positif",
+        "tres negatif": "Très négatif",
+        "negatif": "Négatif",
+        "tres central": "Très central",
+        "non aborde": "Non abordé",
+    }
+
+    if polarity:
+        polarity = _accent_map.get(polarity.lower(), polarity)
+    if centrality:
+        centrality = _accent_map.get(centrality.lower(), centrality)
 
     # Apply filters
     if polarity and polarity_col in df.columns:

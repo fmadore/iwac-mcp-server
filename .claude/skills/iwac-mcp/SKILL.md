@@ -26,6 +26,26 @@ Before beginning a research session, read the relevant reference files:
 
 For data schema details, defer to the `iwac-dataset` skill. For Omeka S API details, defer to the `iwac-api` skill.
 
+## Research Depth
+
+Before starting, ask the user which depth they prefer:
+
+| Mode | Phases | What you get | Typical time |
+|------|--------|-------------|-------------|
+| **Brief** | Scoping + focused search | Collection stats, article counts, key article titles, top organizations/persons. No full-text reading or sentiment comparison. A concise summary with source links. | ~2-3 minutes |
+| **Extended** | All five phases | Full systematic search across multiple term variants, deep reading of OCR text for key articles, AI sentiment comparison, cross-subset triangulation, and a detailed synthesis with confidence grading and limitations. | ~10-15 minutes |
+
+### Brief mode workflow
+1. Run Phase 1 scoping (stats, country comparison, relevant subjects) in a single parallel batch.
+2. Run Phase 2 with **one primary search per filter combination** (e.g., subject tag + country + date range). Skip keyword variants and supplementary searches. Use limit=10.
+3. Skip Phases 3-4 entirely. Do not call `get_article`, `compare_ai_sentiments`, or `get_sentiment_distribution`.
+4. Produce a Phase 5 synthesis based on article metadata only (titles, dates, newspapers, subjects). Flag that no OCR text was examined and evidence strength is preliminary.
+
+### Extended mode workflow
+Follow the full five-phase workflow described below. Use multiple search term variants, read key articles in full, run sentiment comparisons, and produce a detailed synthesis with confidence grading.
+
+If the user does not specify, **default to brief mode** and mention that an extended analysis is available.
+
 ## Critical Search Rules
 
 1. **All search terms must be in French.** Even if the research question is in English, translate every query to French before searching. The collection has no English-language indexing.
@@ -132,7 +152,7 @@ For data schema details, defer to the `iwac-dataset` skill. For Omeka S API deta
 ## Key Constraints
 
 1. **Never present search results as exhaustive.** IWAC is a curated collection, not a complete archive. Absence of evidence is not evidence of absence.
-2. **Always disclose the francophone bias.** ~96% French-language sources reflect Western-educated Muslim perspectives and mainstream press framing. Arabic, Hausa, and vernacular perspectives are underrepresented.
+2. **Always disclose the francophone bias.** ~96% French-language sources specifically reflect Western-educated Muslim perspectives (those who followed French-speaking, secular, or Christian school curricula). *Arabisants* -- leaders trained in madrasas who use Arabic or national languages -- are underrepresented as direct voices, though the French press regularly reports on their activities.
 3. **Always disclose the Niger/Nigeria gap.** Niger has thin coverage with inconsistent subject tagging. Nigeria has virtually no press coverage (audiovisual only). These gaps must be stated in any cross-country analysis.
 4. **Always distinguish source types.** MCP tool outputs, AI sentiment labels, and OCR text have different evidential status.
 5. **OCR quality varies.** 1960s-1980s newspaper scans may have poor OCR. Do not treat OCR text as authoritative without noting this caveat.
