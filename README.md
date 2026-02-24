@@ -1,269 +1,189 @@
 # IWAC MCP Server
 
-A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes the [Islam West Africa Collection (IWAC)](https://islam.zmo.de) through the Omeka S API, enabling AI assistants like Claude to browse and search the collection programmatically.
+A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server that provides AI assistants with structured access to the [Islam West Africa Collection (IWAC)](https://islam.zmo.de/s/westafrica). Data is loaded from the [IWAC Hugging Face dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection).
 
 ## Features
 
-- **Read-only access**: Query 11,500+ newspaper articles and index entries without modifying data
-- **Comprehensive search**: Search by subject, location, newspaper, date range, and keywords
-- **Index browsing**: Query persons, places, organizations, events, and subjects
-- **Structured data**: Returns JSON with metadata and URLs to original Omeka S items
-- **Fast & async**: Built with FastMCP and httpx for optimal performance
+- **16 search and analysis tools** across articles, index entries, publications, references, and audiovisual materials
+- **AI sentiment analysis** from three models (Gemini, ChatGPT, Mistral) with comparison tools
+- **In-memory DataFrame queries** for fast, offline-capable searches after initial dataset load
+- **No API credentials required** -- uses the public Hugging Face dataset
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
-- Omeka S API credentials for islam.zmo.de
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
-### Using uv (recommended)
+### Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/iwac-mcp-server.git
+git clone https://github.com/fmadore/iwac-mcp-server.git
 cd iwac-mcp-server
-
-# Install dependencies
 uv sync
 ```
 
-### Using pip
+Or with pip:
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/iwac-mcp-server.git
+git clone https://github.com/fmadore/iwac-mcp-server.git
 cd iwac-mcp-server
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
 ## Configuration
 
-1. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
+The server works out of the box with default settings. Optional configuration via environment variables (all prefixed with `IWAC_`):
 
-2. Edit `.env` and add your Omeka S API credentials:
-   ```bash
-   OMEKA_BASE_URL=https://islam.zmo.de/api
-   OMEKA_KEY_IDENTITY=your_key_identity
-   OMEKA_KEY_CREDENTIAL=your_key_credential
-   ```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IWAC_DATASET_NAME` | `fmadore/islam-west-africa-collection` | Hugging Face dataset |
+| `IWAC_CACHE_DIR` | HF default | Local cache directory |
+| `IWAC_LAZY_LOAD_SUBSETS` | `true` | Load subsets on first access |
+| `IWAC_PRELOAD_ARTICLES` | `true` | Preload articles at startup |
+| `IWAC_LOAD_EMBEDDINGS` | `false` | Load embedding columns (high memory) |
 
-## Usage with Claude Desktop
+See `.env.example` for a template.
 
-### macOS/Linux
+## Usage
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/Claude/claude_desktop_config.json` (Linux):
+### With Claude Code
 
-```json
-{
-  "mcpServers": {
-    "iwac": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/iwac-mcp-server",
-        "run",
-        "python",
-        "-m",
-        "iwac_mcp.server"
-      ],
-      "env": {
-        "OMEKA_KEY_IDENTITY": "your_key_identity",
-        "OMEKA_KEY_CREDENTIAL": "your_key_credential"
-      }
-    }
-  }
-}
-```
-
-### Windows
-
-Edit `%APPDATA%\Claude\claude_desktop_config.json`:
+Add to your project's `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "iwac": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "C:\\absolute\\path\\to\\iwac-mcp-server",
-        "run",
-        "python",
-        "-m",
-        "iwac_mcp.server"
-      ],
-      "env": {
-        "OMEKA_KEY_IDENTITY": "your_key_identity",
-        "OMEKA_KEY_CREDENTIAL": "your_key_credential"
-      }
+      "args": ["--directory", "/path/to/iwac-mcp-server", "run", "python", "-m", "iwac_mcp.server"]
     }
   }
 }
 ```
 
-After configuration, restart Claude Desktop. You should see the IWAC tools available in the MCP menu.
+### With Claude Desktop
 
-## Available Tools
+Edit your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
 
-### 1. `search_articles`
+```json
+{
+  "mcpServers": {
+    "iwac": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/iwac-mcp-server", "run", "python", "-m", "iwac_mcp.server"]
+    }
+  }
+}
+```
 
-Search newspaper articles by various criteria.
+## Available Tools (16)
 
-**Parameters:**
-- `subject` (optional): Filter by subject term (e.g., "Cheikh Ibrahima Niass")
-- `spatial` (optional): Filter by geographic location (e.g., "Dakar")
-- `newspaper` (optional): Filter by newspaper name (e.g., "Fraternité Matin")
-- `country` (optional): Filter by country (e.g., "Côte d'Ivoire")
-- `date_from` (optional): Start date (YYYY-MM-DD format)
-- `date_to` (optional): End date (YYYY-MM-DD format)
-- `keyword` (optional): Search in title and OCR text
-- `limit` (optional): Maximum results (default 20, max 100)
+### Article Search (2 tools)
 
-**Example queries:**
-- "What articles mention Cheikh Ibrahima Niass?"
-- "Show me articles about Mecca pilgrimage in Togo"
-- "Find articles published in Fraternité Matin about mosques"
+| Tool | Description |
+|------|-------------|
+| `search_articles` | Search articles by keyword, country, newspaper, subject, and date range |
+| `get_article` | Get full article details including OCR text and sentiment scores |
 
-### 2. `get_article`
+### Sentiment Analysis (3 tools)
 
-Get detailed information about a specific article including full OCR text.
+| Tool | Description |
+|------|-------------|
+| `search_by_sentiment` | Find articles by polarity or centrality from Gemini, ChatGPT, or Mistral |
+| `get_sentiment_distribution` | Aggregated polarity/centrality statistics with optional filters |
+| `compare_ai_sentiments` | Side-by-side comparison of all three AI models for one article |
 
-**Parameters:**
-- `article_id` (required): The Omeka S item ID
+### Index (5 tools)
 
-### 3. `search_index`
+| Tool | Description |
+|------|-------------|
+| `search_index` | Search authority records (persons, places, organizations, events, subjects) |
+| `get_index_entry` | Get detailed index entry with frequency and occurrence data |
+| `list_subjects` | List subject terms sorted by frequency |
+| `list_locations` | List geographic locations, optionally filtered by country |
+| `list_persons` | List persons, optionally filtered by country |
 
-Search the index for persons, places, organizations, events, or subjects.
+### Collection Statistics (3 tools)
 
-**Parameters:**
-- `query` (required): Search term
-- `index_type` (optional): Filter by type ("Personnes", "Lieux", "Organisations", "Événements", "Sujets")
-- `limit` (optional): Maximum results (default 20, max 100)
+| Tool | Description |
+|------|-------------|
+| `get_collection_stats` | Overall collection statistics: subset counts, countries, date range |
+| `get_newspaper_stats` | Per-newspaper article counts and date ranges |
+| `get_country_comparison` | Cross-country comparison with sentiment summaries |
 
-**Example queries:**
-- "Find information about Person X"
-- "List all subjects related to Islamic education"
+### Other Subsets (3 tools)
 
-### 4. `get_index_entry`
-
-Get detailed information about an index entry.
-
-**Parameters:**
-- `entry_id` (required): The Omeka S item ID
-
-### 5. `list_subjects`
-
-List subject terms from the IWAC index, sorted by frequency.
-
-**Parameters:**
-- `min_frequency` (optional): Minimum number of article mentions (default 1)
-- `limit` (optional): Maximum results (default 50, max 200)
-
-### 6. `list_locations`
-
-List geographic locations from the IWAC index.
-
-**Parameters:**
-- `country` (optional): Filter by country
-- `min_frequency` (optional): Minimum number of article mentions (default 1)
-- `limit` (optional): Maximum results (default 50, max 200)
-
-### 7. `get_collection_stats`
-
-Get overview statistics about the collection.
-
-**Returns:** Counts of articles, newspapers, countries, date range coverage, and index entry counts by type.
+| Tool | Description |
+|------|-------------|
+| `search_publications` | Search Islamic publications (mostly entire issues, limited metadata) |
+| `search_references` | Search academic references by keyword, author, or type |
+| `list_audiovisual` | List audiovisual materials, optionally filtered by country |
 
 ## Development
 
 ### Running Tests
 
 ```bash
-# Using uv
 uv run pytest
-
-# Using pip
-pytest
+uv run pytest -v  # verbose
 ```
 
 ### Code Formatting
 
 ```bash
-# Using uv
 uv run ruff check .
 uv run ruff format .
-
-# Using pip
-ruff check .
-ruff format .
 ```
 
 ## Project Structure
 
 ```
 iwac-mcp-server/
-├── pyproject.toml          # Project configuration
-├── .env.example            # Environment variables template
-├── README.md               # This file
-├── src/
-│   └── iwac_mcp/
-│       ├── __init__.py
-│       ├── server.py       # Main MCP server with FastMCP
-│       └── omeka_client.py # Omeka S API client (async)
-└── tests/
-    └── test_tools.py       # Tool unit tests
+├── src/iwac_mcp/
+│   ├── __init__.py
+│   ├── server.py        # MCP server with 16 tools
+│   ├── hf_client.py     # Hugging Face dataset client
+│   └── config.py        # Pydantic settings
+├── tests/
+│   └── test_tools.py    # Unit tests (21 tests)
+├── .claude/
+│   └── skills/
+│       └── iwac-mcp/    # Research workflow skill for Claude
+├── pyproject.toml
+└── .env.example
 ```
 
 ## Architecture
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Claude/AI      │────▶│  IWAC MCP Server │────▶│  Omeka S API    │
-│  Assistant      │◀────│  (FastMCP)       │◀────│  islam.zmo.de   │
+│  Claude / AI    │────>│  IWAC MCP Server │────>│  Hugging Face   │
+│  Assistant      │<────│  (FastMCP)       │<────│  Datasets       │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
       │                         │
-      │ MCP Protocol            │ REST/JSON-LD
-      │ (JSON-RPC/stdio)        │
+      │ MCP Protocol            │ In-memory DataFrames
+      │ (JSON-RPC/stdio)        │ (loaded once, then cached)
 ```
 
 ## About IWAC
 
-The Islam West Africa Collection (IWAC) is a digital archive of newspaper articles about Islam and Muslims in francophone West Africa. It contains:
+The [Islam West Africa Collection](https://islam.zmo.de/s/westafrica) is a digital archive focused on Islam and Muslims in West Africa. It contains:
 
-- 11,500+ newspaper articles from 6 countries
-- Coverage from 1960s to present
-- Comprehensive subject, person, place, and organization indexes
-- OCR text and AI-generated summaries
-
-Learn more at [https://islam.zmo.de](https://islam.zmo.de)
+- **12,000+ newspaper articles** from Benin, Burkina Faso, Cote d'Ivoire, Niger, Togo, and Nigeria
+- **4,600+ index entries** (persons, organizations, places, events, subjects)
+- **AI sentiment analysis** from three models (Gemini, ChatGPT, Mistral) on polarity, centrality, and subjectivity
+- **Academic references**, Islamic publications, and audiovisual materials
+- Coverage from the 1960s to present, primarily in French
 
 ## License
 
-[Add your license here]
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
+MIT
 
 ## Related Projects
 
-- [IWAC Chatbot](https://github.com/yourusername/iwac-chatbot) - RAG-based chatbot for IWAC
 - [IWAC Hugging Face Dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection)
-- [Omeka S MCP Sample](https://github.com/nakamura196/omeka-s-mcp-sample)
-
-## Contact
-
-For questions about the IWAC collection, please contact [collection maintainer].
-
-For questions about this MCP server, please open an issue on GitHub.
+- [IWAC Digital Archive](https://islam.zmo.de/s/westafrica)

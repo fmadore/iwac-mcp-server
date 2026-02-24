@@ -35,11 +35,7 @@ env/
 .env.local
 
 # IDE
-# Commit .vscode settings for team consistency, but ignore user-specific files
-.vscode/*
-!.vscode/settings.json
-!.vscode/launch.json
-!.vscode/extensions.json
+.vscode/
 .idea/
 *.swp
 *.swo
@@ -59,4 +55,3 @@ htmlcov/
 Thumbs.db
 .claude/settings.local.json
 .mcp.json
-nul
