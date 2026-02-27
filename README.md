@@ -4,8 +4,10 @@ A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server th
 
 ## Features
 
-- **16 search and analysis tools** across articles, index entries, publications, references, and audiovisual materials
+- **16 read-only tools** across articles, index entries, publications, references, and audiovisual materials
 - **AI sentiment analysis** from three models (Gemini, ChatGPT, Mistral) with comparison tools
+- **Cursor-based pagination** (`offset`/`limit`) on all search and list tools with `has_more`/`next_offset` envelope
+- **MCP tool annotations** (readOnlyHint, idempotentHint, etc.) for client-side tool discovery
 - **In-memory DataFrame queries** for fast, offline-capable searches after initial dataset load
 - **No API credentials required** -- uses the public Hugging Face dataset
 
@@ -150,7 +152,7 @@ iwac-mcp-server/
 │   ├── hf_client.py     # Hugging Face dataset client
 │   └── config.py        # Pydantic settings
 ├── tests/
-│   └── test_tools.py    # Unit tests (21 tests)
+│   └── test_tools.py    # Unit tests (22 tests)
 ├── .claude/
 │   └── skills/
 │       └── iwac-mcp/    # Research workflow skill for Claude
