@@ -45,6 +45,7 @@ The server works out of the box with default settings. Optional configuration vi
 | `IWAC_LAZY_LOAD_SUBSETS` | `true` | Load subsets on first access |
 | `IWAC_PRELOAD_ARTICLES` | `true` | Preload articles at startup |
 | `IWAC_LOAD_EMBEDDINGS` | `false` | Load embedding columns (high memory) |
+| `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Enable semantic search (requires `IWAC_LOAD_EMBEDDINGS=true`) |
 
 See `.env.example` for a template.
 
@@ -153,7 +154,10 @@ iwac-mcp-server/
 ├── .claude/
 │   └── skills/
 │       └── iwac-mcp/    # Research workflow skill for Claude
+│           └── references/
+├── .mcp.json            # MCP client configuration
 ├── pyproject.toml
+├── LICENSE
 └── .env.example
 ```
 
