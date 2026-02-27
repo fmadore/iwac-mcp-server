@@ -32,10 +32,10 @@ def mock_articles_df():
     return pd.DataFrame({
         "o:id": [123, 456, 789],
         "title": ["Test Article 1", "Test Article 2", "Test Article 3"],
-        "author": ["John Doe", "Jane Smith", "Bob Wilson"],
+        "author": ["Aboubacar Sy", "Désiré C. Vigan", "Kokouvi Eklou"],
         "newspaper": ["Fraternité Matin", "Sidwaya", "La Nation"],
         "country": ["Côte d'Ivoire", "Burkina Faso", "Benin"],
-        "pub_date": pd.to_datetime(["2020-01-01", "2021-06-15", "2022-12-31"]),
+        "pub_date": pd.to_datetime(["2020-01-01", "2021-06-15", "2022-12-31"], utc=True),
         "subject": ["Islam|Education", "Ramadan", "Mosque"],
         "spatial": ["Abidjan", "Ouagadougou", "Cotonou"],
         "language": ["fr", "fr", "fr"],
@@ -103,7 +103,7 @@ def mock_references_df():
     return pd.DataFrame({
         "o:id": [2001, 2002],
         "title": ["Academic Paper", "Thesis"],
-        "author": ["Dr. Smith", "Prof. Johnson"],
+        "author": ["Ousmane Kane", "Muriel Gomez-Perez"],
         "type": ["Article", "Thesis"],
     })
 
@@ -340,7 +340,7 @@ def test_search_publications(mock_client):
 
 def test_search_references(mock_client):
     """Test searching references."""
-    result = search_references(author="Smith", limit=10)
+    result = search_references(author="Kane", limit=10)
     data = json.loads(result)
 
     assert data["count"] == 1
@@ -352,3 +352,31 @@ def test_list_audiovisual(mock_client):
     data = json.loads(result)
 
     assert data["count"] == 2
+
+
+# =============================================================================
+# Pagination Tests
+# =============================================================================
+
+
+def test_search_articles_pagination(mock_client):
+    """Test pagination envelope on search_articles."""
+    # First page: limit=2, offset=0 — should have has_more=True
+    result = search_articles(limit=2, offset=0)
+    data = json.loads(result)
+
+    assert data["count"] == 2
+    assert data["total_matches"] == 3
+    assert data["offset"] == 0
+    assert data["has_more"] is True
+    assert data["next_offset"] == 2
+
+    # Second page: offset=2 — should have has_more=False
+    result2 = search_articles(limit=2, offset=2)
+    data2 = json.loads(result2)
+
+    assert data2["count"] == 1
+    assert data2["total_matches"] == 3
+    assert data2["offset"] == 2
+    assert data2["has_more"] is False
+    assert "next_offset" not in data2

@@ -15,7 +15,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
-mcp = FastMCP("iwac")
+mcp = FastMCP("iwac_mcp")
+
+# Shared tool annotations — all tools are read-only
+_TOOL_ANNOTATIONS = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
 
 
 def _to_json(data: Any, indent: int = 2) -> str:
@@ -33,12 +41,44 @@ def _df_to_records(df: pd.DataFrame, columns: list[str] | None = None) -> list[d
     return df.to_dict(orient="records")
 
 
+def _filter_by_country(df: pd.DataFrame, country: str | None, column: str = "country") -> pd.DataFrame:
+    """Filter DataFrame by country using case-insensitive substring match."""
+    if country:
+        df = df[df[column].fillna("").str.contains(country, case=False, na=False)]
+    return df
+
+
+def _validate_model(model: str) -> tuple[str, str | None]:
+    """Normalize and validate AI model name. Returns (normalized_model, error_json | None)."""
+    model = model.lower()
+    if model not in ("gemini", "chatgpt", "mistral"):
+        return model, _to_json({"error": "Invalid model. Use: gemini, chatgpt, or mistral"})
+    return model, None
+
+
+def _paginated_response(df: pd.DataFrame, results: list[dict], offset: int, limit: int, **extra: Any) -> dict:
+    """Build standard pagination envelope."""
+    total_matches = len(df)
+    has_more = offset + limit < total_matches
+    response: dict[str, Any] = {
+        "count": len(results),
+        "total_matches": total_matches,
+        "offset": offset,
+        "has_more": has_more,
+        **extra,
+    }
+    if has_more:
+        response["next_offset"] = offset + limit
+    response["results"] = results
+    return response
+
+
 # =============================================================================
 # ARTICLE SEARCH TOOLS (2 tools)
 # =============================================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def search_articles(
     keyword: str | None = None,
     country: str | None = None,
@@ -47,6 +87,7 @@ def search_articles(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = 20,
+    offset: int = 0,
 ) -> str:
     """Search IWAC newspaper articles.
 
@@ -58,6 +99,7 @@ def search_articles(
         date_from: Start date (YYYY-MM-DD format)
         date_to: End date (YYYY-MM-DD format)
         limit: Maximum results to return (default 20, max 100)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of matching articles with metadata
@@ -66,8 +108,7 @@ def search_articles(
     df = client.articles.copy()
 
     # Apply filters
-    if country:
-        df = df[df["country"].fillna("").str.contains(country, case=False, na=False)]
+    df = _filter_by_country(df, country)
 
     if newspaper:
         df = df[df["newspaper"].fillna("").str.contains(newspaper, case=False, na=False)]
@@ -76,7 +117,6 @@ def search_articles(
         df = df[df["subject"].fillna("").str.contains(subject, case=False, na=False)]
 
     if keyword:
-        # Search in title and OCR
         mask = (
             df["title"].fillna("").str.contains(keyword, case=False, na=False)
             | df["OCR"].fillna("").str.contains(keyword, case=False, na=False)
@@ -94,16 +134,12 @@ def search_articles(
         "o:id", "title", "author", "newspaper", "country", "pub_date",
         "subject", "spatial", "language", "url",
     ]
-    results = _df_to_records(df.head(limit), output_cols)
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
-    return _to_json({
-        "count": len(results),
-        "total_matches": len(df),
-        "results": results,
-    })
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def get_article(article_id: int) -> str:
     """Get detailed information about a specific IWAC article.
 
@@ -158,13 +194,14 @@ def get_article(article_id: int) -> str:
 # =============================================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def search_by_sentiment(
     polarity: str | None = None,
     centrality: str | None = None,
     model: str = "gemini",
     country: str | None = None,
     limit: int = 20,
+    offset: int = 0,
 ) -> str:
     """Search articles by AI sentiment analysis.
 
@@ -174,6 +211,7 @@ def search_by_sentiment(
         model: AI model to use (gemini, chatgpt, or mistral). Default: gemini
         country: Filter by country
         limit: Maximum results to return (default 20, max 100)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of articles matching sentiment criteria
@@ -182,9 +220,9 @@ def search_by_sentiment(
     df = client.articles.copy()
 
     # Validate model
-    model = model.lower()
-    if model not in ["gemini", "chatgpt", "mistral"]:
-        return _to_json({"error": "Invalid model. Use: gemini, chatgpt, or mistral"})
+    model, error = _validate_model(model)
+    if error:
+        return error
 
     # Build column names based on model
     polarity_col = f"{model}_polarite"
@@ -211,25 +249,19 @@ def search_by_sentiment(
     if centrality and centrality_col in df.columns:
         df = df[df[centrality_col] == centrality]
 
-    if country:
-        df = df[df["country"].fillna("").str.contains(country, case=False, na=False)]
+    df = _filter_by_country(df, country)
 
     # Select output columns
     output_cols = [
         "o:id", "title", "newspaper", "country", "pub_date",
         polarity_col, centrality_col, f"{model}_subjectivite_score", "url",
     ]
-    results = _df_to_records(df.head(limit), output_cols)
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
-    return _to_json({
-        "count": len(results),
-        "total_matches": len(df),
-        "model": model,
-        "results": results,
-    })
+    return _to_json(_paginated_response(df, results, offset, limit, model=model))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def get_sentiment_distribution(
     country: str | None = None,
     newspaper: str | None = None,
@@ -248,13 +280,12 @@ def get_sentiment_distribution(
     df = client.articles.copy()
 
     # Validate model
-    model = model.lower()
-    if model not in ["gemini", "chatgpt", "mistral"]:
-        return _to_json({"error": "Invalid model. Use: gemini, chatgpt, or mistral"})
+    model, error = _validate_model(model)
+    if error:
+        return error
 
     # Apply filters
-    if country:
-        df = df[df["country"].fillna("").str.contains(country, case=False, na=False)]
+    df = _filter_by_country(df, country)
 
     if newspaper:
         df = df[df["newspaper"].fillna("").str.contains(newspaper, case=False, na=False)]
@@ -280,7 +311,7 @@ def get_sentiment_distribution(
     return _to_json(result)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def compare_ai_sentiments(article_id: int) -> str:
     """Compare sentiment analysis from all three AI models for an article.
 
@@ -304,14 +335,14 @@ def compare_ai_sentiments(article_id: int) -> str:
         "comparison": {},
     }
 
-    for model in ["gemini", "chatgpt", "mistral"]:
-        result["comparison"][model] = {
-            "centrality": row.get(f"{model}_centralite_islam_musulmans"),
-            "centrality_justification": row.get(f"{model}_centralite_justification"),
-            "polarity": row.get(f"{model}_polarite"),
-            "polarity_justification": row.get(f"{model}_polarite_justification"),
-            "subjectivity_score": row.get(f"{model}_subjectivite_score"),
-            "subjectivity_justification": row.get(f"{model}_subjectivite_justification"),
+    for m in ["gemini", "chatgpt", "mistral"]:
+        result["comparison"][m] = {
+            "centrality": row.get(f"{m}_centralite_islam_musulmans"),
+            "centrality_justification": row.get(f"{m}_centralite_justification"),
+            "polarity": row.get(f"{m}_polarite"),
+            "polarity_justification": row.get(f"{m}_polarite_justification"),
+            "subjectivity_score": row.get(f"{m}_subjectivite_score"),
+            "subjectivity_justification": row.get(f"{m}_subjectivite_justification"),
         }
 
     return _to_json(result)
@@ -322,11 +353,12 @@ def compare_ai_sentiments(article_id: int) -> str:
 # =============================================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def search_index(
     query: str,
     index_type: str | None = None,
     limit: int = 20,
+    offset: int = 0,
 ) -> str:
     """Search the IWAC index for persons, places, organizations, or subjects.
 
@@ -334,6 +366,7 @@ def search_index(
         query: Search term
         index_type: Filter by type (Personnes, Lieux, Organisations, Événements, Sujets)
         limit: Maximum results to return (default 20, max 100)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of matching index entries
@@ -351,16 +384,12 @@ def search_index(
         "o:id", "Titre", "Type", "Description", "frequency",
         "first_occurrence", "last_occurrence", "countries", "url",
     ]
-    results = _df_to_records(df.head(limit), output_cols)
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
-    return _to_json({
-        "count": len(results),
-        "total_matches": len(df),
-        "results": results,
-    })
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def get_index_entry(entry_id: int) -> str:
     """Get detailed information about an IWAC index entry.
 
@@ -382,12 +411,13 @@ def get_index_entry(entry_id: int) -> str:
     return _to_json(result)
 
 
-@mcp.tool()
-def list_subjects(limit: int = 50) -> str:
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
+def list_subjects(limit: int = 50, offset: int = 0) -> str:
     """List subject terms from the IWAC index.
 
     Args:
         limit: Maximum results to return (default 50, max 200)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of subjects sorted by frequency
@@ -403,21 +433,19 @@ def list_subjects(limit: int = 50) -> str:
         df = df.sort_values("frequency", ascending=False)
 
     output_cols = ["o:id", "Titre", "Description", "frequency", "url"]
-    results = _df_to_records(df.head(limit), output_cols)
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
-    return _to_json({
-        "count": len(results),
-        "results": results,
-    })
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
-@mcp.tool()
-def list_locations(country: str | None = None, limit: int = 50) -> str:
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
+def list_locations(country: str | None = None, limit: int = 50, offset: int = 0) -> str:
     """List geographic locations from the IWAC index.
 
     Args:
         country: Filter by country (optional)
         limit: Maximum results to return (default 50, max 200)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of locations sorted by frequency
@@ -428,29 +456,26 @@ def list_locations(country: str | None = None, limit: int = 50) -> str:
     # Filter to locations only
     df = df[df["Type"] == "Lieux"]
 
-    if country:
-        df = df[df["countries"].fillna("").str.contains(country, case=False, na=False)]
+    df = _filter_by_country(df, country, column="countries")
 
     # Sort by frequency
     if "frequency" in df.columns:
         df = df.sort_values("frequency", ascending=False)
 
     output_cols = ["o:id", "Titre", "Description", "frequency", "countries", "url"]
-    results = _df_to_records(df.head(limit), output_cols)
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
-    return _to_json({
-        "count": len(results),
-        "results": results,
-    })
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
-@mcp.tool()
-def list_persons(country: str | None = None, limit: int = 50) -> str:
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
+def list_persons(country: str | None = None, limit: int = 50, offset: int = 0) -> str:
     """List persons from the IWAC index.
 
     Args:
         country: Filter by country (optional)
         limit: Maximum results to return (default 50, max 200)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of persons sorted by frequency
@@ -461,20 +486,16 @@ def list_persons(country: str | None = None, limit: int = 50) -> str:
     # Filter to persons only
     df = df[df["Type"] == "Personnes"]
 
-    if country:
-        df = df[df["countries"].fillna("").str.contains(country, case=False, na=False)]
+    df = _filter_by_country(df, country, column="countries")
 
     # Sort by frequency
     if "frequency" in df.columns:
         df = df.sort_values("frequency", ascending=False)
 
     output_cols = ["o:id", "Titre", "Description", "frequency", "countries", "url"]
-    results = _df_to_records(df.head(limit), output_cols)
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
-    return _to_json({
-        "count": len(results),
-        "results": results,
-    })
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
 # =============================================================================
@@ -482,7 +503,7 @@ def list_persons(country: str | None = None, limit: int = 50) -> str:
 # =============================================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def get_collection_stats() -> str:
     """Get statistics about the entire IWAC collection.
 
@@ -520,7 +541,7 @@ def get_collection_stats() -> str:
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def get_newspaper_stats(country: str | None = None) -> str:
     """Get statistics about newspapers in the collection.
 
@@ -532,8 +553,7 @@ def get_newspaper_stats(country: str | None = None) -> str:
     """
     df = client.articles.copy()
 
-    if country:
-        df = df[df["country"].fillna("").str.contains(country, case=False, na=False)]
+    df = _filter_by_country(df, country)
 
     newspaper_stats = (
         df.groupby(["newspaper", "country"])
@@ -554,7 +574,7 @@ def get_newspaper_stats(country: str | None = None) -> str:
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def get_country_comparison() -> str:
     """Compare statistics across countries.
 
@@ -602,11 +622,12 @@ def get_country_comparison() -> str:
 # =============================================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def search_publications(
     keyword: str | None = None,
     country: str | None = None,
     limit: int = 20,
+    offset: int = 0,
 ) -> str:
     """Search Islamic publications (books, periodicals).
 
@@ -614,6 +635,7 @@ def search_publications(
         keyword: Search in title and description
         country: Filter by country
         limit: Maximum results to return (default 20, max 100)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of matching publications
@@ -628,22 +650,21 @@ def search_publications(
         )
         df = df[mask]
 
-    if country:
-        df = df[df["country"].fillna("").str.contains(country, case=False, na=False)]
+    df = _filter_by_country(df, country)
 
-    return _to_json({
-        "count": len(df.head(limit)),
-        "total_matches": len(df),
-        "results": df.head(limit).to_dict(orient="records"),
-    })
+    output_cols = ["o:id", "title", "description", "country", "date", "language", "url"]
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
+
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def search_references(
     keyword: str | None = None,
     author: str | None = None,
     reference_type: str | None = None,
     limit: int = 20,
+    offset: int = 0,
 ) -> str:
     """Search academic references (journal articles, books, theses).
 
@@ -652,6 +673,7 @@ def search_references(
         author: Filter by author name
         reference_type: Filter by type (e.g., "Article", "Book", "Thesis")
         limit: Maximum results to return (default 20, max 100)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of matching references
@@ -672,20 +694,20 @@ def search_references(
                 df = df[df[col].fillna("").str.contains(reference_type, case=False, na=False)]
                 break
 
-    return _to_json({
-        "count": len(df.head(limit)),
-        "total_matches": len(df),
-        "results": df.head(limit).to_dict(orient="records"),
-    })
+    output_cols = ["o:id", "title", "author", "type", "date", "publisher", "url"]
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
+
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
-@mcp.tool()
-def list_audiovisual(country: str | None = None, limit: int = 20) -> str:
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
+def list_audiovisual(country: str | None = None, limit: int = 20, offset: int = 0) -> str:
     """List audiovisual materials (audio/video recordings).
 
     Args:
         country: Filter by country
         limit: Maximum results to return (default 20, max 50)
+        offset: Number of results to skip for pagination (default 0)
 
     Returns:
         JSON array of audiovisual materials
@@ -693,14 +715,12 @@ def list_audiovisual(country: str | None = None, limit: int = 20) -> str:
     limit = min(limit, 50)
     df = client.audiovisual.copy()
 
-    if country:
-        df = df[df["country"].fillna("").str.contains(country, case=False, na=False)]
+    df = _filter_by_country(df, country)
 
-    return _to_json({
-        "count": len(df.head(limit)),
-        "total_matches": len(df),
-        "results": df.head(limit).to_dict(orient="records"),
-    })
+    output_cols = ["o:id", "title", "country", "date", "description", "language", "url"]
+    results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
+
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
 def main():
