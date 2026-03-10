@@ -48,14 +48,6 @@ def _filter_by_country(df: pd.DataFrame, country: str | None, column: str = "cou
     return df
 
 
-def _validate_model(model: str) -> tuple[str, str | None]:
-    """Normalize and validate AI model name. Returns (normalized_model, error_json | None)."""
-    model = model.lower()
-    if model not in ("gemini", "chatgpt", "mistral"):
-        return model, _to_json({"error": "Invalid model. Use: gemini, chatgpt, or mistral"})
-    return model, None
-
-
 def _paginated_response(df: pd.DataFrame, results: list[dict], offset: int, limit: int, **extra: Any) -> dict:
     """Build standard pagination envelope."""
     total_matches = len(df)
@@ -132,7 +124,9 @@ def search_articles(
     # Select output columns
     output_cols = [
         "o:id", "title", "author", "newspaper", "country", "pub_date",
-        "subject", "spatial", "language", "url",
+        "subject", "spatial", "language",
+        "gemini_polarite", "gemini_centralite_islam_musulmans",
+        "gemini_subjectivite_score", "url",
     ]
     results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
@@ -190,7 +184,7 @@ def get_article(article_id: int) -> str:
 
 
 # =============================================================================
-# SENTIMENT TOOLS (3 tools)
+# SENTIMENT TOOLS (2 tools)
 # =============================================================================
 
 
@@ -198,18 +192,18 @@ def get_article(article_id: int) -> str:
 def search_by_sentiment(
     polarity: str | None = None,
     centrality: str | None = None,
-    model: str = "gemini",
     country: str | None = None,
+    subject: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
-    """Search articles by AI sentiment analysis.
+    """Search articles by Gemini AI sentiment analysis.
 
     Args:
         polarity: Filter by polarity (Très positif, Positif, Neutre, Négatif, Très négatif)
         centrality: Filter by centrality (Très central, Central, Secondaire, Marginal, Non abordé)
-        model: AI model to use (gemini, chatgpt, or mistral). Default: gemini
         country: Filter by country
+        subject: Filter by subject (searches subject field, pipe-separated)
         limit: Maximum results to return (default 20, max 100)
         offset: Number of results to skip for pagination (default 0)
 
@@ -219,14 +213,8 @@ def search_by_sentiment(
     limit = min(limit, 100)
     df = client.articles.copy()
 
-    # Validate model
-    model, error = _validate_model(model)
-    if error:
-        return error
-
-    # Build column names based on model
-    polarity_col = f"{model}_polarite"
-    centrality_col = f"{model}_centralite_islam_musulmans"
+    polarity_col = "gemini_polarite"
+    centrality_col = "gemini_centralite_islam_musulmans"
 
     # Normalize accent variants so unaccented input matches accented data
     _accent_map = {
@@ -251,38 +239,36 @@ def search_by_sentiment(
 
     df = _filter_by_country(df, country)
 
+    if subject:
+        df = df[df["subject"].fillna("").str.contains(subject, case=False, na=False)]
+
     # Select output columns
     output_cols = [
         "o:id", "title", "newspaper", "country", "pub_date",
-        polarity_col, centrality_col, f"{model}_subjectivite_score", "url",
+        polarity_col, centrality_col, "gemini_subjectivite_score", "url",
     ]
     results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
-    return _to_json(_paginated_response(df, results, offset, limit, model=model))
+    return _to_json(_paginated_response(df, results, offset, limit))
 
 
 @mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def get_sentiment_distribution(
     country: str | None = None,
     newspaper: str | None = None,
-    model: str = "gemini",
+    subject: str | None = None,
 ) -> str:
-    """Get aggregated sentiment statistics.
+    """Get aggregated Gemini sentiment statistics.
 
     Args:
         country: Filter by country (optional)
         newspaper: Filter by newspaper (optional)
-        model: AI model to use (gemini, chatgpt, or mistral). Default: gemini
+        subject: Filter by subject (optional, searches subject field)
 
     Returns:
         JSON with polarity and centrality distribution counts
     """
     df = client.articles.copy()
-
-    # Validate model
-    model, error = _validate_model(model)
-    if error:
-        return error
 
     # Apply filters
     df = _filter_by_country(df, country)
@@ -290,15 +276,19 @@ def get_sentiment_distribution(
     if newspaper:
         df = df[df["newspaper"].fillna("").str.contains(newspaper, case=False, na=False)]
 
-    polarity_col = f"{model}_polarite"
-    centrality_col = f"{model}_centralite_islam_musulmans"
+    if subject:
+        df = df[df["subject"].fillna("").str.contains(subject, case=False, na=False)]
 
-    result = {
-        "model": model,
+    polarity_col = "gemini_polarite"
+    centrality_col = "gemini_centralite_islam_musulmans"
+
+    result: dict[str, Any] = {
+        "model": "gemini",
         "total_articles": len(df),
         "filters": {
             "country": country,
             "newspaper": newspaper,
+            "subject": subject,
         },
     }
 
@@ -307,43 +297,6 @@ def get_sentiment_distribution(
 
     if centrality_col in df.columns:
         result["centrality_distribution"] = df[centrality_col].value_counts().to_dict()
-
-    return _to_json(result)
-
-
-@mcp.tool(annotations=_TOOL_ANNOTATIONS)
-def compare_ai_sentiments(article_id: int) -> str:
-    """Compare sentiment analysis from all three AI models for an article.
-
-    Args:
-        article_id: The article ID (o:id field)
-
-    Returns:
-        JSON comparing Gemini, ChatGPT, and Mistral analyses side-by-side
-    """
-    df = client.articles
-    article = df[df["o:id"].astype(str) == str(article_id)]
-
-    if article.empty:
-        return _to_json({"error": f"Article {article_id} not found"})
-
-    row = article.iloc[0]
-
-    result = {
-        "article_id": article_id,
-        "title": row.get("title"),
-        "comparison": {},
-    }
-
-    for m in ["gemini", "chatgpt", "mistral"]:
-        result["comparison"][m] = {
-            "centrality": row.get(f"{m}_centralite_islam_musulmans"),
-            "centrality_justification": row.get(f"{m}_centralite_justification"),
-            "polarity": row.get(f"{m}_polarite"),
-            "polarity_justification": row.get(f"{m}_polarite_justification"),
-            "subjectivity_score": row.get(f"{m}_subjectivite_score"),
-            "subjectivity_justification": row.get(f"{m}_subjectivite_justification"),
-        }
 
     return _to_json(result)
 
@@ -622,6 +575,21 @@ def get_country_comparison() -> str:
 # =============================================================================
 
 
+def _extract_matching_toc_entries(toc: str, keyword: str) -> str:
+    """Extract TOC entries matching a keyword.
+
+    Each entry starts with 'p.' and is separated by blank lines.
+    Returns only entries whose text contains the keyword (case-insensitive).
+    """
+    if not toc or not keyword:
+        return ""
+    keyword_lower = keyword.lower()
+    # Split on blank lines to get individual entries
+    entries = [e.strip() for e in toc.split("\n\n") if e.strip()]
+    matching = [e for e in entries if keyword_lower in e.lower()]
+    return "\n\n".join(matching)
+
+
 @mcp.tool(annotations=_TOOL_ANNOTATIONS)
 def search_publications(
     keyword: str | None = None,
@@ -631,23 +599,33 @@ def search_publications(
 ) -> str:
     """Search Islamic publications (books, periodicals).
 
+    Searches title, description, and table of contents. When a keyword matches
+    in the table of contents, only the matching TOC entries are returned (with
+    page numbers, titles, and summaries) to help identify relevant sections.
+
     Args:
-        keyword: Search in title and description
+        keyword: Search in title, description, and table of contents
         country: Filter by country
         limit: Maximum results to return (default 20, max 100)
         offset: Number of results to skip for pagination (default 0)
 
     Returns:
-        JSON array of matching publications
+        JSON array of matching publications with matching TOC entries if applicable
     """
     limit = min(limit, 100)
     df = client.publications.copy()
+
+    has_toc = "tableOfContents" in df.columns
 
     if keyword:
         mask = (
             df["title"].fillna("").str.contains(keyword, case=False, na=False)
             | df["description"].fillna("").str.contains(keyword, case=False, na=False)
         )
+        if has_toc:
+            mask = mask | df["tableOfContents"].fillna("").str.contains(
+                keyword, case=False, na=False
+            )
         df = df[mask]
 
     df = _filter_by_country(df, country)
@@ -655,7 +633,98 @@ def search_publications(
     output_cols = ["o:id", "title", "description", "country", "date", "language", "url"]
     results = _df_to_records(df.iloc[offset:offset + limit], output_cols)
 
+    # Attach matching TOC entries to each result
+    if keyword and has_toc:
+        page = df.iloc[offset:offset + limit]
+        for i, (_, row) in enumerate(page.iterrows()):
+            toc_text = row.get("tableOfContents", "") or ""
+            matching_entries = _extract_matching_toc_entries(toc_text, keyword)
+            if matching_entries:
+                results[i]["matching_toc_entries"] = matching_entries
+
     return _to_json(_paginated_response(df, results, offset, limit))
+
+
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
+def get_publication_fulltext(
+    publication_id: int,
+    keyword: str | None = None,
+    context_chars: int = 2000,
+) -> str:
+    """Get full text (OCR) of a publication, optionally searching for keyword context.
+
+    Use this after search_publications to drill into the actual content of a
+    publication. When a keyword is provided, returns text excerpts (~2000 chars
+    each) around every match instead of the entire text.
+
+    Args:
+        publication_id: The o:id of the publication
+        keyword: Optional keyword to extract context around (case-insensitive)
+        context_chars: Characters of context around each keyword match (default 2000)
+
+    Returns:
+        JSON with publication metadata, table of contents, and full text or excerpts
+    """
+    df = client.publications
+    row = df[df["o:id"] == publication_id]
+
+    if row.empty:
+        return _to_json({"error": f"Publication {publication_id} not found"})
+
+    record = row.iloc[0]
+    result: dict[str, Any] = {
+        "o:id": publication_id,
+        "title": record.get("title", ""),
+    }
+
+    # Include table of contents if available
+    toc = record.get("tableOfContents", "") or ""
+    if toc:
+        result["tableOfContents"] = toc
+
+    # Get OCR text
+    ocr_text = record.get("OCR", "") or ""
+    if not ocr_text:
+        result["fulltext"] = None
+        result["note"] = "No OCR text available for this publication"
+        return _to_json(result)
+
+    if not keyword:
+        result["fulltext"] = ocr_text
+        result["char_count"] = len(ocr_text)
+        return _to_json(result)
+
+    # Extract context windows around keyword matches
+    context_chars = min(context_chars, 5000)
+    half = context_chars // 2
+    text_lower = ocr_text.lower()
+    keyword_lower = keyword.lower()
+    excerpts = []
+    pos = 0
+
+    while True:
+        idx = text_lower.find(keyword_lower, pos)
+        if idx == -1:
+            break
+        start = max(0, idx - half)
+        end = min(len(ocr_text), idx + len(keyword) + half)
+        excerpt = ocr_text[start:end]
+        # Add ellipsis markers for truncation
+        if start > 0:
+            excerpt = "..." + excerpt
+        if end < len(ocr_text):
+            excerpt = excerpt + "..."
+        excerpts.append(excerpt)
+        pos = idx + len(keyword)
+
+    if not excerpts:
+        result["excerpts"] = []
+        result["note"] = f"Keyword '{keyword}' not found in full text"
+    else:
+        result["excerpts"] = excerpts
+        result["match_count"] = len(excerpts)
+
+    return _to_json(result)
 
 
 @mcp.tool(annotations=_TOOL_ANNOTATIONS)
@@ -669,7 +738,7 @@ def search_references(
     """Search academic references (journal articles, books, theses).
 
     Args:
-        keyword: Search in title
+        keyword: Search in title and abstract
         author: Filter by author name
         reference_type: Filter by type (e.g., "Article", "Book", "Thesis")
         limit: Maximum results to return (default 20, max 100)
@@ -682,7 +751,11 @@ def search_references(
     df = client.references.copy()
 
     if keyword:
-        df = df[df["title"].fillna("").str.contains(keyword, case=False, na=False)]
+        mask = (
+            df["title"].fillna("").str.contains(keyword, case=False, na=False)
+            | df["abstract"].fillna("").str.contains(keyword, case=False, na=False)
+        )
+        df = df[mask]
 
     if author:
         df = df[df["author"].fillna("").str.contains(author, case=False, na=False)]

@@ -4,8 +4,8 @@ A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server th
 
 ## Features
 
-- **16 read-only tools** across articles, index entries, publications, references, and audiovisual materials
-- **AI sentiment analysis** from three models (Gemini, ChatGPT, Mistral) with comparison tools
+- **15 read-only tools** across articles, index entries, publications, references, and audiovisual materials
+- **AI sentiment analysis** using Gemini for polarity, centrality, and subjectivity scoring
 - **Cursor-based pagination** (`offset`/`limit`) on all search and list tools with `has_more`/`next_offset` envelope
 - **MCP tool annotations** (readOnlyHint, idempotentHint, etc.) for client-side tool discovery
 - **In-memory DataFrame queries** for fast, offline-capable searches after initial dataset load
@@ -83,22 +83,21 @@ Edit your Claude Desktop config (`~/Library/Application Support/Claude/claude_de
 }
 ```
 
-## Available Tools (16)
+## Available Tools (15)
 
 ### Article Search (2 tools)
 
 | Tool | Description |
 |------|-------------|
 | `search_articles` | Search articles by keyword, country, newspaper, subject, and date range |
-| `get_article` | Get full article details including OCR text and sentiment scores |
+| `get_article` | Get full article details including OCR text and Gemini sentiment scores |
 
-### Sentiment Analysis (3 tools)
+### Sentiment Analysis (2 tools)
 
 | Tool | Description |
 |------|-------------|
-| `search_by_sentiment` | Find articles by polarity or centrality from Gemini, ChatGPT, or Mistral |
+| `search_by_sentiment` | Find articles by Gemini polarity or centrality |
 | `get_sentiment_distribution` | Aggregated polarity/centrality statistics with optional filters |
-| `compare_ai_sentiments` | Side-by-side comparison of all three AI models for one article |
 
 ### Index (5 tools)
 
@@ -148,11 +147,11 @@ uv run ruff format .
 iwac-mcp-server/
 ├── src/iwac_mcp/
 │   ├── __init__.py
-│   ├── server.py        # MCP server with 16 tools
+│   ├── server.py        # MCP server with 15 tools
 │   ├── hf_client.py     # Hugging Face dataset client
 │   └── config.py        # Pydantic settings
 ├── tests/
-│   └── test_tools.py    # Unit tests (22 tests)
+│   └── test_tools.py    # Unit tests (32 tests)
 ├── .claude/
 │   └── skills/
 │       └── iwac-mcp/    # Research workflow skill for Claude
@@ -181,7 +180,7 @@ The [Islam West Africa Collection](https://islam.zmo.de/s/westafrica) is a digit
 
 - **12,000+ newspaper articles** from Benin, Burkina Faso, Cote d'Ivoire, Niger, Togo, and Nigeria
 - **4,600+ index entries** (persons, organizations, places, events, subjects)
-- **AI sentiment analysis** from three models (Gemini, ChatGPT, Mistral) on polarity, centrality, and subjectivity
+- **AI sentiment analysis** from Gemini on polarity, centrality, and subjectivity
 - **Academic references**, Islamic publications, and audiovisual materials
 - Coverage from the 1960s to present, primarily in French
 

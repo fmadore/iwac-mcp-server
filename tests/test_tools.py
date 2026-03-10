@@ -11,7 +11,6 @@ from iwac_mcp.server import (
     get_article,
     search_by_sentiment,
     get_sentiment_distribution,
-    compare_ai_sentiments,
     search_index,
     get_index_entry,
     list_subjects,
@@ -21,6 +20,7 @@ from iwac_mcp.server import (
     get_newspaper_stats,
     get_country_comparison,
     search_publications,
+    get_publication_fulltext,
     search_references,
     list_audiovisual,
 )
@@ -94,6 +94,19 @@ def mock_publications_df():
         "title": ["Islamic Book", "Quran Study"],
         "description": ["A book about Islam", "Study guide"],
         "country": ["Niger", "Togo"],
+        "date": ["2018-01-01", "2019-06-15"],
+        "language": ["fr", "fr"],
+        "url": ["https://example.com/p1", "https://example.com/p2"],
+        "tableOfContents": [
+            "p. 2 : Editorial\nMessage du président\n\np. 5 : Le pèlerinage à la Mecque\nGuide pratique pour le Hadj",
+            "p. 3 : Éducation coranique\nPrésentation des écoles",
+        ],
+        "OCR": [
+            "Ceci est le texte complet de la publication. Le pèlerinage à la Mecque est un pilier de l'Islam. "
+            "Chaque année, des milliers de fidèles se rendent à la Mecque pour accomplir le Hadj. "
+            "Les préparatifs incluent la demande de visa et les vaccinations obligatoires.",
+            "L'éducation coranique joue un rôle central dans la communauté musulmane ouest-africaine.",
+        ],
     })
 
 
@@ -153,6 +166,17 @@ def test_search_articles_basic(mock_client):
     assert data["results"][0]["o:id"] == 123
 
 
+def test_search_articles_includes_sentiment(mock_client):
+    """Test that search_articles results include Gemini sentiment columns."""
+    result = search_articles(limit=10)
+    data = json.loads(result)
+
+    article = data["results"][0]
+    assert "gemini_polarite" in article
+    assert "gemini_centralite_islam_musulmans" in article
+    assert "gemini_subjectivite_score" in article
+
+
 def test_search_articles_by_country(mock_client):
     """Test article search filtered by country."""
     result = search_articles(country="Burkina Faso", limit=10)
@@ -206,41 +230,42 @@ def test_get_article_not_found(mock_client):
 
 def test_search_by_sentiment(mock_client):
     """Test searching by sentiment."""
-    result = search_by_sentiment(polarity="Positif", model="gemini", limit=10)
+    result = search_by_sentiment(polarity="Positif", limit=10)
     data = json.loads(result)
 
-    assert data["model"] == "gemini"
     assert data["count"] == 1
 
 
-def test_search_by_sentiment_invalid_model(mock_client):
-    """Test searching with invalid model."""
-    result = search_by_sentiment(polarity="Positif", model="invalid")
+def test_search_by_sentiment_with_subject(mock_client):
+    """Test searching by sentiment filtered by subject."""
+    result = search_by_sentiment(polarity="Positif", subject="Islam", limit=10)
     data = json.loads(result)
 
-    assert "error" in data
+    assert data["count"] == 1
+    # No match when subject doesn't exist
+    result2 = search_by_sentiment(polarity="Positif", subject="Nonexistent", limit=10)
+    data2 = json.loads(result2)
+    assert data2["count"] == 0
 
 
 def test_get_sentiment_distribution(mock_client):
     """Test getting sentiment distribution."""
-    result = get_sentiment_distribution(model="gemini")
+    result = get_sentiment_distribution()
     data = json.loads(result)
 
+    assert data["model"] == "gemini"
     assert "polarity_distribution" in data
     assert "centrality_distribution" in data
     assert data["total_articles"] == 3
 
 
-def test_compare_ai_sentiments(mock_client):
-    """Test comparing AI sentiments."""
-    result = compare_ai_sentiments(123)
+def test_get_sentiment_distribution_with_subject(mock_client):
+    """Test getting sentiment distribution filtered by subject."""
+    result = get_sentiment_distribution(subject="Ramadan")
     data = json.loads(result)
 
-    assert data["article_id"] == 123
-    assert "comparison" in data
-    assert "gemini" in data["comparison"]
-    assert "chatgpt" in data["comparison"]
-    assert "mistral" in data["comparison"]
+    assert data["total_articles"] == 1
+    assert data["filters"]["subject"] == "Ramadan"
 
 
 # =============================================================================
@@ -380,3 +405,104 @@ def test_search_articles_pagination(mock_client):
     assert data2["offset"] == 2
     assert data2["has_more"] is False
     assert "next_offset" not in data2
+
+
+# =============================================================================
+# Publication Search Tests
+# =============================================================================
+
+
+def test_search_publications_keyword_title(mock_client):
+    """Test publication search matching title."""
+    result = search_publications(keyword="Islamic", limit=10)
+    data = json.loads(result)
+
+    assert data["count"] == 1
+    assert data["results"][0]["title"] == "Islamic Book"
+
+
+def test_search_publications_keyword_toc(mock_client):
+    """Test publication search matching table of contents."""
+    result = search_publications(keyword="pèlerinage", limit=10)
+    data = json.loads(result)
+
+    assert data["count"] == 1
+    assert data["results"][0]["o:id"] == 1001
+    # Should include only the matching TOC entry
+    assert "matching_toc_entries" in data["results"][0]
+    assert "pèlerinage" in data["results"][0]["matching_toc_entries"].lower()
+    # Should NOT include the non-matching entry
+    assert "Editorial" not in data["results"][0]["matching_toc_entries"]
+
+
+def test_search_publications_no_toc_match_in_output(mock_client):
+    """Test that matching_toc_entries is absent when keyword only matches title/description."""
+    result = search_publications(keyword="Quran", limit=10)
+    data = json.loads(result)
+
+    assert data["count"] == 1
+    assert "matching_toc_entries" not in data["results"][0]
+
+
+def test_search_publications_by_country(mock_client):
+    """Test publication search filtered by country."""
+    result = search_publications(country="Niger", limit=10)
+    data = json.loads(result)
+
+    assert data["count"] == 1
+    assert data["results"][0]["country"] == "Niger"
+
+
+# =============================================================================
+# Publication Fulltext Tests
+# =============================================================================
+
+
+def test_get_publication_fulltext_no_keyword(mock_client):
+    """Test retrieving full text without keyword filtering."""
+    result = get_publication_fulltext(publication_id=1001)
+    data = json.loads(result)
+
+    assert data["o:id"] == 1001
+    assert "fulltext" in data
+    assert "pèlerinage" in data["fulltext"]
+    assert data["char_count"] > 0
+
+
+def test_get_publication_fulltext_with_keyword(mock_client):
+    """Test extracting context around keyword matches."""
+    result = get_publication_fulltext(publication_id=1001, keyword="Mecque")
+    data = json.loads(result)
+
+    assert data["o:id"] == 1001
+    assert "excerpts" in data
+    assert data["match_count"] >= 1
+    # Each excerpt should contain the keyword
+    for excerpt in data["excerpts"]:
+        assert "Mecque" in excerpt
+
+
+def test_get_publication_fulltext_keyword_not_found(mock_client):
+    """Test keyword not found in full text."""
+    result = get_publication_fulltext(publication_id=1001, keyword="introuvable")
+    data = json.loads(result)
+
+    assert data["excerpts"] == []
+    assert "not found" in data["note"]
+
+
+def test_get_publication_fulltext_not_found(mock_client):
+    """Test requesting a non-existent publication."""
+    result = get_publication_fulltext(publication_id=9999)
+    data = json.loads(result)
+
+    assert "error" in data
+
+
+def test_get_publication_fulltext_includes_toc(mock_client):
+    """Test that table of contents is included in response."""
+    result = get_publication_fulltext(publication_id=1001)
+    data = json.loads(result)
+
+    assert "tableOfContents" in data
+    assert "pèlerinage" in data["tableOfContents"]

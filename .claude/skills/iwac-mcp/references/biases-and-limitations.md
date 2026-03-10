@@ -35,31 +35,29 @@ The collection has **deep coverage** for some countries and **very thin coverage
 - **Implication:** Apparent temporal trends (e.g., "rising coverage of X after 2010") may reflect increasing digitization or evolving press interests rather than changing reality
 - **Tip:** Use `date_from` and `date_to` parameters to filter by time period (e.g., `date_from="1970-01-01"`, `date_to="1979-12-31"` for the 1970s)
 
-## 4. OCR Quality Variation
+## 4. AI Sentiment Analysis Caveats
 
-- **1960s-1980s newsprint:** Often poor OCR quality due to degraded print, low-resolution scans, mixed fonts. Keyword searches may miss relevant articles due to OCR errors
-- **1990s-2000s:** Moderate quality, depends on print condition
-- **2010s-present:** Generally good quality, especially for web-archived articles
-- **Born-digital content:** Over 4,000 online articles have been preserved through the Wayback Machine. These born-digital items have clean text and are not affected by OCR quality issues. However, digital content in sub-Saharan Africa is particularly transient -- platforms disappear and URLs break -- so these preserved snapshots may represent only a fraction of what once existed online.
-- **Arabic script:** OCR on Arabic-script text within French-language articles is unreliable
-- **Implication:** Word counts (`nb_mots`), lexical metrics (`Richesse_Lexicale_OCR`, `Lisibilite_OCR`), and keyword search completeness are all affected by OCR quality. Earlier periods are systematically disadvantaged in keyword searches.
+The MCP server exposes Gemini (Flash 3.0) sentiment scores. The underlying dataset also contains ChatGPT and Mistral assessments, but the MCP tools use Gemini only for streamlined retrieval.
 
-## 5. AI Sentiment Analysis Caveats
+### Scale Definitions
 
-Three AI models (Gemini Flash 3.0, ChatGPT GPT-5 mini, Mistral Ministral 14B) independently assessed each article on three dimensions:
+All three dimensions evaluate the article's treatment of **Islam and/or Muslims** specifically.
+
+- **Polarity** (emotional orientation): Très positif → Positif → Neutre → Négatif → Très négatif (+ Non applicable)
+- **Centrality** (importance of Islam/Muslims): Très central → Central → Secondaire → Marginal → Non abordé
+- **Subjectivity** (objectivity of representation): 1 (very objective, purely factual) → 3 (mixed facts and opinions) → 5 (very subjective, editorial style)
 
 ### Known Issues
-- **Cross-cultural framing:** Models trained primarily on English-language data may misread French-language West African press conventions
-- **Polarity ambiguity:** Articles about Islamic festivals may be rated differently by different models (e.g., "Neutre" vs. "Positif") depending on whether the model interprets descriptive coverage as neutral or positive
-- **Centrality vs. mention:** An article that mentions Islam incidentally may be rated "Marginal" by one model and "Secondaire" by another
-- **Subjectivity scores:** The 1-5 scale is inherently subjective; models calibrate differently
+- **Cross-cultural framing:** Gemini, trained primarily on English-language data, may misread French-language West African press conventions
+- **Polarity ambiguity:** Articles about Islamic festivals may be rated "Neutre" or "Positif" depending on whether descriptive coverage is interpreted as neutral or positive
+- **Centrality vs. mention:** An article that mentions Islam incidentally may be rated "Marginal" or "Secondaire" — the boundary is subjective
 
-### Interpreting Disagreement
-- **All 3 models agree:** Higher confidence in the assessment
-- **2 agree, 1 differs:** Moderate confidence; note the dissenting model
-- **All 3 disagree:** Low confidence; the article likely has ambiguous framing. Treat as a signal to read the OCR text directly
+### Using Topic-Specific Sentiment
+- Use `get_sentiment_distribution(subject="...", country="...")` to get sentiment breakdowns for a specific topic rather than the whole corpus
+- `search_articles` results include Gemini polarity, centrality, and subjectivity inline — use these to build topic-specific sentiment tables directly from search results
+- Always compare topic-specific sentiment against the corpus baseline to contextualize findings
 
-## 6. Mainstream Press vs. Islamic Press
+## 5. Mainstream Press vs. Islamic Press
 
 IWAC contains two structurally different source types:
 
@@ -75,7 +73,7 @@ IWAC contains two structurally different source types:
 
 **Note on publications subset:** Most Islamic publications in IWAC are stored as entire issues (not individual articles), with limited metadata. The individual articles within each issue are not separated. This limits searchability of Islamic press content through the `search_publications` tool.
 
-## 7. Editorial and Political Bias
+## 6. Editorial and Political Bias
 
 Mainstream newspapers are not neutral observers. Pro-government outlets grant privileged visibility to Muslim groups and leaders close to political power, while marginalizing movements and individuals suspected of opposition sympathies. Opposition press may do the reverse. This editorial framing affects:
 
@@ -87,11 +85,11 @@ Mainstream newspapers are not neutral observers. Pro-government outlets grant pr
 
 **Implication:** When analyzing how a person, organization, or movement appears in coverage, consider which newspaper is reporting and its political orientation. Filter by newspaper to compare framing across outlets.
 
-## 8. Index vs. Full Text
+## 7. Index vs. Full Text
 
 The 4,697 index entries (persons, organizations, places, events, subjects) represent curated authority records, not exhaustive extraction from the full-text corpus. A person may appear in many articles but have no index entry, or vice versa. The `frequency` field in index entries counts links from items, not text mentions.
 
-## 9. Search Limitations
+## 8. Search Limitations
 
 - **Keyword search** (`keyword` parameter) searches title and OCR text only. It does NOT search subject or spatial fields. To find articles by subject, use the `subject` parameter instead.
 - **Country filter** requires exact accent matching. You must use `Côte d'Ivoire` (with circumflex ô), not `Cote d'Ivoire`. Other country names do not have accents.
@@ -101,4 +99,4 @@ The 4,697 index entries (persons, organizations, places, events, subjects) repre
 
 When producing research outputs, include a limitations paragraph adapted from:
 
-> This analysis draws on the Islam West Africa Collection (IWAC), a curated digital archive of [N] documents focused on Muslim public life in francophone West Africa. Key limitations include: (1) ~96% French-language sources, which overrepresent mainstream press and Western-educated Muslim perspectives; (2) uneven geographic coverage, with Burkina Faso and Côte d'Ivoire dominating the corpus while Niger and especially Nigeria are dramatically underrepresented; (3) variable OCR quality, especially for pre-1990s materials; (4) AI-generated sentiment labels that reflect model-specific interpretive choices rather than ground truth. Absence of evidence in this collection should not be interpreted as evidence of absence.
+> This analysis draws on the Islam West Africa Collection (IWAC), a curated digital archive of [N] documents focused on Muslim public life in francophone West Africa. Key limitations include: (1) ~96% French-language sources, which overrepresent mainstream press and Western-educated Muslim perspectives; (2) uneven geographic coverage, with Burkina Faso and Côte d'Ivoire dominating the corpus while Niger and especially Nigeria are dramatically underrepresented; (3) Gemini sentiment labels that reflect model-specific interpretive choices rather than ground truth. Absence of evidence in this collection should not be interpreted as evidence of absence.

@@ -1,6 +1,6 @@
 # IWAC MCP Tools by Research Phase
 
-16 tools organized by the workflow phase where they are most useful.
+15 tools organized by the workflow phase where they are most useful.
 
 ## Phase 1: Scoping Tools
 
@@ -47,9 +47,9 @@ Primary search tool for newspaper articles.
 - `date_from` (optional): YYYY-MM-DD
 - `date_to` (optional): YYYY-MM-DD
 - `limit` (default 20, max 100)
-- Returns: o:id, title, author, newspaper, country, pub_date, subject, spatial, language, url
+- Returns: o:id, title, author, newspaper, country, pub_date, subject, spatial, language, **gemini_polarite**, **gemini_centralite_islam_musulmans**, **gemini_subjectivite_score**, url
 
-**Tip:** To find articles about a known subject, prefer the `subject` parameter over `keyword`. To find articles about a known index entry, first get its ID via `search_index`, then use the subject's exact title with the `subject` parameter.
+**Tip:** Results include Gemini sentiment scores inline. This enables topic-specific sentiment analysis directly from search results — no need to call `get_article` on each result just to get sentiment data. To find articles about a known subject, prefer the `subject` parameter over `keyword`.
 
 ### search_index
 Search authority records (persons, places, organizations, subjects, events).
@@ -59,11 +59,11 @@ Search authority records (persons, places, organizations, subjects, events).
 - Returns: o:id, Titre, Type, Description, frequency, countries
 
 ### search_by_sentiment
-Search articles by AI sentiment analysis.
+Search articles by Gemini AI sentiment analysis.
 - `polarity` (optional): "Très positif", "Positif", "Neutre", "Négatif", "Très négatif" (unaccented variants also accepted)
 - `centrality` (optional): "Très central", "Central", "Secondaire", "Marginal", "Non abordé" (unaccented variants also accepted)
-- `model` (default "gemini"): "gemini", "chatgpt", "mistral"
 - `country` (optional): filter
+- `subject` (optional): filter by subject (enables topic-specific sentiment searches)
 - `limit` (default 20)
 
 ### search_publications
@@ -74,7 +74,7 @@ Search Islamic publications subset. Note: most publications are entire issues (n
 
 ### search_references
 Search academic references subset.
-- `keyword` (optional): search term (must be in French -- the collection has no English-language indexing)
+- `keyword` (optional): search term (searches title + abstract). Abstracts are multilingual -- search both French and English terms. One term per call (substring match, not Boolean).
 - `author` (optional): author name
 - `reference_type` (optional): e.g., "Article de revue", "Chapitre", "These", "Livre"
 - `limit` (default 20)
@@ -98,21 +98,18 @@ Detailed index entry.
 - `entry_id` (int): Omeka item ID
 - Returns full metadata, frequency, first/last occurrence, countries
 
-### compare_ai_sentiments
-Side-by-side comparison of Gemini, ChatGPT, and Mistral sentiment for one article.
-- `article_id` (int): Omeka item ID
-- Returns polarity, centrality, subjectivity, and justifications from all 3 models
-
 ---
 
 ## Phase 4: Triangulation Tools
 
 ### get_sentiment_distribution
-Aggregated sentiment statistics across the collection.
+Aggregated Gemini sentiment statistics across the collection.
 - `country` (optional): filter
 - `newspaper` (optional): filter
-- `model` (default "gemini"): "gemini", "chatgpt", "mistral"
+- `subject` (optional): filter by subject (enables topic-specific sentiment distributions)
 - Returns polarity and centrality distribution counts
+
+**Tip:** Use `subject` to get sentiment breakdowns for specific topics. For example, `get_sentiment_distribution(subject="Laïcité", country="Burkina Faso")` gives the polarity distribution for laïcité articles in BF specifically, rather than the whole corpus.
 
 ---
 
@@ -127,9 +124,6 @@ Très positif, Positif, Neutre, Négatif, Très négatif (unaccented variants al
 ### Centrality Scale
 Très central, Central, Secondaire, Marginal, Non abordé (unaccented variants also accepted)
 
-### Sentiment Models
-gemini, chatgpt, mistral
-
 ### Index Types
 Personnes, Lieux, Organisations, Evenements, Sujets
 
@@ -141,7 +135,7 @@ Article de revue, Chapitre, These, Livre, Rapport, Compte rendu, Ouvrage collect
 ## Token Efficiency Tips
 
 - Use `limit=5` or `limit=10` for exploratory queries
-- Use `search_articles` (returns metadata only) before `get_article` (returns full OCR text)
+- Use `search_articles` (returns metadata + Gemini sentiment) before `get_article` (returns full OCR text). You can build sentiment tables directly from search results.
 - Use stats and distribution tools for overview before searching for individual items
 - Combine filters (country + keyword + date range) to narrow results before reading
 - For temporal filtering, use `date_from` and `date_to` with YYYY-MM-DD format (e.g., `date_from="1970-01-01"`, `date_to="1979-12-31"` for the 1970s)
