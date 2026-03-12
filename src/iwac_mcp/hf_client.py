@@ -1,6 +1,7 @@
 """Hugging Face dataset client for IWAC collection."""
 
 import logging
+import os
 from functools import cached_property
 from typing import Any
 
@@ -25,7 +26,7 @@ class HuggingFaceClient:
     SUBSETS = ["articles", "publications", "documents", "audiovisual", "index", "references"]
 
     # Columns to exclude when not loading embeddings
-    EMBEDDING_COLUMNS = ["embedding_descriptionAI"]
+    EMBEDDING_COLUMNS = ["embedding_OCR"]
 
     def __init__(self):
         """Initialize the client."""
@@ -182,34 +183,58 @@ class HuggingFaceClient:
 class SemanticSearchEngine:
     """Semantic search over article embeddings using cosine similarity.
 
-    Lazy-loads the sentence-transformers model on first query and builds
-    a normalized embedding matrix from the articles DataFrame.
+    Uses pre-computed Gemini embeddings from the embedding_OCR column
+    (full article text) and encodes queries via the Gemini API with
+    RETRIEVAL_QUERY task type for asymmetric retrieval.
     """
 
     def __init__(self):
-        self._model = None
+        self._client = None
         self._embeddings_matrix: np.ndarray | None = None
         self._article_ids: np.ndarray | None = None
 
-    def _ensure_model(self):
-        """Lazy-load the sentence-transformers model."""
-        if self._model is None:
-            from sentence_transformers import SentenceTransformer
+    def _ensure_client(self):
+        """Lazy-load the Gemini API client."""
+        if self._client is None:
+            from google import genai
 
-            logger.info(f"Loading embedding model: {settings.embedding_model}")
-            self._model = SentenceTransformer(settings.embedding_model)
+            api_key = (
+                settings.google_api_key
+                or os.getenv("GOOGLE_API_KEY")
+                or os.getenv("GEMINI_API_KEY")
+            )
+            if not api_key:
+                raise RuntimeError(
+                    "Google API key not found. Set IWAC_GOOGLE_API_KEY, "
+                    "GOOGLE_API_KEY, or GEMINI_API_KEY environment variable."
+                )
+            logger.info(f"Initializing Gemini client for query embedding (model: {settings.embedding_model})")
+            self._client = genai.Client(api_key=api_key)
 
     def _ensure_index(self, articles_df: pd.DataFrame):
-        """Build normalized embedding matrix from articles DataFrame."""
+        """Build normalized embedding matrix from articles DataFrame.
+
+        Skips rows with missing or empty embeddings.
+        """
         if self._embeddings_matrix is None:
-            logger.info("Building semantic search index...")
-            embeddings = articles_df["embedding_descriptionAI"].tolist()
-            self._embeddings_matrix = np.array(embeddings, dtype=np.float32)
+            logger.info("Building semantic search index from embedding_OCR...")
+            valid_indices = []
+            valid_embeddings = []
+            for i, emb in enumerate(articles_df["embedding_OCR"]):
+                if emb is not None and hasattr(emb, "__len__") and len(emb) > 0:
+                    valid_embeddings.append(emb)
+                    valid_indices.append(i)
+
+            self._embeddings_matrix = np.array(valid_embeddings, dtype=np.float32)
             # Normalize for cosine similarity via dot product
             norms = np.linalg.norm(self._embeddings_matrix, axis=1, keepdims=True)
             self._embeddings_matrix = self._embeddings_matrix / np.maximum(norms, 1e-10)
-            self._article_ids = articles_df["o:id"].values
-            logger.info(f"Semantic index built with {len(self._article_ids)} articles")
+            self._article_ids = articles_df["o:id"].values[valid_indices]
+            skipped = len(articles_df) - len(valid_indices)
+            logger.info(
+                f"Semantic index built with {len(self._article_ids)} articles"
+                + (f" ({skipped} skipped, no embedding)" if skipped else "")
+            )
 
     def search(
         self, query: str, articles_df: pd.DataFrame, top_k: int = 20
@@ -218,15 +243,28 @@ class SemanticSearchEngine:
 
         Args:
             query: Natural language search query
-            articles_df: Articles DataFrame (must contain embedding_descriptionAI and o:id)
+            articles_df: Articles DataFrame (must contain embedding_OCR and o:id)
             top_k: Number of top results to return
 
         Returns:
             List of (article_id, similarity_score) sorted by descending similarity
         """
-        self._ensure_model()
+        self._ensure_client()
         self._ensure_index(articles_df)
-        query_embedding = self._model.encode(query, normalize_embeddings=True)
+
+        from google.genai import types
+
+        response = self._client.models.embed_content(
+            model=settings.embedding_model,
+            contents=[query],
+            config=types.EmbedContentConfig(
+                task_type="RETRIEVAL_QUERY",
+                output_dimensionality=settings.embedding_dimensionality,
+            ),
+        )
+        query_embedding = np.array(response.embeddings[0].values, dtype=np.float32)
+        query_embedding = query_embedding / np.maximum(np.linalg.norm(query_embedding), 1e-10)
+
         similarities = self._embeddings_matrix @ query_embedding
         top_indices = np.argsort(similarities)[::-1][:top_k]
         return [

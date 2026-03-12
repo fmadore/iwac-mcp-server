@@ -5,12 +5,12 @@ A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server th
 ## Features
 
 - **16 read-only tools** across articles, index entries, publications, references, and audiovisual materials
-- **Semantic search** using pre-computed multilingual embeddings to find articles by meaning, not just keywords
+- **Semantic search** using pre-computed Gemini embeddings of full article text (OCR) for high-quality multilingual retrieval by meaning, not just keywords
 - **AI sentiment analysis** using Gemini for polarity, centrality, and subjectivity scoring
 - **Cursor-based pagination** (`offset`/`limit`) on all search and list tools with `has_more`/`next_offset` envelope
 - **MCP tool annotations** (readOnlyHint, idempotentHint, etc.) for client-side tool discovery
 - **In-memory DataFrame queries** for fast, offline-capable searches after initial dataset load
-- **No API credentials required** -- uses the public Hugging Face dataset
+- **No API credentials required** for core tools -- uses the public Hugging Face dataset (semantic search optionally requires a Google API key)
 
 ## Installation
 
@@ -55,8 +55,10 @@ The server works out of the box with default settings. Optional configuration vi
 | `IWAC_LAZY_LOAD_SUBSETS` | `true` | Load subsets on first access |
 | `IWAC_PRELOAD_ARTICLES` | `true` | Preload articles at startup |
 | `IWAC_LOAD_EMBEDDINGS` | `false` | Load embedding columns (high memory) |
-| `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Enable semantic search (requires `IWAC_LOAD_EMBEDDINGS=true`) |
-| `IWAC_EMBEDDING_MODEL` | `paraphrase-multilingual-mpnet-base-v2` | Sentence-transformers model for query encoding |
+| `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Enable semantic search (requires `IWAC_LOAD_EMBEDDINGS=true` and a Google API key) |
+| `IWAC_EMBEDDING_MODEL` | `gemini-embedding-2-preview` | Gemini model for query encoding |
+| `IWAC_EMBEDDING_DIMENSIONALITY` | `768` | Embedding vector dimensionality |
+| `IWAC_GOOGLE_API_KEY` | — | Google API key for Gemini query embeddings (falls back to `GOOGLE_API_KEY` / `GEMINI_API_KEY`) |
 
 See `.env.example` for a template.
 
@@ -100,7 +102,7 @@ Edit your Claude Desktop config (`~/Library/Application Support/Claude/claude_de
 |------|-------------|
 | `search_articles` | Search articles by keyword, country, newspaper, subject, and date range |
 | `get_article` | Get full article details including OCR text and Gemini sentiment scores |
-| `semantic_search_articles` | Find articles by meaning using AI embeddings (requires semantic extras) |
+| `semantic_search_articles` | Find articles by meaning using Gemini OCR embeddings (requires semantic extras + Google API key) |
 
 ### Sentiment Analysis (2 tools)
 

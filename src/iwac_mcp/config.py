@@ -27,10 +27,16 @@ class Settings(BaseSettings):
     """If True, load embedding columns (increases memory usage significantly)."""
 
     semantic_search_enabled: bool = False
-    """If True, enable semantic search tools (requires load_embeddings=True)."""
+    """If True, enable semantic search tools (requires load_embeddings=True and a Google API key)."""
 
-    embedding_model: str = "paraphrase-multilingual-mpnet-base-v2"
-    """Sentence-transformers model for encoding queries. Must match the model used to generate dataset embeddings."""
+    embedding_model: str = "gemini-embedding-2-preview"
+    """Gemini model for encoding queries. Must match the model used to generate the embedding_OCR column."""
+
+    embedding_dimensionality: int = 768
+    """Dimensionality of embedding vectors. Must match the dimensionality used when generating embeddings."""
+
+    google_api_key: str | None = None
+    """Google API key for Gemini embeddings. Falls back to GOOGLE_API_KEY or GEMINI_API_KEY env vars."""
 
     # Dataset configuration
     dataset_name: str = "fmadore/islam-west-africa-collection"

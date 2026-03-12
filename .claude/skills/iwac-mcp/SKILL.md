@@ -14,7 +14,7 @@ description: |
 
 # IWAC MCP Research Workflow
 
-Structured methodology for academic research using the IWAC MCP server's 15 tools. Adapted from ALA-compliant archival research practices.
+Structured methodology for academic research using the IWAC MCP server's 16 tools. Adapted from ALA-compliant archival research practices.
 
 ## Prerequisites
 
@@ -50,10 +50,11 @@ If the user does not specify, **default to Brief mode** and mention that an exte
 
 ## Critical Search Rules
 
-1. **All search terms must be in French.** Even if the research question is in English, translate every query to French before searching. The collection has no English-language indexing.
+1. **All keyword search terms must be in French.** Even if the research question is in English, translate every keyword query to French before searching. The collection has no English-language indexing. **Exception:** `semantic_search_articles` accepts queries in any language (the Gemini model handles multilingual matching).
 2. **Use `Côte d'Ivoire` with the accent** (circumflex ô). Without the accent, the country filter returns 0 results.
 3. **Niger and Nigeria are dramatically underrepresented.** Always disclose this in cross-country comparisons (see biases-and-limitations.md §2).
 4. **Keyword search covers title + OCR only.** It does NOT search subject or spatial fields. For known subjects, use the `subject` parameter instead.
+5. **Use semantic search for conceptual queries.** `semantic_search_articles` uses Gemini embeddings of the full article text (OCR) to find articles by meaning, not just keywords. It complements keyword search for thematic or cross-lingual queries.
 
 ## The Five-Phase Workflow
 
@@ -77,13 +78,14 @@ If the user does not specify, **default to Brief mode** and mention that an exte
 **Actions:**
 1. Develop search terms in French (primary) with transliteration variants for Arabic/Islamic terminology
 2. Search incrementally -- one term or filter combination at a time
-3. Use `search_articles` with keyword, country, newspaper, subject, and date range filters. Results include Gemini sentiment scores (polarity, centrality, subjectivity) alongside metadata, enabling topic-specific sentiment analysis without separate calls.
-4. Use `search_index` to find persons, organizations, places, and events relevant to the question
-5. Use `search_by_sentiment` to identify articles with specific Gemini polarity or centrality patterns. Supports `subject` filter for topic-specific sentiment searches (e.g., `subject="Laïcité", country="Burkina Faso"`).
-6. Use `search_publications` for Islamic community publications (note: most are entire issues with limited metadata, not individual articles)
-7. Use `search_references` to find relevant academic literature in the collection (search both French and English terms -- references are multilingual)
-8. **Record every search and its result count**, including zero-result searches -- null results constrain interpretation
-9. Use `date_from` and `date_to` for temporal filtering (e.g., `date_from="1970-01-01"`, `date_to="1979-12-31"` for the 1970s)
+3. Use `semantic_search_articles` for conceptual or thematic queries where exact keywords may miss relevant articles. Queries can be in any language. Combine with post-filters (country, newspaper, date range) to narrow results. Use this alongside keyword search, not as a replacement.
+4. Use `search_articles` with keyword, country, newspaper, subject, and date range filters. Results include Gemini sentiment scores (polarity, centrality, subjectivity) alongside metadata, enabling topic-specific sentiment analysis without separate calls.
+5. Use `search_index` to find persons, organizations, places, and events relevant to the question
+6. Use `search_by_sentiment` to identify articles with specific Gemini polarity or centrality patterns. Supports `subject` filter for topic-specific sentiment searches (e.g., `subject="Laïcité", country="Burkina Faso"`).
+7. Use `search_publications` for Islamic community publications (note: most are entire issues with limited metadata, not individual articles)
+8. Use `search_references` to find relevant academic literature in the collection (search both French and English terms -- references are multilingual)
+9. **Record every search and its result count**, including zero-result searches -- null results constrain interpretation
+10. Use `date_from` and `date_to` for temporal filtering (e.g., `date_from="1970-01-01"`, `date_to="1979-12-31"` for the 1970s)
 
 **Constraint:** IWAC uses keyword matching, not Solr syntax. Searches are case-insensitive string contains operations on title and OCR fields. No wildcards, fuzzy, or Boolean operators.
 

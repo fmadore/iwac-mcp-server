@@ -38,6 +38,20 @@ List persons from index.
 
 ## Phase 2: Systematic Search Tools
 
+### semantic_search_articles
+Semantic similarity search using Gemini embeddings of full article text (OCR).
+- `query`: Natural language query in **any language** (multilingual Gemini model handles translation)
+- `country` (optional): post-filter by country
+- `newspaper` (optional): post-filter by newspaper
+- `date_from` (optional): post-filter YYYY-MM-DD
+- `date_to` (optional): post-filter YYYY-MM-DD
+- `limit` (default 10, max 50)
+- Returns: articles ranked by semantic similarity with `similarity_score`
+
+**When to use:** For conceptual or thematic queries where exact keyword matching is insufficient. For example, "Islamic education reform" will find articles about madrasa modernization, Franco-Arabic schooling, and curriculum debates even if those exact words are not used. Unlike `search_articles`, queries can be in any language (English, French, Arabic, etc.). Requires `IWAC_SEMANTIC_SEARCH_ENABLED=true` and a Google API key.
+
+**Tip:** Use semantic search as a complement to keyword search, not a replacement. Keyword search (`search_articles`) is precise and deterministic; semantic search surfaces conceptually related articles that keyword search may miss.
+
 ### search_articles
 Primary search tool for newspaper articles.
 - `keyword` (optional): searches title and OCR text **only** (does NOT search subject or spatial fields)

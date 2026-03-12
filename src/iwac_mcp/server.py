@@ -197,14 +197,18 @@ def semantic_search_articles(
     date_to: str | None = None,
     limit: int = 10,
 ) -> str:
-    """Search articles by semantic similarity using AI embeddings.
+    """Search articles by semantic similarity using Gemini OCR embeddings.
 
     Unlike keyword search, this finds articles with similar *meaning*
-    even when different words are used. Requires IWAC_LOAD_EMBEDDINGS=true
-    and IWAC_SEMANTIC_SEARCH_ENABLED=true.
+    even when different words are used. Uses pre-computed Gemini embeddings
+    of full article text (OCR) for high-quality multilingual retrieval.
+
+    Requires IWAC_LOAD_EMBEDDINGS=true, IWAC_SEMANTIC_SEARCH_ENABLED=true,
+    and a Google API key (IWAC_GOOGLE_API_KEY, GOOGLE_API_KEY, or GEMINI_API_KEY).
 
     Args:
-        query: Natural language query (e.g., "Islamic education reform")
+        query: Natural language query (e.g., "Islamic education reform").
+            Can be in any language — the Gemini model handles multilingual queries.
         country: Optional country filter applied after ranking
         newspaper: Optional newspaper filter applied after ranking
         date_from: Optional start date filter (YYYY-MM-DD)
@@ -236,7 +240,7 @@ def semantic_search_articles(
     ]
     filtered_results = []
     for article_id, score in results_with_scores:
-        row = df[df["o:id"] == article_id]
+        row = df[df["o:id"].astype(str) == str(article_id)]
         if row.empty:
             continue
 
