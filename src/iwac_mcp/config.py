@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     semantic_search_enabled: bool = False
     """If True, enable semantic search tools (requires load_embeddings=True)."""
 
+    embedding_model: str = "paraphrase-multilingual-mpnet-base-v2"
+    """Sentence-transformers model for encoding queries. Must match the model used to generate dataset embeddings."""
+
     # Dataset configuration
     dataset_name: str = "fmadore/islam-west-africa-collection"
     """Hugging Face dataset name."""

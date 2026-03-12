@@ -4,6 +4,7 @@ import logging
 from functools import cached_property
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from datasets import load_dataset
 
@@ -178,5 +179,63 @@ class HuggingFaceClient:
         return result.iloc[offset : offset + limit]
 
 
+class SemanticSearchEngine:
+    """Semantic search over article embeddings using cosine similarity.
+
+    Lazy-loads the sentence-transformers model on first query and builds
+    a normalized embedding matrix from the articles DataFrame.
+    """
+
+    def __init__(self):
+        self._model = None
+        self._embeddings_matrix: np.ndarray | None = None
+        self._article_ids: np.ndarray | None = None
+
+    def _ensure_model(self):
+        """Lazy-load the sentence-transformers model."""
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+
+            logger.info(f"Loading embedding model: {settings.embedding_model}")
+            self._model = SentenceTransformer(settings.embedding_model)
+
+    def _ensure_index(self, articles_df: pd.DataFrame):
+        """Build normalized embedding matrix from articles DataFrame."""
+        if self._embeddings_matrix is None:
+            logger.info("Building semantic search index...")
+            embeddings = articles_df["embedding_descriptionAI"].tolist()
+            self._embeddings_matrix = np.array(embeddings, dtype=np.float32)
+            # Normalize for cosine similarity via dot product
+            norms = np.linalg.norm(self._embeddings_matrix, axis=1, keepdims=True)
+            self._embeddings_matrix = self._embeddings_matrix / np.maximum(norms, 1e-10)
+            self._article_ids = articles_df["o:id"].values
+            logger.info(f"Semantic index built with {len(self._article_ids)} articles")
+
+    def search(
+        self, query: str, articles_df: pd.DataFrame, top_k: int = 20
+    ) -> list[tuple[int, float]]:
+        """Return list of (article_id, similarity_score) tuples.
+
+        Args:
+            query: Natural language search query
+            articles_df: Articles DataFrame (must contain embedding_descriptionAI and o:id)
+            top_k: Number of top results to return
+
+        Returns:
+            List of (article_id, similarity_score) sorted by descending similarity
+        """
+        self._ensure_model()
+        self._ensure_index(articles_df)
+        query_embedding = self._model.encode(query, normalize_embeddings=True)
+        similarities = self._embeddings_matrix @ query_embedding
+        top_indices = np.argsort(similarities)[::-1][:top_k]
+        return [
+            (int(self._article_ids[idx]), float(similarities[idx])) for idx in top_indices
+        ]
+
+
 # Global client instance
 client = HuggingFaceClient()
+
+# Semantic search engine (only used when semantic search is enabled)
+semantic_engine = SemanticSearchEngine() if settings.semantic_search_enabled else None

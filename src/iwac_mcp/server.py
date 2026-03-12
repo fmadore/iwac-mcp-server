@@ -8,7 +8,7 @@ import pandas as pd
 from mcp.server.fastmcp import FastMCP
 
 from .config import settings
-from .hf_client import client
+from .hf_client import client, semantic_engine
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -181,6 +181,101 @@ def get_article(article_id: int) -> str:
     }
 
     return _to_json(result)
+
+
+# =============================================================================
+# SEMANTIC SEARCH TOOLS (1 tool)
+# =============================================================================
+
+
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
+def semantic_search_articles(
+    query: str,
+    country: str | None = None,
+    newspaper: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 10,
+) -> str:
+    """Search articles by semantic similarity using AI embeddings.
+
+    Unlike keyword search, this finds articles with similar *meaning*
+    even when different words are used. Requires IWAC_LOAD_EMBEDDINGS=true
+    and IWAC_SEMANTIC_SEARCH_ENABLED=true.
+
+    Args:
+        query: Natural language query (e.g., "Islamic education reform")
+        country: Optional country filter applied after ranking
+        newspaper: Optional newspaper filter applied after ranking
+        date_from: Optional start date filter (YYYY-MM-DD)
+        date_to: Optional end date filter (YYYY-MM-DD)
+        limit: Number of results (default 10, max 50)
+
+    Returns:
+        JSON array of articles ranked by semantic similarity
+    """
+    if not settings.semantic_search_enabled or semantic_engine is None:
+        return _to_json({
+            "error": "Semantic search is not enabled. "
+            "Set IWAC_LOAD_EMBEDDINGS=true and IWAC_SEMANTIC_SEARCH_ENABLED=true to enable it."
+        })
+
+    limit = min(limit, 50)
+    df = client.articles
+
+    # Over-fetch then post-filter for metadata constraints
+    overfetch_k = limit * 5
+    results_with_scores = semantic_engine.search(query, df, top_k=overfetch_k)
+
+    # Build result set with post-filtering
+    output_cols = [
+        "o:id", "title", "author", "newspaper", "country", "pub_date",
+        "subject", "spatial", "language",
+        "gemini_polarite", "gemini_centralite_islam_musulmans",
+        "gemini_subjectivite_score", "url",
+    ]
+    filtered_results = []
+    for article_id, score in results_with_scores:
+        row = df[df["o:id"] == article_id]
+        if row.empty:
+            continue
+
+        record = row.iloc[0]
+
+        # Apply post-filters
+        if country and not str(record.get("country", "")).lower().__contains__(country.lower()):
+            continue
+        if newspaper and not str(record.get("newspaper", "")).lower().__contains__(
+            newspaper.lower()
+        ):
+            continue
+        if date_from and record.get("pub_date") is not None:
+            if record["pub_date"] < pd.to_datetime(date_from, utc=True):
+                continue
+        if date_to and record.get("pub_date") is not None:
+            if record["pub_date"] > pd.to_datetime(date_to, utc=True):
+                continue
+
+        result_dict = {
+            col: record.get(col) for col in output_cols if col in row.columns
+        }
+        result_dict["similarity_score"] = round(score, 4)
+        filtered_results.append(result_dict)
+
+        if len(filtered_results) >= limit:
+            break
+
+    return _to_json({
+        "query": query,
+        "count": len(filtered_results),
+        "filters": {
+            "country": country,
+            "newspaper": newspaper,
+            "date_from": date_from,
+            "date_to": date_to,
+        },
+        "results": filtered_results,
+    })
 
 
 # =============================================================================

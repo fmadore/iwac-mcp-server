@@ -9,6 +9,7 @@ import numpy as np
 from iwac_mcp.server import (
     search_articles,
     get_article,
+    semantic_search_articles,
     search_by_sentiment,
     get_sentiment_distribution,
     search_index,
@@ -506,3 +507,97 @@ def test_get_publication_fulltext_includes_toc(mock_client):
 
     assert "tableOfContents" in data
     assert "pèlerinage" in data["tableOfContents"]
+
+
+# =============================================================================
+# Semantic Search Tests
+# =============================================================================
+
+
+@pytest.fixture
+def mock_semantic_engine():
+    """Create a mock SemanticSearchEngine."""
+    engine = MagicMock()
+    engine.search.return_value = [
+        (123, 0.92),
+        (456, 0.85),
+        (789, 0.71),
+    ]
+    return engine
+
+
+def test_semantic_search_disabled(mock_client):
+    """Test that semantic search returns error when disabled."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine", None):
+        mock_settings.semantic_search_enabled = False
+        result = semantic_search_articles(query="Islamic education")
+        data = json.loads(result)
+
+        assert "error" in data
+        assert "not enabled" in data["error"]
+
+
+def test_semantic_search_basic(mock_client, mock_semantic_engine):
+    """Test basic semantic search returns results with scores."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine", mock_semantic_engine):
+        mock_settings.semantic_search_enabled = True
+        result = semantic_search_articles(query="Islamic education")
+        data = json.loads(result)
+
+        assert data["query"] == "Islamic education"
+        assert data["count"] == 3
+        assert data["results"][0]["similarity_score"] == 0.92
+        assert int(data["results"][0]["o:id"]) == 123
+        mock_semantic_engine.search.assert_called_once()
+
+
+def test_semantic_search_country_filter(mock_client, mock_semantic_engine):
+    """Test semantic search with country post-filter."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine", mock_semantic_engine):
+        mock_settings.semantic_search_enabled = True
+        result = semantic_search_articles(query="education", country="Burkina Faso")
+        data = json.loads(result)
+
+        assert data["count"] == 1
+        assert data["results"][0]["country"] == "Burkina Faso"
+        assert data["filters"]["country"] == "Burkina Faso"
+
+
+def test_semantic_search_date_filter(mock_client, mock_semantic_engine):
+    """Test semantic search with date range post-filter."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine", mock_semantic_engine):
+        mock_settings.semantic_search_enabled = True
+        result = semantic_search_articles(
+            query="education", date_from="2021-01-01", date_to="2022-01-01"
+        )
+        data = json.loads(result)
+
+        assert data["count"] == 1
+        assert int(data["results"][0]["o:id"]) == 456
+
+
+def test_semantic_search_limit(mock_client, mock_semantic_engine):
+    """Test semantic search respects limit parameter."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine", mock_semantic_engine):
+        mock_settings.semantic_search_enabled = True
+        result = semantic_search_articles(query="education", limit=2)
+        data = json.loads(result)
+
+        assert data["count"] == 2
+
+
+def test_semantic_search_newspaper_filter(mock_client, mock_semantic_engine):
+    """Test semantic search with newspaper post-filter."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine", mock_semantic_engine):
+        mock_settings.semantic_search_enabled = True
+        result = semantic_search_articles(query="education", newspaper="Sidwaya")
+        data = json.loads(result)
+
+        assert data["count"] == 1
+        assert data["results"][0]["newspaper"] == "Sidwaya"

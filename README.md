@@ -4,7 +4,8 @@ A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server th
 
 ## Features
 
-- **15 read-only tools** across articles, index entries, publications, references, and audiovisual materials
+- **16 read-only tools** across articles, index entries, publications, references, and audiovisual materials
+- **Semantic search** using pre-computed multilingual embeddings to find articles by meaning, not just keywords
 - **AI sentiment analysis** using Gemini for polarity, centrality, and subjectivity scoring
 - **Cursor-based pagination** (`offset`/`limit`) on all search and list tools with `has_more`/`next_offset` envelope
 - **MCP tool annotations** (readOnlyHint, idempotentHint, etc.) for client-side tool discovery
@@ -36,6 +37,13 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
+To enable semantic search, also install the optional dependency:
+
+```bash
+uv sync --extra semantic
+# or: pip install -e ".[semantic]"
+```
+
 ## Configuration
 
 The server works out of the box with default settings. Optional configuration via environment variables (all prefixed with `IWAC_`):
@@ -48,6 +56,7 @@ The server works out of the box with default settings. Optional configuration vi
 | `IWAC_PRELOAD_ARTICLES` | `true` | Preload articles at startup |
 | `IWAC_LOAD_EMBEDDINGS` | `false` | Load embedding columns (high memory) |
 | `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Enable semantic search (requires `IWAC_LOAD_EMBEDDINGS=true`) |
+| `IWAC_EMBEDDING_MODEL` | `paraphrase-multilingual-mpnet-base-v2` | Sentence-transformers model for query encoding |
 
 See `.env.example` for a template.
 
@@ -83,14 +92,15 @@ Edit your Claude Desktop config (`~/Library/Application Support/Claude/claude_de
 }
 ```
 
-## Available Tools (15)
+## Available Tools (16)
 
-### Article Search (2 tools)
+### Article Search (3 tools)
 
 | Tool | Description |
 |------|-------------|
 | `search_articles` | Search articles by keyword, country, newspaper, subject, and date range |
 | `get_article` | Get full article details including OCR text and Gemini sentiment scores |
+| `semantic_search_articles` | Find articles by meaning using AI embeddings (requires semantic extras) |
 
 ### Sentiment Analysis (2 tools)
 
@@ -147,11 +157,11 @@ uv run ruff format .
 iwac-mcp-server/
 ├── src/iwac_mcp/
 │   ├── __init__.py
-│   ├── server.py        # MCP server with 15 tools
+│   ├── server.py        # MCP server with 16 tools
 │   ├── hf_client.py     # Hugging Face dataset client
 │   └── config.py        # Pydantic settings
 ├── tests/
-│   └── test_tools.py    # Unit tests (32 tests)
+│   └── test_tools.py    # Unit tests (38 tests)
 ├── .claude/
 │   └── skills/
 │       └── iwac-mcp/    # Research workflow skill for Claude
