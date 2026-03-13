@@ -4,8 +4,8 @@ A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server th
 
 ## Features
 
-- **16 read-only tools** across articles, index entries, publications, references, and audiovisual materials
-- **Semantic search** using pre-computed Gemini embeddings of full article text (OCR) for high-quality multilingual retrieval by meaning, not just keywords
+- **17 read-only tools** across articles, index entries, publications, references, and audiovisual materials
+- **Semantic search** using pre-computed Gemini embeddings of full article text (OCR) and publication tables of contents for high-quality multilingual retrieval by meaning, not just keywords
 - **AI sentiment analysis** using Gemini for polarity, centrality, and subjectivity scoring
 - **Cursor-based pagination** (`offset`/`limit`) on all search and list tools with `has_more`/`next_offset` envelope
 - **MCP tool annotations** (readOnlyHint, idempotentHint, etc.) for client-side tool discovery
@@ -94,7 +94,7 @@ Edit your Claude Desktop config (`~/Library/Application Support/Claude/claude_de
 }
 ```
 
-## Available Tools (16)
+## Available Tools (17)
 
 ### Article Search (3 tools)
 
@@ -129,11 +129,12 @@ Edit your Claude Desktop config (`~/Library/Application Support/Claude/claude_de
 | `get_newspaper_stats` | Per-newspaper article counts and date ranges |
 | `get_country_comparison` | Cross-country comparison with sentiment summaries |
 
-### Other Subsets (3 tools)
+### Other Subsets (4 tools)
 
 | Tool | Description |
 |------|-------------|
 | `search_publications` | Search Islamic publications (mostly entire issues, limited metadata) |
+| `semantic_search_publications` | Find publications by meaning using Gemini table-of-contents embeddings (requires semantic extras + Google API key) |
 | `search_references` | Search academic references by keyword, author, or type |
 | `list_audiovisual` | List audiovisual materials, optionally filtered by country |
 
@@ -159,11 +160,11 @@ uv run ruff format .
 iwac-mcp-server/
 ├── src/iwac_mcp/
 │   ├── __init__.py
-│   ├── server.py        # MCP server with 16 tools
+│   ├── server.py        # MCP server with 17 tools
 │   ├── hf_client.py     # Hugging Face dataset client
 │   └── config.py        # Pydantic settings
 ├── tests/
-│   └── test_tools.py    # Unit tests (38 tests)
+│   └── test_tools.py    # Unit tests (42 tests)
 ├── .claude/
 │   └── skills/
 │       └── iwac-mcp/    # Research workflow skill for Claude

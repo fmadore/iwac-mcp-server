@@ -14,13 +14,13 @@ description: |
 
 # IWAC MCP Research Workflow
 
-Structured methodology for academic research using the IWAC MCP server's 16 tools. Adapted from ALA-compliant archival research practices.
+Structured methodology for academic research using the IWAC MCP server's 17 tools. Adapted from ALA-compliant archival research practices.
 
 ## Prerequisites
 
 Before beginning a research session, read the relevant reference files:
 
-1. **references/tools-by-phase.md** -- all 15 MCP tools mapped to workflow phases with parameters
+1. **references/tools-by-phase.md** -- all 16 MCP tools mapped to workflow phases with parameters
 2. **references/research-domains.md** -- key research domains with French search terms and transliteration variants
 3. **references/biases-and-limitations.md** -- collection biases, coverage gaps, and sentiment caveats
 
@@ -54,7 +54,7 @@ If the user does not specify, **default to Brief mode** and mention that an exte
 2. **Use `Côte d'Ivoire` with the accent** (circumflex ô). Without the accent, the country filter returns 0 results.
 3. **Niger and Nigeria are dramatically underrepresented.** Always disclose this in cross-country comparisons (see biases-and-limitations.md §2).
 4. **Keyword search covers title + OCR only.** It does NOT search subject or spatial fields. For known subjects, use the `subject` parameter instead.
-5. **Use semantic search for conceptual queries.** `semantic_search_articles` uses Gemini embeddings of the full article text (OCR) to find articles by meaning, not just keywords. It complements keyword search for thematic or cross-lingual queries.
+5. **Use semantic search for conceptual queries.** `semantic_search_articles` uses Gemini embeddings of the full article text (OCR) to find articles by meaning, not just keywords. `semantic_search_publications` uses Gemini embeddings of publication tables of contents for the same purpose on Islamic publications. Both complement keyword search for thematic or cross-lingual queries.
 
 ## The Five-Phase Workflow
 
@@ -82,7 +82,7 @@ If the user does not specify, **default to Brief mode** and mention that an exte
 4. Use `search_articles` with keyword, country, newspaper, subject, and date range filters. Results include Gemini sentiment scores (polarity, centrality, subjectivity) alongside metadata, enabling topic-specific sentiment analysis without separate calls.
 5. Use `search_index` to find persons, organizations, places, and events relevant to the question
 6. Use `search_by_sentiment` to identify articles with specific Gemini polarity or centrality patterns. Supports `subject` filter for topic-specific sentiment searches (e.g., `subject="Laïcité", country="Burkina Faso"`).
-7. Use `search_publications` for Islamic community publications (note: most are entire issues with limited metadata, not individual articles)
+7. Use `search_publications` for Islamic community publications (note: most are entire issues with limited metadata, not individual articles). Use `semantic_search_publications` for conceptual queries against publication tables of contents -- queries can be in any language.
 8. Use `search_references` to find relevant academic literature in the collection (search both French and English terms -- references are multilingual)
 9. **Record every search and its result count**, including zero-result searches -- null results constrain interpretation
 10. Use `date_from` and `date_to` for temporal filtering (e.g., `date_from="1970-01-01"`, `date_to="1979-12-31"` for the 1970s)

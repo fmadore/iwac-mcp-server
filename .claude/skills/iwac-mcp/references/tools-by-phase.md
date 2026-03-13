@@ -1,6 +1,6 @@
 # IWAC MCP Tools by Research Phase
 
-15 tools organized by the workflow phase where they are most useful.
+16 tools organized by the workflow phase where they are most useful.
 
 ## Phase 1: Scoping Tools
 
@@ -79,6 +79,17 @@ Search articles by Gemini AI sentiment analysis.
 - `country` (optional): filter
 - `subject` (optional): filter by subject (enables topic-specific sentiment searches)
 - `limit` (default 20)
+
+### semantic_search_publications
+Semantic similarity search using Gemini embeddings of publication tables of contents.
+- `query`: Natural language query in **any language** (multilingual Gemini model handles translation)
+- `country` (optional): post-filter by country
+- `limit` (default 10, max 50)
+- Returns: publications ranked by semantic similarity with `similarity_score` and `tableOfContents`
+
+**When to use:** For conceptual or thematic queries against Islamic publications where exact keyword matching is insufficient. For example, "Islamic education in schools" will find publications whose table of contents covers madrasa curricula, Quranic teaching methods, etc. Unlike `search_publications`, queries can be in any language. Requires `IWAC_SEMANTIC_SEARCH_ENABLED=true` and a Google API key.
+
+**Tip:** Use as a complement to keyword search (`search_publications`). Keyword search is precise; semantic search surfaces thematically related publications that keyword search may miss. Follow up with `get_publication_fulltext` to read the actual content.
 
 ### search_publications
 Search Islamic publications subset. Note: most publications are entire issues (not individual articles) with limited metadata.

@@ -10,6 +10,7 @@ from iwac_mcp.server import (
     search_articles,
     get_article,
     semantic_search_articles,
+    semantic_search_publications,
     search_by_sentiment,
     get_sentiment_distribution,
     search_index,
@@ -601,3 +602,72 @@ def test_semantic_search_newspaper_filter(mock_client, mock_semantic_engine):
 
         assert data["count"] == 1
         assert data["results"][0]["newspaper"] == "Sidwaya"
+
+
+# =============================================================================
+# Semantic Search Publications Tests
+# =============================================================================
+
+
+@pytest.fixture
+def mock_semantic_engine_publications():
+    """Create a mock SemanticSearchEngine for publications."""
+    engine = MagicMock()
+    engine.search.return_value = [
+        (1001, 0.88),
+        (1002, 0.75),
+    ]
+    return engine
+
+
+def test_semantic_search_publications_disabled(mock_client):
+    """Test that semantic search publications returns error when disabled."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine_publications", None):
+        mock_settings.semantic_search_enabled = False
+        result = semantic_search_publications(query="pilgrimage to Mecca")
+        data = json.loads(result)
+
+        assert "error" in data
+        assert "not enabled" in data["error"]
+
+
+def test_semantic_search_publications_basic(mock_client, mock_semantic_engine_publications):
+    """Test basic semantic search of publications returns results with scores."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine_publications", mock_semantic_engine_publications):
+        mock_settings.semantic_search_enabled = True
+        result = semantic_search_publications(query="pilgrimage to Mecca")
+        data = json.loads(result)
+
+        assert data["query"] == "pilgrimage to Mecca"
+        assert data["count"] == 2
+        assert data["results"][0]["similarity_score"] == 0.88
+        assert int(data["results"][0]["o:id"]) == 1001
+        # Check that table of contents is included
+        assert "tableOfContents" in data["results"][0]
+        mock_semantic_engine_publications.search.assert_called_once()
+
+
+def test_semantic_search_publications_country_filter(mock_client, mock_semantic_engine_publications):
+    """Test semantic search publications with country post-filter."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine_publications", mock_semantic_engine_publications):
+        mock_settings.semantic_search_enabled = True
+        result = semantic_search_publications(query="education", country="Togo")
+        data = json.loads(result)
+
+        assert data["count"] == 1
+        assert data["results"][0]["country"] == "Togo"
+        assert data["filters"]["country"] == "Togo"
+
+
+def test_semantic_search_publications_limit(mock_client, mock_semantic_engine_publications):
+    """Test semantic search publications respects limit parameter."""
+    with patch("iwac_mcp.server.settings") as mock_settings, \
+         patch("iwac_mcp.server.semantic_engine_publications", mock_semantic_engine_publications):
+        mock_settings.semantic_search_enabled = True
+        result = semantic_search_publications(query="education", limit=1)
+        data = json.loads(result)
+
+        assert data["count"] == 1

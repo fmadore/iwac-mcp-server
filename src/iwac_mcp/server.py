@@ -8,7 +8,7 @@ import pandas as pd
 from mcp.server.fastmcp import FastMCP
 
 from .config import settings
-from .hf_client import client, semantic_engine
+from .hf_client import client, semantic_engine, semantic_engine_publications
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -184,7 +184,7 @@ def get_article(article_id: int) -> str:
 
 
 # =============================================================================
-# SEMANTIC SEARCH TOOLS (1 tool)
+# SEMANTIC SEARCH TOOLS (2 tools)
 # =============================================================================
 
 
@@ -277,6 +277,83 @@ def semantic_search_articles(
             "newspaper": newspaper,
             "date_from": date_from,
             "date_to": date_to,
+        },
+        "results": filtered_results,
+    })
+
+
+@mcp.tool(annotations=_TOOL_ANNOTATIONS)
+def semantic_search_publications(
+    query: str,
+    country: str | None = None,
+    limit: int = 10,
+) -> str:
+    """Search publications by semantic similarity using Gemini embeddings of table of contents.
+
+    Unlike keyword search, this finds publications with similar *meaning*
+    even when different words are used. Uses pre-computed Gemini embeddings
+    of publication tables of contents for multilingual retrieval.
+
+    Requires IWAC_LOAD_EMBEDDINGS=true, IWAC_SEMANTIC_SEARCH_ENABLED=true,
+    and a Google API key (IWAC_GOOGLE_API_KEY, GOOGLE_API_KEY, or GEMINI_API_KEY).
+
+    Args:
+        query: Natural language query (e.g., "pilgrimage to Mecca").
+            Can be in any language — the Gemini model handles multilingual queries.
+        country: Optional country filter applied after ranking
+        limit: Number of results (default 10, max 50)
+
+    Returns:
+        JSON array of publications ranked by semantic similarity, with matching
+        table of contents included
+    """
+    if not settings.semantic_search_enabled or semantic_engine_publications is None:
+        return _to_json({
+            "error": "Semantic search is not enabled. "
+            "Set IWAC_LOAD_EMBEDDINGS=true and IWAC_SEMANTIC_SEARCH_ENABLED=true to enable it."
+        })
+
+    limit = min(limit, 50)
+    df = client.publications
+
+    # Over-fetch then post-filter
+    overfetch_k = limit * 5
+    results_with_scores = semantic_engine_publications.search(query, df, top_k=overfetch_k)
+
+    # Build result set with post-filtering
+    output_cols = ["o:id", "title", "description", "country", "date", "language", "url"]
+    filtered_results = []
+    for pub_id, score in results_with_scores:
+        row = df[df["o:id"].astype(str) == str(pub_id)]
+        if row.empty:
+            continue
+
+        record = row.iloc[0]
+
+        # Apply post-filters
+        if country and not str(record.get("country", "")).lower().__contains__(country.lower()):
+            continue
+
+        result_dict = {
+            col: record.get(col) for col in output_cols if col in row.columns
+        }
+        result_dict["similarity_score"] = round(score, 4)
+
+        # Include table of contents if available
+        toc = record.get("tableOfContents", "") or ""
+        if toc:
+            result_dict["tableOfContents"] = toc
+
+        filtered_results.append(result_dict)
+
+        if len(filtered_results) >= limit:
+            break
+
+    return _to_json({
+        "query": query,
+        "count": len(filtered_results),
+        "filters": {
+            "country": country,
         },
         "results": filtered_results,
     })

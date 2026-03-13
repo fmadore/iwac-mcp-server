@@ -26,7 +26,7 @@ class HuggingFaceClient:
     SUBSETS = ["articles", "publications", "documents", "audiovisual", "index", "references"]
 
     # Columns to exclude when not loading embeddings
-    EMBEDDING_COLUMNS = ["embedding_OCR"]
+    EMBEDDING_COLUMNS = ["embedding_OCR", "embedding_tableOfContents"]
 
     def __init__(self):
         """Initialize the client."""
@@ -60,11 +60,11 @@ class HuggingFaceClient:
             df = dataset["train"].to_pandas()
 
             # Drop embedding columns if not needed
-            if not settings.load_embeddings and subset_name == "articles":
+            if not settings.load_embeddings and subset_name in ("articles", "publications"):
                 cols_to_drop = [c for c in self.EMBEDDING_COLUMNS if c in df.columns]
                 if cols_to_drop:
                     df = df.drop(columns=cols_to_drop)
-                    logger.info(f"Dropped embedding columns: {cols_to_drop}")
+                    logger.info(f"Dropped embedding columns from {subset_name}: {cols_to_drop}")
 
             # Convert date columns
             if "pub_date" in df.columns:
@@ -181,17 +181,18 @@ class HuggingFaceClient:
 
 
 class SemanticSearchEngine:
-    """Semantic search over article embeddings using cosine similarity.
+    """Semantic search over pre-computed embeddings using cosine similarity.
 
-    Uses pre-computed Gemini embeddings from the embedding_OCR column
-    (full article text) and encodes queries via the Gemini API with
-    RETRIEVAL_QUERY task type for asymmetric retrieval.
+    Uses pre-computed Gemini embeddings from a specified column and encodes
+    queries via the Gemini API with RETRIEVAL_QUERY task type for asymmetric
+    retrieval. Works with any subset (articles, publications, etc.).
     """
 
-    def __init__(self):
+    def __init__(self, embedding_column: str = "embedding_OCR"):
         self._client = None
+        self._embedding_column = embedding_column
         self._embeddings_matrix: np.ndarray | None = None
-        self._article_ids: np.ndarray | None = None
+        self._item_ids: np.ndarray | None = None
 
     def _ensure_client(self):
         """Lazy-load the Gemini API client."""
@@ -211,16 +212,16 @@ class SemanticSearchEngine:
             logger.info(f"Initializing Gemini client for query embedding (model: {settings.embedding_model})")
             self._client = genai.Client(api_key=api_key)
 
-    def _ensure_index(self, articles_df: pd.DataFrame):
-        """Build normalized embedding matrix from articles DataFrame.
+    def _ensure_index(self, df: pd.DataFrame):
+        """Build normalized embedding matrix from DataFrame.
 
         Skips rows with missing or empty embeddings.
         """
         if self._embeddings_matrix is None:
-            logger.info("Building semantic search index from embedding_OCR...")
+            logger.info(f"Building semantic search index from {self._embedding_column}...")
             valid_indices = []
             valid_embeddings = []
-            for i, emb in enumerate(articles_df["embedding_OCR"]):
+            for i, emb in enumerate(df[self._embedding_column]):
                 if emb is not None and hasattr(emb, "__len__") and len(emb) > 0:
                     valid_embeddings.append(emb)
                     valid_indices.append(i)
@@ -229,28 +230,28 @@ class SemanticSearchEngine:
             # Normalize for cosine similarity via dot product
             norms = np.linalg.norm(self._embeddings_matrix, axis=1, keepdims=True)
             self._embeddings_matrix = self._embeddings_matrix / np.maximum(norms, 1e-10)
-            self._article_ids = articles_df["o:id"].values[valid_indices]
-            skipped = len(articles_df) - len(valid_indices)
+            self._item_ids = df["o:id"].values[valid_indices]
+            skipped = len(df) - len(valid_indices)
             logger.info(
-                f"Semantic index built with {len(self._article_ids)} articles"
+                f"Semantic index ({self._embedding_column}) built with {len(self._item_ids)} items"
                 + (f" ({skipped} skipped, no embedding)" if skipped else "")
             )
 
     def search(
-        self, query: str, articles_df: pd.DataFrame, top_k: int = 20
+        self, query: str, df: pd.DataFrame, top_k: int = 20
     ) -> list[tuple[int, float]]:
-        """Return list of (article_id, similarity_score) tuples.
+        """Return list of (item_id, similarity_score) tuples.
 
         Args:
             query: Natural language search query
-            articles_df: Articles DataFrame (must contain embedding_OCR and o:id)
+            df: DataFrame (must contain the embedding column and o:id)
             top_k: Number of top results to return
 
         Returns:
-            List of (article_id, similarity_score) sorted by descending similarity
+            List of (item_id, similarity_score) sorted by descending similarity
         """
         self._ensure_client()
-        self._ensure_index(articles_df)
+        self._ensure_index(df)
 
         from google.genai import types
 
@@ -268,12 +269,13 @@ class SemanticSearchEngine:
         similarities = self._embeddings_matrix @ query_embedding
         top_indices = np.argsort(similarities)[::-1][:top_k]
         return [
-            (int(self._article_ids[idx]), float(similarities[idx])) for idx in top_indices
+            (int(self._item_ids[idx]), float(similarities[idx])) for idx in top_indices
         ]
 
 
 # Global client instance
 client = HuggingFaceClient()
 
-# Semantic search engine (only used when semantic search is enabled)
-semantic_engine = SemanticSearchEngine() if settings.semantic_search_enabled else None
+# Semantic search engines (only used when semantic search is enabled)
+semantic_engine = SemanticSearchEngine(embedding_column="embedding_OCR") if settings.semantic_search_enabled else None
+semantic_engine_publications = SemanticSearchEngine(embedding_column="embedding_tableOfContents") if settings.semantic_search_enabled else None
