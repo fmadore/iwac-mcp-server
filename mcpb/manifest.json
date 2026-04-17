@@ -17,6 +17,7 @@
   "homepage": "https://islam.zmo.de/s/westafrica/",
   "documentation": "https://github.com/fmadore/iwac-mcp-server#readme",
   "support": "https://github.com/fmadore/iwac-mcp-server/issues",
+  "icon": "icon.png",
   "license": "MIT",
   "keywords": [
     "islam",
