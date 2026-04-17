@@ -1,0 +1,20 @@
+# Source & build config (keep only compiled server/)
+src/
+tsconfig.json
+*.ts
+*.map
+
+# Local test scripts
+smoke-test.mjs
+probe-cols.mjs
+download-all.mjs
+
+# Dev metadata
+.gitignore
+.git/
+.DS_Store
+*.log
+.env
+.env.*
+
+# Keep: manifest.json, package.json, server/, node_modules/, README.md

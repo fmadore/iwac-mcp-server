@@ -1,0 +1,104 @@
+{
+  "manifest_version": "0.2",
+  "name": "iwac-mcp-server",
+  "display_name": "Islam West Africa Collection (IWAC)",
+  "version": "0.3.0",
+  "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
+  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications, 4,700 index entries, plus audiovisual materials, documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality).\n\n**No API key is required for the 16 core tools** (keyword search, filtering, statistics, item details). Two optional semantic-search tools use Gemini embeddings and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
+  "author": {
+    "name": "Frédérick Madore",
+    "email": "frederick.madore@uni-bayreuth.de",
+    "url": "https://github.com/fmadore"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fmadore/iwac-mcp-server"
+  },
+  "homepage": "https://islam.zmo.de/s/westafrica/",
+  "documentation": "https://github.com/fmadore/iwac-mcp-server#readme",
+  "support": "https://github.com/fmadore/iwac-mcp-server/issues",
+  "license": "MIT",
+  "keywords": [
+    "islam",
+    "west-africa",
+    "newspapers",
+    "digital-humanities",
+    "huggingface",
+    "sentiment-analysis",
+    "semantic-search"
+  ],
+  "privacy_policies": [
+    "https://huggingface.co/privacy",
+    "https://policies.google.com/privacy"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "IWAC_CACHE_DIR": "${user_config.cache_dir}",
+        "IWAC_SEMANTIC_SEARCH_ENABLED": "${user_config.semantic_search_enabled}",
+        "IWAC_GOOGLE_API_KEY": "${user_config.google_api_key}",
+        "IWAC_EMBEDDING_MODEL": "${user_config.embedding_model}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "search_articles", "description": "Search newspaper articles by keyword, country, newspaper, subject, and date range." },
+    { "name": "get_article", "description": "Get full metadata and OCR text for a specific article." },
+    { "name": "semantic_search_articles", "description": "Optional. Semantic similarity search over article OCR. Disabled by default — requires a free Google/Gemini API key." },
+    { "name": "semantic_search_publications", "description": "Optional. Semantic similarity search over publication tables of contents. Disabled by default — requires a free Google/Gemini API key." },
+    { "name": "search_by_sentiment", "description": "Filter articles by Gemini polarity and centrality labels." },
+    { "name": "get_sentiment_distribution", "description": "Aggregate Gemini sentiment stats across a filter set." },
+    { "name": "search_index", "description": "Search the authority index (persons, places, organisations, subjects)." },
+    { "name": "get_index_entry", "description": "Get full details of an index entry." },
+    { "name": "list_subjects", "description": "List subject terms ranked by frequency." },
+    { "name": "list_locations", "description": "List locations from the index, optionally filtered by country." },
+    { "name": "list_persons", "description": "List persons from the index, optionally filtered by country." },
+    { "name": "get_collection_stats", "description": "Overall stats for all six IWAC subsets." },
+    { "name": "get_newspaper_stats", "description": "Per-newspaper article counts and date ranges." },
+    { "name": "get_country_comparison", "description": "Compare article counts and sentiment across countries." },
+    { "name": "search_publications", "description": "Search Islamic publications (books, periodicals) including their tables of contents." },
+    { "name": "get_publication_fulltext", "description": "Retrieve full OCR text of a publication, optionally with keyword excerpts." },
+    { "name": "search_references", "description": "Search academic references (journal articles, books, theses)." },
+    { "name": "list_audiovisual", "description": "List audiovisual materials." }
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "user_config": {
+    "cache_dir": {
+      "type": "directory",
+      "title": "Dataset cache directory",
+      "description": "Where to store the downloaded IWAC parquet files (~250 MB on first run). Leave default to use your home directory.",
+      "required": false,
+      "default": "${HOME}/.iwac-mcp/cache"
+    },
+    "semantic_search_enabled": {
+      "type": "boolean",
+      "title": "Enable semantic search (optional)",
+      "description": "Most users can leave this off. Enables two extra tools that find articles/publications by meaning rather than keywords. Requires a free Google/Gemini API key and uses network calls at query time. The other 16 tools work without this.",
+      "default": false
+    },
+    "google_api_key": {
+      "type": "string",
+      "title": "Google / Gemini API key",
+      "description": "Required only if semantic search is enabled. Get a free key at https://aistudio.google.com/apikey.",
+      "sensitive": true,
+      "required": false
+    },
+    "embedding_model": {
+      "type": "string",
+      "title": "Gemini embedding model",
+      "description": "Model used to encode semantic-search queries. Must match the embeddings stored in the dataset.",
+      "default": "gemini-embedding-2-preview",
+      "required": false
+    }
+  }
+}
