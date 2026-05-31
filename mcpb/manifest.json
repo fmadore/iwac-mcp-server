@@ -1,8 +1,8 @@
 {
-  "manifest_version": "0.2",
+  "manifest_version": "0.3",
   "name": "iwac-mcp-server",
   "display_name": "Islam West Africa Collection (IWAC)",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
   "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications, 4,700 index entries, plus audiovisual materials, documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality).\n\n**No API key is required for the 16 core tools** (keyword search, filtering, statistics, item details). Two optional semantic-search tools use Gemini embeddings and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
   "author": {
@@ -50,7 +50,6 @@
     { "name": "search_articles", "description": "Search newspaper articles by keyword, country, newspaper, subject, and date range." },
     { "name": "get_article", "description": "Get full metadata and OCR text for a specific article." },
     { "name": "semantic_search_articles", "description": "Optional. Semantic similarity search over article OCR. Disabled by default — requires a free Google/Gemini API key." },
-    { "name": "semantic_search_publications", "description": "Optional. Semantic similarity search over publication tables of contents. Disabled by default — requires a free Google/Gemini API key." },
     { "name": "search_by_sentiment", "description": "Filter articles by Gemini polarity and centrality labels." },
     { "name": "get_sentiment_distribution", "description": "Aggregate Gemini sentiment stats across a filter set." },
     { "name": "search_index", "description": "Search the authority index (persons, places, organisations, subjects)." },
@@ -63,6 +62,7 @@
     { "name": "get_country_comparison", "description": "Compare article counts and sentiment across countries." },
     { "name": "search_publications", "description": "Search Islamic publications (books, periodicals) including their tables of contents." },
     { "name": "get_publication_fulltext", "description": "Retrieve full OCR text of a publication, optionally with keyword excerpts." },
+    { "name": "semantic_search_publications", "description": "Optional. Semantic similarity search over publication tables of contents. Disabled by default — requires a free Google/Gemini API key." },
     { "name": "search_references", "description": "Search academic references (journal articles, books, theses)." },
     { "name": "list_audiovisual", "description": "List audiovisual materials." }
   ],

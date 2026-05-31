@@ -23,7 +23,8 @@ queries are served locally through DuckDB.
 cd mcpb
 npm install
 node scripts/install-duckdb-bindings.mjs   # pulls all 6 platform binaries
-npm run build                              # tsc -> server/*.js
+npm run typecheck                          # tsc --noEmit (type safety)
+npm run build                              # esbuild -> server/index.js (single file)
 node smoke-test.mjs                        # spawn server, call each tool
 ```
 
@@ -41,10 +42,11 @@ npx mcpb pack . iwac-mcp-server.mcpb
 | Path                         | Purpose                                         |
 | ---------------------------- | ----------------------------------------------- |
 | `manifest.json`              | MCPB manifest (version, tools, user_config)     |
-| `src/`                       | TypeScript sources (excluded from the bundle)   |
-| `server/`                    | Compiled JS entry point (bundled)               |
-| `node_modules/`              | Runtime deps + all 6 DuckDB platform bindings   |
-| `scripts/install-duckdb-bindings.mjs` | Force-install all platform bindings    |
+| `src/`                       | TypeScript sources, split into `tools/` modules |
+| `server/index.js`            | Single esbuild bundle (server + MCP SDK + zod)  |
+| `node_modules/`              | Runtime externals: `@duckdb/*` + `@google/genai`|
+| `scripts/bundle.mjs`         | esbuild config (single-file bundle)             |
+| `scripts/install-duckdb-bindings.mjs` | Force-install all 6 platform bindings  |
 | `smoke-test.mjs`             | Local MCP round-trip test                       |
 | `.mcpbignore`                | Files excluded from the `.mcpb` archive         |
 
@@ -65,5 +67,9 @@ npx mcpb pack . iwac-mcp-server.mcpb
 
 Anthropic's MCPB guidance recommends Node because Claude Desktop ships with a
 bundled Node runtime, which means zero installation friction for end users.
-The Python server remains in `../src/iwac_mcp/` for reference and for users who
-want to run it from source.
+
+`npm run build` bundles the server, the MCP SDK, and zod into a single
+`server/index.js` with [esbuild](scripts/bundle.mjs). The native `@duckdb/*`
+bindings and the optional `@google/genai` client stay external (the former can't
+be inlined; the latter is only needed when semantic search is enabled), so those
+two trees are the only runtime `node_modules` the packed bundle relies on.

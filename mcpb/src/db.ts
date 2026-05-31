@@ -13,6 +13,15 @@ async function getConn(): Promise<DuckDBConnection> {
 }
 
 /**
+ * Safe SQL name for a subset's view. `index` and `references` are reserved words
+ * in DuckDB, so they must be double-quoted; the rest are bare identifiers.
+ * Single source of truth — used both when creating the view and when querying it.
+ */
+export function viewName(subset: Subset): string {
+  return subset === "index" || subset === "references" ? `"${subset}"` : subset;
+}
+
+/**
  * Ensure a subset's parquet files are downloaded and registered as a DuckDB view,
  * and cache its column list.
  */
@@ -22,7 +31,7 @@ export async function ensureView(subset: Subset): Promise<Set<string>> {
   const conn = await getConn();
   const localDir = await ensureSubset(subset);
   const glob = subsetGlob(localDir);
-  const quoted = subset === "index" || subset === "references" ? `"${subset}"` : subset;
+  const quoted = viewName(subset);
   await conn.run(
     `CREATE OR REPLACE VIEW ${quoted} AS SELECT * FROM read_parquet('${glob.replace(/'/g, "''")}')`,
   );
@@ -105,6 +114,44 @@ export async function queryScalarSingle<T = unknown>(
 ): Promise<T | null> {
   const values = await queryScalar<T>(sql, params);
   return values[0] ?? null;
+}
+
+/**
+ * Canonical "fetch one row by o:id" lookup. Compares as VARCHAR so it works
+ * whether the parquet stores `o:id` as an integer or a string. `cols` is a ready
+ * SELECT list (e.g. from `selectList`, or `"*"`).
+ */
+export async function getById(
+  subset: Subset,
+  cols: string,
+  id: string | number,
+): Promise<Row | null> {
+  return queryOne(
+    `SELECT ${cols} FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ?`,
+    [String(id)],
+  );
+}
+
+/**
+ * Fetch many rows by o:id in a single query (avoids N+1 round-trips). Optional
+ * `extraWhere`/`extraParams` are AND-ed onto the id filter so callers can push
+ * additional predicates (country, date range) into SQL. Result order is
+ * unspecified — callers that need a particular order must re-sort.
+ */
+export async function getManyByIds(
+  subset: Subset,
+  cols: string,
+  ids: Array<string | number>,
+  extraWhere: string[] = [],
+  extraParams: unknown[] = [],
+): Promise<Row[]> {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(", ");
+  const where = [`CAST("o:id" AS VARCHAR) IN (${placeholders})`, ...extraWhere];
+  return query(
+    `SELECT ${cols} FROM ${viewName(subset)} WHERE ${where.join(" AND ")}`,
+    [...ids.map((v) => String(v)), ...extraParams],
+  );
 }
 
 /**

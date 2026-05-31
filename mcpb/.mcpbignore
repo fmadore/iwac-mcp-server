@@ -1,5 +1,6 @@
-# Source & build config (keep only compiled server/)
+# Source & build config (keep only the bundled server/index.js)
 src/
+scripts/
 tsconfig.json
 *.ts
 *.map
