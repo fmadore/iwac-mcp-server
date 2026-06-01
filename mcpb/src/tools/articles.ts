@@ -7,6 +7,7 @@ import {
   capLimit,
   capOffset,
   capText,
+  errorResult,
   likeFilterIfExists,
   pubDateOrder,
   runListQuery,
@@ -113,7 +114,7 @@ export function registerArticleTools(server: Server): void {
         ["gemini_subjectivite_score", "gemini_subjectivity", ["gemini_subjectivite_score"]],
       ]);
       const row = await getById("articles", cols, article_id);
-      if (!row) return textResult({ error: `Article ${article_id} not found` });
+      if (!row) return errorResult({ error: `Article ${article_id} not found` });
       if (typeof row.ocr_text === "string") {
         const capped = capText(row.ocr_text);
         row.ocr_text = capped.text;
@@ -197,7 +198,7 @@ export function registerArticleTools(server: Server): void {
           results,
         });
       } catch (err) {
-        return textResult({ error: String((err as Error).message ?? err) });
+        return errorResult({ error: String((err as Error).message ?? err) });
       }
     },
   );

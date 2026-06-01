@@ -8,7 +8,7 @@ async function main(): Promise<void> {
   const server = new McpServer(
     {
       name: "iwac-mcp-server",
-      version: "0.4.0",
+      version: "0.4.1",
     },
     {
       instructions:

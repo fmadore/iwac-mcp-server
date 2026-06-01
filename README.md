@@ -55,7 +55,8 @@ for the build / pack workflow.
 cd mcpb
 npm install
 node scripts/install-duckdb-bindings.mjs
-npm run build
+npm run typecheck   # tsc --noEmit
+npm run build       # esbuild -> single server/index.js
 node smoke-test.mjs
 ```
 

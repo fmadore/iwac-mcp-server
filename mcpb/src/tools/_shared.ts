@@ -42,6 +42,20 @@ export function textResult(payload: unknown): { content: { type: "text"; text: s
   };
 }
 
+/**
+ * Like `textResult`, but marks the result as a tool-level error (`isError: true`)
+ * per MCP guidance, so the model recognises the failure and can self-correct
+ * (e.g. a missing id, semantic search disabled) rather than treating the error
+ * JSON as a successful result. Reserve this for genuine failures — an empty or
+ * "no matches" result is a successful call and should use `textResult`.
+ */
+export function errorResult(payload: unknown): {
+  content: { type: "text"; text: string }[];
+  isError: true;
+} {
+  return { content: textResult(payload).content, isError: true };
+}
+
 // -----------------------------------------------------------------------------
 // Input capping (lenient clamp, not rejection)
 // -----------------------------------------------------------------------------

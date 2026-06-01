@@ -4,6 +4,7 @@ import {
   annotate,
   capLimit,
   capOffset,
+  errorResult,
   indexFreqOrder,
   indexSummaryCols,
   likeFilterIfExists,
@@ -64,7 +65,7 @@ export function registerIndexTools(server: Server): void {
     async ({ entry_id }) => {
       await ensureView("index");
       const row = await getById("index", "*", entry_id);
-      if (!row) return textResult({ error: `Index entry ${entry_id} not found` });
+      if (!row) return errorResult({ error: `Index entry ${entry_id} not found` });
       return textResult(row);
     },
   );

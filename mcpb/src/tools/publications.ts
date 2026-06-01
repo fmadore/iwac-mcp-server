@@ -6,6 +6,7 @@ import {
   capLimit,
   capOffset,
   capText,
+  errorResult,
   extractMatchingTocEntries,
   likeFilterIfExists,
   publicationSummaryCols,
@@ -103,7 +104,7 @@ export function registerPublicationTools(server: Server): void {
         ['"OCR"', "fulltext", ["OCR"]],
       ]);
       const row = await getById("publications", cols, args.publication_id);
-      if (!row) return textResult({ error: `Publication ${args.publication_id} not found` });
+      if (!row) return errorResult({ error: `Publication ${args.publication_id} not found` });
 
       const result: Record<string, unknown> = {
         "o:id": args.publication_id,
@@ -214,7 +215,7 @@ export function registerPublicationTools(server: Server): void {
           results,
         });
       } catch (err) {
-        return textResult({ error: String((err as Error).message ?? err) });
+        return errorResult({ error: String((err as Error).message ?? err) });
       }
     },
   );
