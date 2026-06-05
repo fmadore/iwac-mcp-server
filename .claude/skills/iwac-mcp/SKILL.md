@@ -9,7 +9,7 @@ description: |
   - Analyzing sentiment or temporal patterns in West African press coverage
   - Comparing coverage across countries, newspapers, or time periods
   - Building structured research outputs with source attribution and confidence grading
-  This skill provides a five-phase research methodology, search strategy guidance for francophone sources, bias awareness, and documentation conventions. It complements the iwac-dataset skill (data schema) and iwac-api skill (Omeka S endpoints).
+  This skill provides a five-phase research methodology, search strategy guidance for francophone sources, bias awareness, and documentation conventions. It complements the iwac-data skill (data schemas + Omeka S API).
 ---
 
 # IWAC MCP Research Workflow
@@ -24,7 +24,7 @@ Before beginning a research session, read the relevant reference files:
 2. **references/research-domains.md** -- key research domains with French search terms and transliteration variants
 3. **references/biases-and-limitations.md** -- collection biases, coverage gaps, and sentiment caveats
 
-For data schema details, defer to the `iwac-dataset` skill. For Omeka S API details, defer to the `iwac-api` skill.
+For data schema and Omeka S API details, defer to the `iwac-data` skill.
 
 ## Research Depth
 
