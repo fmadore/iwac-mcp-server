@@ -23,7 +23,11 @@ export const ALL_SUBSETS: Subset[] = [
 
 function resolveCacheDir(): string {
   const raw = process.env.IWAC_CACHE_DIR?.trim();
-  if (raw && raw.length > 0) return path.resolve(raw);
+  // Ignore an unexpanded launcher template (e.g. a manifest default of
+  // "${HOME}/.iwac-mcp/cache" passed through literally). path.resolve() would
+  // otherwise turn "${HOME}/..." into "<cwd>/${HOME}/..." and crash with EPERM
+  // when cwd is a protected dir (e.g. C:\Windows\system32). Fall back to $HOME.
+  if (raw && raw.length > 0 && !raw.includes("${")) return path.resolve(raw);
   return path.join(os.homedir(), ".iwac-mcp", "cache");
 }
 
@@ -40,7 +44,7 @@ export const config = {
   datasetRevision: DATASET_REVISION,
   cacheDir: resolveCacheDir(),
   semanticSearchEnabled: parseBool(process.env.IWAC_SEMANTIC_SEARCH_ENABLED, false),
-  embeddingModel: process.env.IWAC_EMBEDDING_MODEL?.trim() || "gemini-embedding-2-preview",
+  embeddingModel: process.env.IWAC_EMBEDDING_MODEL?.trim() || "gemini-embedding-2",
   embeddingDimensionality: Number.parseInt(
     process.env.IWAC_EMBEDDING_DIMENSIONALITY || "768",
     10,

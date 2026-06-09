@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ensureView, getById, getManyByIds, q, selectList } from "../db.js";
+import { ensureView, getById, getManyByIds, q, query, selectList } from "../db.js";
 import { semanticSearch } from "../embeddings.js";
 import {
   annotate,
@@ -13,6 +13,7 @@ import {
   pubDateOrder,
   runListQuery,
   textResult,
+  yearRangeFilter,
   type Server,
 } from "./_shared.js";
 
@@ -22,12 +23,18 @@ export function registerPublicationTools(server: Server): void {
     "search_publications",
     {
       description:
-        "Search Islamic publications (books, periodicals). When the keyword matches the table of contents, only matching TOC entries are returned.",
+        "Search Islamic publications (periodical issues, books). `keyword` matches title, subject and full OCR text; " +
+        "filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
+        "get_publication_fulltext for keyword excerpts from a single issue.",
       annotations: annotate("Search publications"),
       inputSchema: {
-        keyword: z.string().optional(),
+        keyword: z.string().optional().describe("Substring match on title + subject + OCR"),
+        newspaper: z.string().optional().describe("Periodical/series title (see list_periodicals)"),
+        subject: z.string().optional().describe("Subject tag (~87% of issues are tagged)"),
         country: z.string().optional(),
-        limit: z.number().int().optional(),
+        date_from: z.string().optional().describe("Earliest year, YYYY"),
+        date_to: z.string().optional().describe("Latest year, YYYY"),
+        limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       },
     },
@@ -41,21 +48,18 @@ export function registerPublicationTools(server: Server): void {
       if (args.keyword) {
         const parts: string[] = [];
         const kw = `%${args.keyword}%`;
-        if (schema.has("title")) {
-          parts.push("title ILIKE ?");
-          params.push(kw);
-        }
-        if (schema.has("descriptionAI")) {
-          parts.push(`${q("descriptionAI")} ILIKE ?`);
-          params.push(kw);
-        }
-        if (schema.has("tableOfContents")) {
-          parts.push(`${q("tableOfContents")} ILIKE ?`);
-          params.push(kw);
+        for (const col of ["title", "subject", "tableOfContents", "OCR"]) {
+          if (schema.has(col)) {
+            parts.push(`${q(col)} ILIKE ?`);
+            params.push(kw);
+          }
         }
         if (parts.length) where.push(`(${parts.join(" OR ")})`);
       }
+      likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
+      likeFilterIfExists(schema, where, params, "subject", args.subject);
       likeFilterIfExists(schema, where, params, "country", args.country);
+      yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
       const cols = publicationSummaryCols(schema);
       const tocExpr =
@@ -79,6 +83,42 @@ export function registerPublicationTools(server: Server): void {
         }
       }
       return textResult(env);
+    },
+  );
+
+  // === list_periodicals ===================================================
+  server.registerTool(
+    "list_periodicals",
+    {
+      description:
+        "List the Islamic periodical/series titles in the publications subset, with issue counts and year ranges. " +
+        "Use the returned newspaper value as the `newspaper` filter on search_publications.",
+      annotations: annotate("List periodicals"),
+      inputSchema: { country: z.string().optional() },
+    },
+    async (args) => {
+      const schema = await ensureView("publications");
+      if (!schema.has("newspaper")) return textResult({ total_periodicals: 0, periodicals: [] });
+      const where: string[] = ["newspaper IS NOT NULL"];
+      const params: unknown[] = [];
+      likeFilterIfExists(schema, where, params, "country", args.country);
+      const dateCols = schema.has("pub_date")
+        ? `, MIN(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS earliest_year,` +
+          ` MAX(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS latest_year`
+        : "";
+      const whereSql = `WHERE ${where.join(" AND ")}`;
+      const rows = await query(
+        `SELECT newspaper, country, COUNT(*) AS issue_count${dateCols}
+         FROM publications ${whereSql}
+         GROUP BY newspaper, country
+         ORDER BY issue_count DESC`,
+        params,
+      );
+      return textResult({
+        country_filter: args.country ?? null,
+        total_periodicals: rows.length,
+        periodicals: rows,
+      });
     },
   );
 
@@ -162,7 +202,10 @@ export function registerPublicationTools(server: Server): void {
     "semantic_search_publications",
     {
       description:
-        "Semantic similarity search over publication tables of contents using Gemini embeddings. Requires semantic search to be enabled and a Google API key.",
+        "Semantic similarity search over publication tables of contents using Gemini embeddings. " +
+        "Note: TOC coverage is currently very sparse (few issues have a table of contents), so this returns " +
+        "limited results until TOCs are enriched — prefer search_publications for keyword/OCR search. " +
+        "Requires semantic search to be enabled and a Google API key.",
       annotations: annotate("Semantic search for publications"),
       inputSchema: {
         query: z.string(),

@@ -144,6 +144,42 @@ export function likeFilterIfExists(
   params.push(`%${value}%`);
 }
 
+/** First 4-digit run of a date-ish string ("2015", "2015-06-01") as a year int. */
+function parseYear(v: string | undefined): number | undefined {
+  if (!v) return undefined;
+  const m = v.trim().match(/\d{4}/);
+  return m ? Number(m[0]) : undefined;
+}
+
+/**
+ * Year-granularity date range on a VARCHAR `pub_date` column (references &
+ * publications store it as a string, often a bare year like "1912"). Compares the
+ * leading 4-digit year numerically, so it works for both "YYYY" and "YYYY-MM-DD"
+ * and ignores empty/garbage values. For TIMESTAMPTZ columns (articles) keep the
+ * inline CAST filters instead.
+ */
+export function yearRangeFilter(
+  schema: Set<string>,
+  where: string[],
+  params: unknown[],
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  column = "pub_date",
+): void {
+  if (!schema.has(column)) return;
+  const yearExpr = `TRY_CAST(substr(${q(column)}, 1, 4) AS INTEGER)`;
+  const fy = parseYear(dateFrom);
+  const ty = parseYear(dateTo);
+  if (fy !== undefined) {
+    where.push(`${yearExpr} >= ?`);
+    params.push(fy);
+  }
+  if (ty !== undefined) {
+    where.push(`${yearExpr} <= ?`);
+    params.push(ty);
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Reusable ORDER BY fragments
 // -----------------------------------------------------------------------------
@@ -186,10 +222,34 @@ export function publicationSummaryCols(schema: Set<string>): string {
   return selectList(schema, [
     ['"o:id"', "o:id", ["o:id"]],
     "title",
-    ['COALESCE("descriptionAI", NULL)', "description", ["descriptionAI"]],
+    "newspaper",
     "country",
     ["pub_date", "date", ["pub_date"]],
     "language",
+    "subject",
+    "nb_pages",
+    ["iwac_url", "url", ["iwac_url"]],
+  ]);
+}
+
+/** Truncated abstract for reference search results (full text via get_reference). */
+const ABSTRACT_SNIPPET_EXPR =
+  `CASE WHEN "abstract" IS NULL OR length(trim("abstract")) = 0 THEN NULL ` +
+  `WHEN length("abstract") <= 320 THEN "abstract" ` +
+  `ELSE substr("abstract", 1, 320) || '…' END`;
+
+export function referenceSummaryCols(schema: Set<string>): string {
+  return selectList(schema, [
+    ['"o:id"', "o:id", ["o:id"]],
+    "title",
+    "author",
+    "type",
+    ["pub_date", "date", ["pub_date"]],
+    "publisher",
+    "country",
+    "language",
+    "doi",
+    [ABSTRACT_SNIPPET_EXPR, "abstract_snippet", ["abstract"]],
     ["iwac_url", "url", ["iwac_url"]],
   ]);
 }
