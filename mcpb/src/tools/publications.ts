@@ -6,8 +6,12 @@ import {
   capLimit,
   capOffset,
   capText,
+  CHARACTER_LIMIT,
+  countryFilterIfExists,
   errorResult,
   extractMatchingTocEntries,
+  foldedLike,
+  foldText,
   likeFilterIfExists,
   publicationSummaryCols,
   pubDateOrder,
@@ -28,19 +32,22 @@ export function registerPublicationTools(server: Server): void {
         "get_publication_fulltext for keyword excerpts from a single issue.",
       annotations: annotate("Search publications"),
       inputSchema: {
-        keyword: z.string().optional().describe("Substring match on title + subject + OCR"),
+        keyword: z.string().optional().describe("Substring match on title + subject + OCR (accent-insensitive)"),
         newspaper: z.string().optional().describe("Periodical/series title (see list_periodicals)"),
         subject: z.string().optional().describe("Subject tag (~87% of issues are tagged)"),
-        country: z.string().optional(),
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
         date_from: z.string().optional().describe("Earliest year, YYYY"),
         date_to: z.string().optional().describe("Latest year, YYYY"),
-        limit: z.number().int().optional().describe("Default 20, max 100"),
+        limit: z.number().int().optional().describe("Default 10, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("publications");
-      const limit = capLimit(args.limit, 20, 100);
+      const limit = capLimit(args.limit, 10, 100);
       const offset = capOffset(args.offset);
 
       const where: string[] = [];
@@ -50,7 +57,7 @@ export function registerPublicationTools(server: Server): void {
         const kw = `%${args.keyword}%`;
         for (const col of ["title", "subject", "tableOfContents", "OCR"]) {
           if (schema.has(col)) {
-            parts.push(`${q(col)} ILIKE ?`);
+            parts.push(foldedLike(q(col)));
             params.push(kw);
           }
         }
@@ -58,7 +65,7 @@ export function registerPublicationTools(server: Server): void {
       }
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
-      likeFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", args.country);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
       const cols = publicationSummaryCols(schema);
@@ -94,14 +101,19 @@ export function registerPublicationTools(server: Server): void {
         "List the Islamic periodical/series titles in the publications subset, with issue counts and year ranges. " +
         "Use the returned newspaper value as the `newspaper` filter on search_publications.",
       annotations: annotate("List periodicals"),
-      inputSchema: { country: z.string().optional() },
+      inputSchema: {
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+      },
     },
     async (args) => {
       const schema = await ensureView("publications");
       if (!schema.has("newspaper")) return textResult({ total_periodicals: 0, periodicals: [] });
-      const where: string[] = ["newspaper IS NOT NULL"];
+      const where: string[] = [`NULLIF(trim(newspaper), '') IS NOT NULL`];
       const params: unknown[] = [];
-      likeFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", args.country);
       const dateCols = schema.has("pub_date")
         ? `, MIN(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS earliest_year,` +
           ` MAX(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS latest_year`
@@ -127,12 +139,14 @@ export function registerPublicationTools(server: Server): void {
     "get_publication_fulltext",
     {
       description:
-        "Full OCR text of a publication, optionally returning ~2000-char excerpts around each keyword match.",
+        "Full OCR text of a publication, optionally returning ~2000-char excerpts around keyword matches " +
+        "(accent-insensitive; capped — see match_count vs excerpts_returned).",
       annotations: annotate("Get publication full text"),
       inputSchema: {
         publication_id: z.number().int(),
         keyword: z.string().optional(),
         context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
+        max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
       },
     },
     async (args) => {
@@ -147,19 +161,20 @@ export function registerPublicationTools(server: Server): void {
       if (!row) return errorResult({ error: `Publication ${args.publication_id} not found` });
 
       const result: Record<string, unknown> = {
-        "o:id": args.publication_id,
+        id: args.publication_id,
         title: row.title ?? "",
       };
       if (row.tableOfContents) result.tableOfContents = row.tableOfContents;
 
       const ocr = (row.fulltext as string | null) ?? "";
-      if (!ocr) {
+      if (!ocr.trim()) {
         result.fulltext = null;
         result.note = "No OCR text available for this publication";
         return textResult(result);
       }
       if (!args.keyword) {
-        // Whole-book OCR can be enormous — cap it and point at the keyword path.
+        // Whole-issue OCR can exceed a million characters — cap it and point at
+        // the keyword path.
         const capped = capText(ocr, { suggestKeyword: true });
         result.fulltext = capped.text;
         result.char_count = ocr.length;
@@ -169,29 +184,61 @@ export function registerPublicationTools(server: Server): void {
         }
         return textResult(result);
       }
-      const contextChars = Math.min(args.context_chars ?? 2000, 5000);
+
+      const contextChars = Math.max(200, Math.min(args.context_chars ?? 2000, 5000));
+      const maxExcerpts = capLimit(args.max_excerpts, 10, 25);
       const half = Math.floor(contextChars / 2);
-      const lower = ocr.toLowerCase();
-      const kw = args.keyword.toLowerCase();
-      const excerpts: string[] = [];
+      // Accent/case-fold both sides (index-stable) so excerpt extraction agrees
+      // with the accent-insensitive SQL search that found this publication.
+      const haystack = foldText(ocr);
+      const needle = foldText(args.keyword);
+
+      // All match positions first (cheap), then excerpts up to the caps. A common
+      // keyword in a 1M-char issue can match hundreds of times — uncapped, that
+      // once produced a single ~150k-char (~38k-token) response.
+      const positions: number[] = [];
       let pos = 0;
       while (true) {
-        const idx = lower.indexOf(kw, pos);
+        const idx = haystack.indexOf(needle, pos);
         if (idx === -1) break;
+        positions.push(idx);
+        pos = idx + Math.max(1, needle.length);
+      }
+      if (positions.length === 0) {
+        result.excerpts = [];
+        result.match_count = 0;
+        result.note = `Keyword '${args.keyword}' not found in full text`;
+        return textResult(result);
+      }
+
+      const excerpts: string[] = [];
+      let coveredUntil = -1; // skip matches already visible in the previous excerpt
+      let totalChars = 0;
+      let capped = false;
+      for (const idx of positions) {
+        if (idx < coveredUntil) continue;
+        if (excerpts.length >= maxExcerpts || totalChars >= CHARACTER_LIMIT) {
+          capped = true;
+          break;
+        }
         const start = Math.max(0, idx - half);
-        const end = Math.min(ocr.length, idx + args.keyword.length + half);
+        const end = Math.min(ocr.length, idx + needle.length + half);
         let ex = ocr.slice(start, end);
         if (start > 0) ex = "..." + ex;
         if (end < ocr.length) ex += "...";
         excerpts.push(ex);
-        pos = idx + args.keyword.length;
+        totalChars += ex.length;
+        coveredUntil = end;
       }
-      if (excerpts.length === 0) {
-        result.excerpts = [];
-        result.note = `Keyword '${args.keyword}' not found in full text`;
-      } else {
-        result.excerpts = excerpts;
-        result.match_count = excerpts.length;
+
+      result.excerpts = excerpts;
+      result.excerpts_returned = excerpts.length;
+      result.match_count = positions.length;
+      if (capped) {
+        result.truncated = true;
+        result.truncation_message =
+          `Showing ${excerpts.length} excerpts for ${positions.length} matches. ` +
+          `Use a more specific keyword, or raise max_excerpts (max 25) / page through with a narrower term.`;
       }
       return textResult(result);
     },
@@ -209,8 +256,11 @@ export function registerPublicationTools(server: Server): void {
       annotations: annotate("Semantic search for publications"),
       inputSchema: {
         query: z.string(),
-        country: z.string().optional(),
-        limit: z.number().int().optional(),
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        limit: z.number().int().optional().describe("Default 10, max 50"),
       },
     },
     async (args) => {
@@ -228,7 +278,7 @@ export function registerPublicationTools(server: Server): void {
 
         const extraWhere: string[] = [];
         const extraParams: unknown[] = [];
-        likeFilterIfExists(schema, extraWhere, extraParams, "country", args.country);
+        countryFilterIfExists(schema, extraWhere, extraParams, "country", args.country);
 
         const rows = await getManyByIds(
           "publications",
@@ -237,7 +287,7 @@ export function registerPublicationTools(server: Server): void {
           extraWhere,
           extraParams,
         );
-        const byId = new Map(rows.map((r) => [String(r["o:id"]), r]));
+        const byId = new Map(rows.map((r) => [String(r.id), r]));
 
         const results: Record<string, unknown>[] = [];
         for (const h of hits) {

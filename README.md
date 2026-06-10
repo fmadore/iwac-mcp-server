@@ -19,9 +19,10 @@ DuckDB bindings for macOS, Windows, and Linux (x64 and arm64).
 
 ## What it gives Claude
 
-18 read-only tools across six IWAC subsets. **16 work out of the box**; the 2
+22 read-only tools across six IWAC subsets. **20 work out of the box**; the 2
 `semantic_search_*` tools are optional and require a free Google/Gemini API key
-(disabled by default).
+(disabled by default). All keyword and filter matching is accent- and
+case-insensitive.
 
 | Group        | Tools                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------- |
@@ -29,8 +30,9 @@ DuckDB bindings for macOS, Windows, and Linux (x64 and arm64).
 | Sentiment    | `search_by_sentiment`, `get_sentiment_distribution`                                         |
 | Index        | `search_index`, `get_index_entry`, `list_subjects`, `list_locations`, `list_persons`        |
 | Stats        | `get_collection_stats`, `get_newspaper_stats`, `get_country_comparison`                     |
-| Publications | `search_publications`, `get_publication_fulltext`, `semantic_search_publications`           |
-| Other        | `search_references`, `list_audiovisual`                                                     |
+| Publications | `search_publications`, `list_periodicals`, `get_publication_fulltext`, `semantic_search_publications` |
+| References   | `search_references`, `get_reference`                                                        |
+| Other        | `search_documents`, `get_document`, `list_audiovisual`                                      |
 
 Every result object includes a `url` field pointing at the canonical IWAC record,
 e.g. `https://islam.zmo.de/s/afrique_ouest/item/28576`.
@@ -40,11 +42,12 @@ e.g. `https://islam.zmo.de/s/afrique_ouest/item/28576`.
 IWAC is a digital archive focused on Islam and Muslims in West Africa:
 
 - **12,000+ newspaper articles** from Benin, Burkina Faso, Côte d'Ivoire, Niger,
-  Togo, and Nigeria, 1960s–present (mostly French)
+  and Togo, 1960s–present (mostly French), each with an AI abstract and Gemini
+  sentiment analysis (polarity / centrality / subjectivity)
 - **4,700+ authority records** (persons, organisations, places, events, subjects)
-- **1,500+ Islamic publications** with full OCR and tables of contents
-- **AI sentiment analysis** (Gemini polarity / centrality / subjectivity)
-- Academic references, audiovisual materials, and archival documents
+- **1,500+ Islamic publications** (periodical issues, books) with full OCR
+- **860+ academic references**, half with abstracts
+- Archival documents and Nigerian audiovisual materials
 
 ## Develop
 

@@ -7,7 +7,10 @@ import {
   capLimit,
   capOffset,
   capText,
+  countryFilterIfExists,
+  dateRangeFilter,
   errorResult,
+  foldedLike,
   likeFilterIfExists,
   pubDateOrder,
   runListQuery,
@@ -15,63 +18,74 @@ import {
   type Server,
 } from "./_shared.js";
 
+/** keyword OR-clause over title + OCR + AI abstract, accent/case-insensitive. */
+function articleKeywordFilter(
+  schema: Set<string>,
+  where: string[],
+  params: unknown[],
+  keyword: string | undefined,
+): void {
+  if (!keyword) return;
+  const parts: string[] = [];
+  for (const col of ["title", "OCR", "descriptionAI"]) {
+    if (schema.has(col)) {
+      parts.push(foldedLike(q(col)));
+      params.push(`%${keyword}%`);
+    }
+  }
+  if (parts.length) where.push(`(${parts.join(" OR ")})`);
+}
+
 export function registerArticleTools(server: Server): void {
   // === search_articles =====================================================
   server.registerTool(
     "search_articles",
     {
       description:
-        "Search IWAC newspaper articles by keyword (title+OCR), country, newspaper, subject, and date range.",
+        "Search IWAC newspaper articles by keyword (title + OCR + AI abstract), country, newspaper, subject, " +
+        "and date range. Matching is accent- and case-insensitive.",
       annotations: annotate("Search newspaper articles"),
       inputSchema: {
-        keyword: z.string().optional().describe("Full-text search in title and OCR"),
-        country: z.string().optional(),
+        keyword: z.string().optional().describe("Substring match on title, OCR text, and AI abstract"),
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
         newspaper: z.string().optional(),
         subject: z.string().optional(),
-        date_from: z.string().optional().describe("YYYY-MM-DD"),
-        date_to: z.string().optional().describe("YYYY-MM-DD"),
-        limit: z.number().int().optional().describe("Default 20, max 100"),
+        date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
+        date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
+        with_description: z
+          .boolean()
+          .optional()
+          .describe("Include each article's ~500-char AI abstract (description_ai) for triage without get_article. Adds ~125 tokens/row — pair with limit ≤ 10."),
+        limit: z.number().int().optional().describe("Default 10, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("articles");
-      const limit = capLimit(args.limit, 20, 100);
+      const limit = capLimit(args.limit, 10, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
 
-      likeFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", args.country);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
+      articleKeywordFilter(schema, where, params, args.keyword);
+      dateRangeFilter(schema, where, params, args.date_from, args.date_to);
 
-      if (args.keyword) {
-        const parts: string[] = [];
-        if (schema.has("title")) {
-          parts.push("title ILIKE ?");
-          params.push(`%${args.keyword}%`);
-        }
-        if (schema.has("OCR")) {
-          parts.push(`${q("OCR")} ILIKE ?`);
-          params.push(`%${args.keyword}%`);
-        }
-        if (parts.length) where.push(`(${parts.join(" OR ")})`);
+      let cols = articleSummaryCols(schema);
+      if (args.with_description && schema.has("descriptionAI")) {
+        cols += `, ${q("descriptionAI")} AS description_ai`;
       }
-      if (args.date_from && schema.has("pub_date")) {
-        where.push("pub_date >= CAST(? AS TIMESTAMPTZ)");
-        params.push(args.date_from);
-      }
-      if (args.date_to && schema.has("pub_date")) {
-        where.push("pub_date <= CAST(? AS TIMESTAMPTZ)");
-        params.push(args.date_to);
-      }
-
       return textResult(
         await runListQuery({
           subset: "articles",
           where,
           params,
-          cols: articleSummaryCols(schema),
+          cols,
           orderBy: pubDateOrder(schema),
           limit,
           offset,
@@ -84,7 +98,8 @@ export function registerArticleTools(server: Server): void {
   server.registerTool(
     "get_article",
     {
-      description: "Get full metadata and OCR text for an article (by o:id).",
+      description:
+        "Get one article (by id): full metadata, the AI abstract (description_ai), Gemini sentiment, and OCR text.",
       annotations: annotate("Get article details"),
       inputSchema: {
         article_id: z.number().int(),
@@ -99,19 +114,20 @@ export function registerArticleTools(server: Server): void {
         "author",
         "newspaper",
         "country",
-        "pub_date",
+        ["pub_date", "date", ["pub_date"]],
         "subject",
         "spatial",
         "language",
         "nb_pages",
         ["iwac_url", "url", ["iwac_url"]],
-        ['"OCR"', "ocr_text", ["OCR"]],
+        ['"descriptionAI"', "description_ai", ["descriptionAI"]],
+        ["gemini_polarite", "polarity", ["gemini_polarite"]],
+        ["gemini_centralite_islam_musulmans", "centrality", ["gemini_centralite_islam_musulmans"]],
+        ["gemini_subjectivite_score", "subjectivity", ["gemini_subjectivite_score"]],
         ["nb_mots", "word_count", ["nb_mots"]],
         ['"Richesse_Lexicale_OCR"', "lexical_richness", ["Richesse_Lexicale_OCR"]],
         ['"Lisibilite_OCR"', "readability", ["Lisibilite_OCR"]],
-        ["gemini_centralite_islam_musulmans", "gemini_centrality", ["gemini_centralite_islam_musulmans"]],
-        ["gemini_polarite", "gemini_polarity", ["gemini_polarite"]],
-        ["gemini_subjectivite_score", "gemini_subjectivity", ["gemini_subjectivite_score"]],
+        ['"OCR"', "ocr_text", ["OCR"]],
       ]);
       const row = await getById("articles", cols, article_id);
       if (!row) return errorResult({ error: `Article ${article_id} not found` });
@@ -136,10 +152,13 @@ export function registerArticleTools(server: Server): void {
       annotations: annotate("Semantic search for articles"),
       inputSchema: {
         query: z.string(),
-        country: z.string().optional(),
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
         newspaper: z.string().optional(),
-        date_from: z.string().optional(),
-        date_to: z.string().optional(),
+        date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
+        date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         limit: z.number().int().optional().describe("Default 10, max 50"),
       },
     },
@@ -158,16 +177,9 @@ export function registerArticleTools(server: Server): void {
         // Push the metadata filters into SQL and fetch every candidate in one query.
         const extraWhere: string[] = [];
         const extraParams: unknown[] = [];
-        likeFilterIfExists(schema, extraWhere, extraParams, "country", args.country);
+        countryFilterIfExists(schema, extraWhere, extraParams, "country", args.country);
         likeFilterIfExists(schema, extraWhere, extraParams, "newspaper", args.newspaper);
-        if (args.date_from && schema.has("pub_date")) {
-          extraWhere.push("pub_date >= CAST(? AS TIMESTAMPTZ)");
-          extraParams.push(args.date_from);
-        }
-        if (args.date_to && schema.has("pub_date")) {
-          extraWhere.push("pub_date <= CAST(? AS TIMESTAMPTZ)");
-          extraParams.push(args.date_to);
-        }
+        dateRangeFilter(schema, extraWhere, extraParams, args.date_from, args.date_to);
 
         const rows = await getManyByIds(
           "articles",
@@ -176,7 +188,7 @@ export function registerArticleTools(server: Server): void {
           extraWhere,
           extraParams,
         );
-        const byId = new Map(rows.map((r) => [String(r["o:id"]), r]));
+        const byId = new Map(rows.map((r) => [String(r.id), r]));
 
         // Walk hits in similarity order, keeping those that survived the filters.
         const results: Record<string, unknown>[] = [];

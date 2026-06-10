@@ -3,7 +3,9 @@
 > Larger features — remote transport, auth, zero-config semantic search, skill
 > portability — are tracked as
 > [GitHub issues](https://github.com/fmadore/iwac-mcp-server/issues). This file
-> covers smaller items and project ops.
+> covers smaller items and project ops. Completed work lives in the git history
+> (Track 1 plumbing shipped in v0.5.0; the data-alignment + token audit shipped
+> in v0.6.0).
 
 ## Distribution & Roadmap
 
@@ -44,14 +46,15 @@
 > time. Whole-issue work is map-reduce (chunk → per-chunk extract → reduce) in
 > monthly batches, so no single call is large. Verified fill rates that motivate
 > this list: references abstract 51% / subject 27%; publications TOC **4/1,501**,
-> subject 87%, OCR 97% (median ~16k, max ~278k tokens/issue).
+> subject 87%, OCR 97% (median ~16k, max ~278k tokens/issue); audiovisual
+> descriptionAI **0/45**.
 
 ### References (864 rows)
 
 - [ ] **Auto-tag `subject`** from title+abstract (only 27% tagged today),
   aligned to the index `Sujets` controlled vocabulary. The
-  `search_references(subject=…)` filter already exists (Track 1) — this raises
-  its coverage from 27% toward the whole subset.
+  `search_references(subject=…)` filter already exists — this raises its
+  coverage from 27% toward the whole subset.
 - [ ] **Backfill missing `abstract`** (51% present) from Crossref (DOI — 31%
   have one) and OpenAlex (title match). Fetch *real* abstracts; do not generate
   them from a bare title.
@@ -68,19 +71,25 @@
   author); store as `tableOfContents` and recompute `embedding_tableOfContents`.
   Revives both TOC tools corpus-wide.
 - [ ] **Per-issue `descriptionAI`** (2–4 sentences: themes, notable pieces).
-  Publications have *no* summary surface at all today, yet the server already
-  references a `descriptionAI` column that does not exist in the data.
+  Publications have *no* summary surface at all today.
 - [ ] (stretch) **Article-level publications index** — explode extracted TOCs
   into one row per article (issue_id, page, title, author) as a small new
   table/subset, so users can search *within* periodicals without loading a
   full (up to ~278k-token) OCR blob.
+
+### Audiovisual (45 rows)
+
+- [ ] **Populate `descriptionAI`** — the column exists but is empty for all
+  45 rows (`length(trim(...)) = 0`; a bare `COUNT()` claims 45/45 because the
+  parquet stores empty strings, not NULLs). The recordings are Hausa/Arabic
+  content, so per-item AI descriptions are the only browsable surface.
 
 ### Server tools that light up once the columns land
 
 - `semantic_search_references` — new tool, needs `embedding_abstract`.
 - `semantic_search_publications` — becomes useful once real TOCs/embeddings exist.
 - `search_publications` — returns AI summaries once `descriptionAI` is populated
-  (revive `publicationSummaryCols`' description column).
+  (add a description column to `publicationSummaryCols`).
 
 ## Skill Improvements
 
@@ -89,44 +98,10 @@
   replace manually curated search terms with data-grounded suggestions
   including actual frequencies.
 
-- [x] ~~**Fix skill docs: references can be in English, not just French**~~
-
-- [ ] **Improve `search_references` guidance** in skill docs. Document that
-  `keyword` does a single substring match on title+abstract, so combined terms
-  like "pelerinage Mecque" miss results with only one of the words. Call each
-  term separately.
-
-- [ ] **Correct the publications guidance.** The TOC is NOT a usable nav
-  surface — only 4/1,501 issues have one. Document that discovery now runs on
-  `newspaper`/series (use `list_periodicals`), `subject` (87% filled), country
-  and year, with keyword search hitting OCR; reserve `get_publication_fulltext`
-  (keyword excerpts) for reading inside a single long issue.
-
-## MCP Server Features
-
-### Done (Track 1 — plumbing, no AI, shipped)
-
-- [x] **`get_reference`** — exposes the full abstract (51% of refs) plus DOI,
-  subjects, and host-work detail (book/volume/issue/pages) that were previously
-  unreadable through the server (there was no detail-fetch tool for references).
-- [x] **`search_references` filters** — `subject`, `country`, `language`,
-  `date_from`/`date_to`; results now carry an abstract snippet + DOI + country.
-- [x] **`search_publications` filters** — `newspaper`, `subject`,
-  `date_from`/`date_to`; keyword now matches OCR + subject (not the near-empty
-  TOC); summaries carry newspaper/subject/nb_pages.
-- [x] **`list_periodicals`** — the 25 periodical series with issue counts and
-  year ranges.
-
-### Backlog
-
-- [ ] **Add search by AI-generated abstract for articles**
-  Articles have AI-generated abstracts (`descriptionAI`) in the dataset. Let
-  `search_articles` match against it (either as a new field or folded into the
-  existing keyword search). Abstracts are more structured than raw OCR and
-  would improve precision.
-
 - [ ] **Publish the `iwac-mcp` research skill** separately (Claude Skills
   repository or as part of the bundle once skill packaging is supported).
   Currently lives under `.claude/skills/iwac-mcp/`. Related but distinct from
   [#4](https://github.com/fmadore/iwac-mcp-server/issues/4) (adapting the skill
-  for non-Claude models).
+  for non-Claude models). NB: the copy in the claude.ai Skills library
+  (`anthropic-skills:iwac-mcp`) predates v0.5 — replace it with
+  `.claude/skills/iwac-mcp/` or delete it.

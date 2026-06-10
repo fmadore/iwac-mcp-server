@@ -3,7 +3,7 @@ import { ensureSubset, subsetGlob } from "./hf.js";
 import type { Subset } from "./config.js";
 
 let _conn: DuckDBConnection | null = null;
-const _schemas: Map<Subset, Set<string>> = new Map();
+const _schemas: Map<Subset, Promise<Set<string>>> = new Map();
 
 async function getConn(): Promise<DuckDBConnection> {
   if (_conn) return _conn;
@@ -23,11 +23,21 @@ export function viewName(subset: Subset): string {
 
 /**
  * Ensure a subset's parquet files are downloaded and registered as a DuckDB view,
- * and cache its column list.
+ * and cache its column list. The in-flight promise is cached (not just the
+ * result) so two concurrent tool calls on the same subset share one download
+ * instead of racing on the same `.partial` temp file.
  */
-export async function ensureView(subset: Subset): Promise<Set<string>> {
-  const existing = _schemas.get(subset);
-  if (existing) return existing;
+export function ensureView(subset: Subset): Promise<Set<string>> {
+  let p = _schemas.get(subset);
+  if (!p) {
+    p = buildView(subset);
+    p.catch(() => _schemas.delete(subset)); // allow retry after a failed download
+    _schemas.set(subset, p);
+  }
+  return p;
+}
+
+async function buildView(subset: Subset): Promise<Set<string>> {
   const conn = await getConn();
   const localDir = await ensureSubset(subset);
   const glob = subsetGlob(localDir);
@@ -38,9 +48,7 @@ export async function ensureView(subset: Subset): Promise<Set<string>> {
   const reader = await conn.runAndReadAll(
     `SELECT column_name FROM (DESCRIBE SELECT * FROM ${quoted} LIMIT 0)`,
   );
-  const cols = new Set<string>(reader.getRowsJS().map((r) => String(r[0])));
-  _schemas.set(subset, cols);
-  return cols;
+  return new Set<string>(reader.getRowsJS().map((r) => String(r[0])));
 }
 
 export async function schemaFor(subset: Subset): Promise<Set<string>> {

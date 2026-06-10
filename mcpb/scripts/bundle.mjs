@@ -11,6 +11,9 @@
 //                    requires and runtime reflection that bundle poorly. Keeping it
 //                    external preserves its exact current runtime behaviour.
 import * as esbuild from "esbuild";
+import { readFileSync } from "node:fs";
+
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 await esbuild.build({
   entryPoints: ["src/index.ts"],
@@ -23,5 +26,6 @@ await esbuild.build({
   // and esbuild hoists the entry point's shebang to line 1 of the bundle.
   legalComments: "none",
   external: ["@duckdb/*", "@google/genai"],
+  define: { __IWAC_VERSION__: JSON.stringify(pkg.version) },
   logLevel: "info",
 });

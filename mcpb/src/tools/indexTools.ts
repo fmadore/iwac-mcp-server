@@ -4,10 +4,11 @@ import {
   annotate,
   capLimit,
   capOffset,
+  countryFilterIfExists,
   errorResult,
+  foldedLike,
   indexFreqOrder,
   indexSummaryCols,
-  likeFilterIfExists,
   runListQuery,
   textResult,
   type Server,
@@ -18,15 +19,17 @@ export function registerIndexTools(server: Server): void {
   server.registerTool(
     "search_index",
     {
-      description: "Search the IWAC index (persons, places, organisations, events, subjects).",
+      description:
+        "Search the IWAC authority index (persons, places, organisations, events, subjects) by name. " +
+        "Accent/case-insensitive.",
       annotations: annotate("Search authority index"),
       inputSchema: {
-        query: z.string().describe("Search term matched against Titre"),
+        keyword: z.string().describe("Search term matched against the entry title"),
         index_type: z
           .string()
           .optional()
-          .describe("Personnes | Lieux | Organisations | Événements | Sujets"),
-        limit: z.number().int().optional(),
+          .describe("Personnes | Lieux | Organisations | Événements | Sujets | Notices d'autorité"),
+        limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       },
     },
@@ -34,10 +37,10 @@ export function registerIndexTools(server: Server): void {
       const schema = await ensureView("index");
       const limit = capLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
-      const where: string[] = [`${q("Titre")} ILIKE ?`];
-      const params: unknown[] = [`%${args.query}%`];
+      const where: string[] = [foldedLike(q("Titre"))];
+      const params: unknown[] = [`%${args.keyword}%`];
       if (args.index_type && schema.has("Type")) {
-        where.push(`${q("Type")} ILIKE ?`);
+        where.push(foldedLike(q("Type")));
         params.push(`%${args.index_type}%`);
       }
       return textResult(
@@ -58,7 +61,8 @@ export function registerIndexTools(server: Server): void {
   server.registerTool(
     "get_index_entry",
     {
-      description: "Get full details of an index entry by o:id.",
+      description:
+        "Get full details of an index entry by id (raw dataset columns, French names — Titre, Prénom, Coordonnées…).",
       annotations: annotate("Get index entry details"),
       inputSchema: { entry_id: z.number().int() },
     },
@@ -89,10 +93,15 @@ function registerIndexListTool(
   maxLimit: number,
 ): void {
   const inputSchema: Record<string, z.ZodTypeAny> = {
-    limit: z.number().int().optional(),
+    limit: z.number().int().optional().describe(`Default ${defaultLimit}, max ${maxLimit}`),
     offset: z.number().int().optional(),
   };
-  if (withCountry) inputSchema.country = z.string().optional();
+  if (withCountry) {
+    inputSchema.country = z
+      .string()
+      .optional()
+      .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional)");
+  }
 
   server.registerTool(
     name,
@@ -108,12 +117,12 @@ function registerIndexListTool(
       const where: string[] = [`${q("Type")} = ?`];
       const params: unknown[] = [indexType];
       if (withCountry) {
-        likeFilterIfExists(schema, where, params, "countries", args.country as string | undefined);
+        countryFilterIfExists(schema, where, params, "countries", args.country as string | undefined);
       }
       const cols = selectList(schema, [
-        ['"o:id"', "o:id", ["o:id"]],
-        "Titre",
-        "Description",
+        ['"o:id"', "id", ["o:id"]],
+        [q("Titre"), "title", ["Titre"]],
+        [q("Description"), "description", ["Description"]],
         "frequency",
         ...(withCountry ? (["countries"] as const) : []),
         ["iwac_url", "url", ["iwac_url"]],

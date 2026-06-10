@@ -3,11 +3,16 @@ import { ensureView, query, queryOne, queryScalarSingle, viewName } from "../db.
 import { ALL_SUBSETS } from "../config.js";
 import {
   annotate,
+  countryFilterIfExists,
   likeFilterIfExists,
   rowsToMap,
   textResult,
   type Server,
 } from "./_shared.js";
+
+// The parquet encodes missing values as empty strings, not NULLs, so date
+// aggregates must NULLIF-guard or MIN() returns "" and the range collapses.
+const DATE_EXPR = `NULLIF(trim(CAST(pub_date AS VARCHAR)), '')`;
 
 export function registerStatsTools(server: Server): void {
   // === get_collection_stats ===============================================
@@ -46,20 +51,20 @@ export function registerStatsTools(server: Server): void {
       };
       if (schema.has("country")) {
         const rows = await query(
-          `SELECT country AS k, COUNT(*) AS c FROM articles WHERE country IS NOT NULL GROUP BY country ORDER BY c DESC`,
+          `SELECT country AS k, COUNT(*) AS c FROM articles WHERE NULLIF(trim(country), '') IS NOT NULL GROUP BY country ORDER BY c DESC`,
         );
         payload.articles_by_country = rowsToMap(rows);
       }
       if (schema.has("newspaper")) {
         payload.newspaper_count = Number(
           (await queryScalarSingle<number | bigint>(
-            `SELECT COUNT(DISTINCT newspaper) FROM articles WHERE newspaper IS NOT NULL`,
+            `SELECT COUNT(DISTINCT NULLIF(trim(newspaper), '')) FROM articles`,
           )) ?? 0,
         );
       }
       if (schema.has("pub_date")) {
         const dateRow = await queryOne(
-          `SELECT MIN(pub_date)::VARCHAR AS earliest, MAX(pub_date)::VARCHAR AS latest FROM articles WHERE pub_date IS NOT NULL`,
+          `SELECT MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest FROM articles`,
         );
         payload.date_range =
           dateRow && dateRow.earliest
@@ -79,17 +84,22 @@ export function registerStatsTools(server: Server): void {
     {
       description: "Per-newspaper article counts and date ranges.",
       annotations: annotate("Newspaper statistics"),
-      inputSchema: { country: z.string().optional() },
+      inputSchema: {
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+      },
     },
     async (args) => {
       const schema = await ensureView("articles");
       const where: string[] = [];
       const params: unknown[] = [];
-      likeFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", args.country);
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const hasDate = schema.has("pub_date");
       const dateCols = hasDate
-        ? ", MIN(pub_date)::VARCHAR AS earliest_date, MAX(pub_date)::VARCHAR AS latest_date"
+        ? `, MIN(${DATE_EXPR}) AS earliest_date, MAX(${DATE_EXPR}) AS latest_date`
         : "";
       const rows = await query(
         `SELECT newspaper, country, COUNT(*) AS article_count${dateCols}
@@ -127,7 +137,7 @@ export function registerStatsTools(server: Server): void {
       if (!schema.has("country")) return textResult({ total_countries: 0, countries: [] });
 
       const dateSel = schema.has("pub_date")
-        ? ", MIN(pub_date)::VARCHAR AS earliest, MAX(pub_date)::VARCHAR AS latest"
+        ? `, MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest`
         : "";
       const newsSel = schema.has("newspaper")
         ? ", COUNT(DISTINCT newspaper) AS newspaper_count"
@@ -135,7 +145,7 @@ export function registerStatsTools(server: Server): void {
       const summary = await query(`
         SELECT country, COUNT(*) AS article_count${newsSel}${dateSel}
         FROM articles
-        WHERE country IS NOT NULL
+        WHERE NULLIF(trim(country), '') IS NOT NULL
         GROUP BY country
         ORDER BY article_count DESC
       `);
@@ -145,13 +155,13 @@ export function registerStatsTools(server: Server): void {
         const rows = await query(`
           SELECT country, gemini_polarite AS k, COUNT(*) AS c
           FROM articles
-          WHERE country IS NOT NULL
+          WHERE NULLIF(trim(country), '') IS NOT NULL
           GROUP BY country, gemini_polarite
         `);
         for (const r of rows) {
           const c = String(r.country);
           const bucket = polarityByCountry.get(c) ?? {};
-          if (r.k != null) bucket[String(r.k)] = Number(r.c);
+          if (r.k != null && String(r.k).trim() !== "") bucket[String(r.k)] = Number(r.c);
           polarityByCountry.set(c, bucket);
         }
       }

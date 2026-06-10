@@ -13,18 +13,18 @@ Systematic biases and constraints to disclose when producing research outputs.
 
 ## 2. Geographic Coverage Imbalance
 
-The collection has **deep coverage** for some countries and **very thin coverage** for others:
+The collection has **deep coverage** for some countries and **very thin coverage** for others (verified counts, June 2026):
 
-| Country | Approx. Articles | Coverage Depth |
-|---------|-----------------|----------------|
-| Burkina Faso | ~3,700 | Deep: multiple newspapers, Islamic + secular press |
-| Côte d'Ivoire | ~4,000 | Deep: strong secular press, some Islamic media |
-| Benin | ~2,000 | Moderate: mixed secular and Islamic press |
-| Togo | ~1,600 | Moderate: several newspapers across decades |
-| Niger | ~1,100 | Thin: limited outlets, many articles lack detailed subject tagging |
-| Nigeria | ~50 | Minimal: audiovisual materials only, no press articles |
+| Country | Articles | Coverage Depth |
+|---------|---------|----------------|
+| Côte d'Ivoire | 3,994 | Deep: strong secular press (20 newspapers), some Islamic media |
+| Burkina Faso | 3,659 | Deep: multiple newspapers, Islamic + secular press |
+| Benin | 2,003 | Moderate: mixed secular and Islamic press |
+| Togo | 1,570 | Moderate: several newspapers across decades |
+| Niger | 1,061 | Thin: a **single outlet** (Le Sahel), **2018–2024 only**, inconsistent subject tagging |
+| Nigeria | 0 | No press articles at all — 45 audiovisual items only |
 
-**IMPORTANT:** Niger and Nigeria are dramatically underrepresented compared to Benin, Burkina Faso, Côte d'Ivoire, and Togo. For Niger, many articles lack subject tagging (e.g., 0 articles tagged with "Hadj" despite Niger being a major hajj departure country). For Nigeria, there are virtually no press articles in the collection. Any cross-country comparison involving Niger or Nigeria must prominently disclose this gap. Patterns found in Niger data may reflect tagging gaps rather than genuine differences.
+**IMPORTANT:** Niger and Nigeria are dramatically underrepresented compared to Benin, Burkina Faso, Côte d'Ivoire, and Togo. Niger coverage is one state newspaper over seven recent years — no historical depth, and many articles lack subject tagging (e.g., 0 articles tagged with "Hadj" despite Niger being a major hajj departure country). Nigeria has no press articles in the collection. Any cross-country comparison involving Niger or Nigeria must prominently disclose this gap. Patterns found in Niger data may reflect tagging gaps or the single-outlet/short-window bias rather than genuine differences.
 
 ## 3. Temporal Coverage Gaps
 
@@ -71,7 +71,7 @@ IWAC contains two structurally different source types:
 
 **Implication:** Aggregate sentiment statistics mix these structurally different perspectives. A "Neutre" rating on a mainstream press article means something different than on an Islamic publication. Filter by newspaper to separate these sources.
 
-**Note on publications subset:** Most Islamic publications in IWAC are stored as entire issues (not individual articles), with limited metadata. The individual articles within each issue are not separated. This limits searchability of Islamic press content through the `search_publications` tool.
+**Note on publications subset:** Most Islamic publications in IWAC are stored as entire issues (not individual articles); the articles within an issue are not separated. Navigate by series (`list_periodicals` — 25 titles), subject tag (87% of issues tagged), country and year; the `keyword` parameter searches the full issue OCR, and `get_publication_fulltext` returns capped keyword excerpts for reading inside one issue. Tables of contents exist for only ~4/1,501 issues, so TOC-based discovery (incl. `semantic_search_publications`) is effectively unavailable.
 
 ## 6. Editorial and Political Bias
 
@@ -91,9 +91,11 @@ The 4,697 index entries (persons, organizations, places, events, subjects) repre
 
 ## 8. Search Limitations
 
-- **Keyword search** (`keyword` parameter) searches title and OCR text only. It does NOT search subject or spatial fields. To find articles by subject, use the `subject` parameter instead.
-- **Country filter** requires exact accent matching. You must use `Côte d'Ivoire` (with circumflex ô), not `Cote d'Ivoire`. Other country names do not have accents.
-- **All search terms must be in French.** Even if the research question is formulated in English, translate all search queries to French. The collection contains no English-language indexing.
+- **Substring matching only** — no wildcards, fuzzy matching, or Boolean operators. One term per call; run variants as separate searches.
+- **Keyword scope varies by tool:** articles = title + OCR + AI abstract; publications = title + subject + OCR; references = title + abstract. Keyword does NOT search the spatial field — use `subject` for curated tags.
+- **Accents and case are folded** (server ≥ 0.6.0): `pelerinage`, `Bénin`, `These` all match. Spelling differences still matter.
+- **Country filters take exact names** (Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo; Nigeria only in references/index/audiovisual). Partial names return nothing.
+- **Articles and publications are French-language** — formulate keywords in French. References are bilingual: search French AND English. Semantic search (if enabled) accepts any language.
 
 ## Disclosure Template
 

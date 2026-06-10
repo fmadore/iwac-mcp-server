@@ -1,6 +1,6 @@
 // Cross-cutting helpers shared by every tool module: input capping, JSON result
 // formatting, the pagination envelope, the generic list-query runner, reusable
-// SELECT/ORDER-BY fragments, sentiment-label normalisation, and text capping.
+// SELECT/ORDER-BY fragments, accent-insensitive matching, and text capping.
 import {
   q,
   query,
@@ -36,9 +36,30 @@ function bigintReplacer(_key: string, value: unknown): unknown {
   return value;
 }
 
+/**
+ * Drop null/undefined and empty-string values recursively. The parquet encodes
+ * missing values as "" rather than NULL, so result rows would otherwise carry
+ * dozens of `"author": ""` entries — pure token waste for the model.
+ */
+function compactValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(compactValue);
+  if (value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v === null || v === undefined) continue;
+      if (typeof v === "string" && v.trim().length === 0) continue;
+      out[k] = compactValue(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Compact (un-indented, empty-stripped) JSON — models parse it fine and it
+ * saves ~20% of the tokens of a pretty-printed envelope. */
 export function textResult(payload: unknown): { content: { type: "text"; text: string }[] } {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(payload, bigintReplacer, 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(compactValue(payload), bigintReplacer) }],
   };
 }
 
@@ -128,10 +149,25 @@ export async function runListQuery<T = Row>(opts: {
 }
 
 // -----------------------------------------------------------------------------
-// WHERE-clause helpers
+// WHERE-clause helpers (all matching is accent- and case-insensitive)
 // -----------------------------------------------------------------------------
 
-/** Append `col ILIKE %value%` to a WHERE list, only if the column exists. */
+/**
+ * Accent/case-insensitive substring predicate. ILIKE alone is accent-SENSITIVE:
+ * `pelerinage` matches 27 articles while `pèlerinage` matches 1,816, and the
+ * dataset mixes conventions ("Benin" unaccented vs "Côte d'Ivoire" accented).
+ * Folding both sides through strip_accents(lower()) removes that trap class.
+ */
+export function foldedLike(colExpr: string): string {
+  return `strip_accents(lower(${colExpr})) LIKE strip_accents(lower(?))`;
+}
+
+/** Accent/case-insensitive equality predicate (whole-value match). */
+export function foldedEquals(colExpr: string): string {
+  return `strip_accents(lower(trim(${colExpr}))) = strip_accents(lower(trim(?)))`;
+}
+
+/** Append an accent-insensitive `col LIKE %value%` to a WHERE list, if the column exists. */
 export function likeFilterIfExists(
   schema: Set<string>,
   where: string[],
@@ -140,8 +176,30 @@ export function likeFilterIfExists(
   value: string | undefined,
 ): void {
   if (!value || !schema.has(column)) return;
-  where.push(`${q(column)} ILIKE ?`);
+  where.push(foldedLike(q(column)));
   params.push(`%${value}%`);
+}
+
+/**
+ * Country filter: exact match against pipe-split segments, accent/case-folded.
+ * A substring filter would conflate Niger with Nigeria (references store
+ * "Niger|Nigeria"; audiovisual is 100% Nigeria), so each `|`-separated value is
+ * compared whole. Works identically for single-valued columns like
+ * `articles.country`.
+ */
+export function countryFilterIfExists(
+  schema: Set<string>,
+  where: string[],
+  params: unknown[],
+  column: string,
+  value: string | undefined,
+): void {
+  if (!value || !schema.has(column)) return;
+  where.push(
+    `list_contains(list_transform(str_split(coalesce(${q(column)}, ''), '|'), ` +
+      `x -> strip_accents(lower(trim(x)))), strip_accents(lower(trim(?))))`,
+  );
+  params.push(value);
 }
 
 /** First 4-digit run of a date-ish string ("2015", "2015-06-01") as a year int. */
@@ -155,8 +213,7 @@ function parseYear(v: string | undefined): number | undefined {
  * Year-granularity date range on a VARCHAR `pub_date` column (references &
  * publications store it as a string, often a bare year like "1912"). Compares the
  * leading 4-digit year numerically, so it works for both "YYYY" and "YYYY-MM-DD"
- * and ignores empty/garbage values. For TIMESTAMPTZ columns (articles) keep the
- * inline CAST filters instead.
+ * and ignores empty/garbage values.
  */
 export function yearRangeFilter(
   schema: Set<string>,
@@ -180,6 +237,47 @@ export function yearRangeFilter(
   }
 }
 
+/** Pad a partial date bound ("1995", "1995-06") to a full YYYY-MM-DD day. */
+function normalizeDateBound(v: string | undefined, kind: "from" | "to"): string | undefined {
+  if (!v) return undefined;
+  const m = v.trim().match(/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?/);
+  if (!m) return undefined;
+  const pad = (s: string) => s.padStart(2, "0");
+  const mo = m[2] ? pad(m[2]) : kind === "from" ? "01" : "12";
+  const d = m[3] ? pad(m[3]) : kind === "from" ? "01" : "31";
+  return `${m[1]}-${mo}-${d}`;
+}
+
+/**
+ * Day-granularity date range for `articles.pub_date`. The column's *type* has
+ * changed across dataset revisions (TIMESTAMPTZ → VARCHAR), and a bare
+ * `pub_date >= CAST(? AS TIMESTAMPTZ)` throws a Binder Error on the VARCHAR
+ * revision. Casting the column to VARCHAR and comparing the ISO YYYY-MM-DD
+ * prefix lexicographically works for both revisions and tolerates partial
+ * ("1995-06") and empty values.
+ */
+export function dateRangeFilter(
+  schema: Set<string>,
+  where: string[],
+  params: unknown[],
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  column = "pub_date",
+): void {
+  if (!schema.has(column)) return;
+  const dayExpr = `NULLIF(substr(CAST(${q(column)} AS VARCHAR), 1, 10), '')`;
+  const from = normalizeDateBound(dateFrom, "from");
+  const to = normalizeDateBound(dateTo, "to");
+  if (from) {
+    where.push(`${dayExpr} >= ?`);
+    params.push(from);
+  }
+  if (to) {
+    where.push(`${dayExpr} <= ?`);
+    params.push(to);
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Reusable ORDER BY fragments
 // -----------------------------------------------------------------------------
@@ -197,30 +295,34 @@ export function indexFreqOrder(schema: Set<string>): string {
 }
 
 // -----------------------------------------------------------------------------
-// Column lists (kept only for columns present in the current dataset revision)
+// Column lists (kept only for columns present in the current dataset revision).
+// Output keys are normalised to short English snake_case across all tools so
+// the model sees ONE shape (`id`, `date`, `polarity`, …) instead of re-learning
+// per-tool field names — and the long French dataset keys
+// (gemini_centralite_islam_musulmans × 20 rows) stop costing tokens.
 // -----------------------------------------------------------------------------
 
 export function articleSummaryCols(schema: Set<string>): string {
   return selectList(schema, [
-    ['"o:id"', "o:id", ["o:id"]],
+    ['"o:id"', "id", ["o:id"]],
     "title",
     "author",
     "newspaper",
     "country",
-    "pub_date",
+    ["pub_date", "date", ["pub_date"]],
     "subject",
     "spatial",
     "language",
-    "gemini_polarite",
-    "gemini_centralite_islam_musulmans",
-    "gemini_subjectivite_score",
+    ["gemini_polarite", "polarity", ["gemini_polarite"]],
+    ["gemini_centralite_islam_musulmans", "centrality", ["gemini_centralite_islam_musulmans"]],
+    ["gemini_subjectivite_score", "subjectivity", ["gemini_subjectivite_score"]],
     ["iwac_url", "url", ["iwac_url"]],
   ]);
 }
 
 export function publicationSummaryCols(schema: Set<string>): string {
   return selectList(schema, [
-    ['"o:id"', "o:id", ["o:id"]],
+    ['"o:id"', "id", ["o:id"]],
     "title",
     "newspaper",
     "country",
@@ -240,7 +342,7 @@ const ABSTRACT_SNIPPET_EXPR =
 
 export function referenceSummaryCols(schema: Set<string>): string {
   return selectList(schema, [
-    ['"o:id"', "o:id", ["o:id"]],
+    ['"o:id"', "id", ["o:id"]],
     "title",
     "author",
     "type",
@@ -256,10 +358,10 @@ export function referenceSummaryCols(schema: Set<string>): string {
 
 export function indexSummaryCols(schema: Set<string>): string {
   return selectList(schema, [
-    ['"o:id"', "o:id", ["o:id"]],
-    "Titre",
-    "Type",
-    "Description",
+    ['"o:id"', "id", ["o:id"]],
+    [q("Titre"), "title", ["Titre"]],
+    [q("Type"), "type", ["Type"]],
+    [q("Description"), "description", ["Description"]],
     "frequency",
     "first_occurrence",
     "last_occurrence",
@@ -268,22 +370,18 @@ export function indexSummaryCols(schema: Set<string>): string {
   ]);
 }
 
-// -----------------------------------------------------------------------------
-// Sentiment label normalisation
-// -----------------------------------------------------------------------------
-
-// Accent-normalise Gemini sentiment labels typed without diacritics.
-const ACCENT_MAP: Record<string, string> = {
-  "tres positif": "Très positif",
-  "tres negatif": "Très négatif",
-  negatif: "Négatif",
-  "tres central": "Très central",
-  "non aborde": "Non abordé",
-};
-
-export function normaliseSentiment(v: string | undefined): string | undefined {
-  if (!v) return undefined;
-  return ACCENT_MAP[v.toLowerCase()] ?? v;
+export function documentSummaryCols(schema: Set<string>): string {
+  return selectList(schema, [
+    ['"o:id"', "id", ["o:id"]],
+    "title",
+    "author",
+    "country",
+    ["pub_date", "date", ["pub_date"]],
+    "type",
+    "subject",
+    ['"descriptionAI"', "description_ai", ["descriptionAI"]],
+    ["iwac_url", "url", ["iwac_url"]],
+  ]);
 }
 
 // -----------------------------------------------------------------------------
@@ -293,7 +391,7 @@ export function normaliseSentiment(v: string | undefined): string | undefined {
 export function rowsToMap(rows: Record<string, unknown>[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of rows) {
-    if (r.k == null) continue;
+    if (r.k == null || String(r.k).trim() === "") continue;
     out[String(r.k)] = Number(r.c);
   }
   return out;
@@ -326,10 +424,20 @@ export function capText(
   };
 }
 
-/** TOC entries (paragraph-separated) that contain `keyword`, re-joined. */
+/**
+ * Accent/case-fold a string for in-JS matching, index-stable (each UTF-16 unit
+ * maps to exactly one unit, so offsets into the folded string remain valid in
+ * the original). Mirrors the SQL-side strip_accents(lower()) so keyword-excerpt
+ * extraction agrees with what the SQL search matched.
+ */
+export function foldText(s: string): string {
+  return s.toLowerCase().replace(/[À-ɏ]/g, (c) => c.normalize("NFD")[0] ?? c);
+}
+
+/** TOC entries (paragraph-separated) that contain `keyword`, accent-insensitively. */
 export function extractMatchingTocEntries(toc: string, keyword: string): string {
   if (!toc || !keyword) return "";
-  const kw = keyword.toLowerCase();
+  const kw = foldText(keyword);
   const entries = toc.split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
-  return entries.filter((e) => e.toLowerCase().includes(kw)).join("\n\n");
+  return entries.filter((e) => foldText(e).includes(kw)).join("\n\n");
 }

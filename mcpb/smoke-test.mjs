@@ -1,4 +1,7 @@
-// Broader MCP smoke test.
+// MCP smoke test with assertions: spawns the built server, exercises every tool,
+// and fails (exit 1) on unexpected errors or regressions of known bugs
+// (broken date filters, uncapped keyword excerpts, accent-sensitive matching,
+// empty-string date aggregates).
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -11,34 +14,167 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "smoke", version: "0.0.0" });
 await client.connect(transport);
 
-const tools = await client.listTools();
-console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
-
-async function call(name, args) {
-  const res = await client.callTool({ name, arguments: args });
-  const body = res.content?.[0]?.text ?? "";
-  const preview = body.slice(0, 500).replace(/\s+/g, " ");
-  console.log(`\n[${name}] ${preview}${body.length > 500 ? "..." : ""}`);
-  return body;
+let failures = 0;
+function fail(msg) {
+  failures++;
+  console.error(`  FAIL: ${msg}`);
 }
 
-await call("search_index", { query: "Ouagadougou", limit: 2 });
-await call("list_subjects", { limit: 3 });
+const serverVersion = client.getServerVersion()?.version;
+console.log(`server version: ${serverVersion}`);
+if (!serverVersion || serverVersion === "0.0.0-dev") fail("server version not injected from package.json");
+
+const tools = await client.listTools();
+console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
+if (tools.tools.length !== 22) fail(`expected 22 tools, got ${tools.tools.length}`);
+
+/**
+ * Call a tool and run assertions. opts:
+ *   expectError — the call SHOULD return isError (default false)
+ *   check(parsed, body) — return a failure message string, or falsy if OK
+ */
+async function call(name, args, opts = {}) {
+  const res = await client.callTool({ name, arguments: args });
+  const body = res.content?.[0]?.text ?? "";
+  const isErr = res.isError === true;
+  const preview = body.slice(0, 220).replace(/\s+/g, " ");
+  console.log(`\n[${name}] ${isErr ? "ERROR " : ""}${body.length} chars | ${preview}${body.length > 220 ? "..." : ""}`);
+  if (isErr !== (opts.expectError ?? false)) {
+    fail(`${name}: isError=${isErr}, expected ${opts.expectError ?? false} — ${body.slice(0, 200)}`);
+    return null;
+  }
+  let parsed = null;
+  if (!isErr) {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      fail(`${name}: response is not valid JSON`);
+      return null;
+    }
+  }
+  if (opts.check && parsed) {
+    const msg = opts.check(parsed, body);
+    if (msg) fail(`${name}: ${msg}`);
+  }
+  return parsed;
+}
+
+// --- index / lists ---------------------------------------------------------
+await call("search_index", { keyword: "Ouagadougou", limit: 2 }, {
+  check: (p) => (p.total_matches > 0 ? null : "no matches for Ouagadougou"),
+});
+// Unaccented type value must still match "Événements" (accent-insensitive matching).
+await call("search_index", { keyword: "a", index_type: "evenements", limit: 1 }, {
+  check: (p) => (p.total_matches > 0 ? null : "unaccented index_type 'evenements' matched nothing"),
+});
+await call("list_subjects", { limit: 3 }, { check: (p) => (p.count === 3 ? null : "expected 3 subjects") });
 await call("list_locations", { country: "Burkina Faso", limit: 3 });
 await call("list_persons", { limit: 3 });
-await call("list_audiovisual", { limit: 2 });
-await call("search_references", { keyword: "Islam", limit: 2 });
-await call("search_publications", { keyword: "pèlerinage", limit: 2 });
-// Articles-dependent (will trigger 185 MB download on first run)
-await call("get_collection_stats", {});
-await call("search_articles", { country: "Burkina Faso", limit: 2 });
-await call("get_newspaper_stats", { country: "Niger" });
-await call("search_by_sentiment", { polarity: "Positif", limit: 2 });
-await call("get_sentiment_distribution", { country: "Benin" });
-await call("get_country_comparison", {});
-await call("get_article", { article_id: 67613 });
+// NB: audiovisual descriptionAI is empty corpus-wide in the current revision,
+// so rows legitimately carry no description_ai key.
+await call("list_audiovisual", { limit: 2 }, {
+  check: (p) => (p.total_matches === 45 ? null : `expected 45 audiovisual items, got ${p.total_matches}`),
+});
 await call("get_index_entry", { entry_id: 376 });
-await call("get_publication_fulltext", { publication_id: 11763, keyword: "Mecque" });
+
+// --- references -------------------------------------------------------------
+const refs = await call("search_references", { keyword: "Islam", limit: 2 }, {
+  check: (p) => (p.total_matches > 100 ? null : "suspiciously few reference matches"),
+});
+const refId = refs?.results?.[0]?.id;
+if (refId) {
+  await call("get_reference", { reference_id: Number(refId) }, {
+    check: (p) => (p.id ? null : "get_reference returned no id"),
+  });
+} else {
+  fail("search_references returned no id to drill into");
+}
+// Niger must not match Nigeria-only references (pipe-aware exact country match).
+await call("search_references", { country: "Nigeria", limit: 1 }, {
+  check: (p) => (p.total_matches > 0 && p.total_matches < 100 ? null : `Nigeria count looks wrong: ${p.total_matches}`),
+});
+
+// --- publications ------------------------------------------------------------
+await call("search_publications", { keyword: "pèlerinage", limit: 2 });
+await call("list_periodicals", {}, {
+  check: (p) => (p.total_periodicals >= 10 ? null : "expected >= 10 periodicals"),
+});
+// Excerpt cap: a common keyword on a ~1.1M-char issue must stay bounded.
+await call("get_publication_fulltext", { publication_id: 44763, keyword: "islam" }, {
+  check: (p, body) => {
+    if (!(p.match_count >= 20)) return `expected many matches, got ${p.match_count}`;
+    if (!(p.excerpts_returned <= 10)) return `excerpts_returned ${p.excerpts_returned} exceeds default cap`;
+    if (body.length > 80_000) return `response too large: ${body.length} chars`;
+    return null;
+  },
+});
+// Accent check on the JS excerpt path: unaccented keyword, accented OCR.
+await call("get_publication_fulltext", { publication_id: 11763, keyword: "pelerinage" }, {
+  check: (p) => (p.match_count > 0 ? null : "unaccented keyword found no excerpts in accented OCR"),
+});
+
+// --- articles ----------------------------------------------------------------
+await call("get_collection_stats", {}, {
+  check: (p) =>
+    p.date_range?.earliest && p.date_range.earliest >= "1900"
+      ? null
+      : `date_range missing/garbled: ${JSON.stringify(p.date_range)}`,
+});
+// Accent-insensitive keyword: unaccented query must reach the accented corpus.
+await call("search_articles", { keyword: "pelerinage", limit: 1 }, {
+  check: (p) => (p.total_matches > 1000 ? null : `accent folding broken: ${p.total_matches} matches`),
+});
+// Accented country input must match the dataset's unaccented "Benin".
+await call("search_articles", { country: "Bénin", limit: 1 }, {
+  check: (p) => (p.total_matches > 1500 ? null : `country folding broken: ${p.total_matches}`),
+});
+// THE former P0: date-filtered search must not throw a Binder Error.
+await call("search_articles", { keyword: "ramadan", date_from: "1995-01-01", date_to: "1999-12-31", limit: 3 }, {
+  check: (p) => (p.total_matches > 0 ? null : "date-filtered search returned nothing"),
+});
+await call("search_articles", { country: "Burkina Faso", with_description: true, limit: 2 }, {
+  check: (p) => (p.results?.[0]?.description_ai ? null : "with_description did not add description_ai"),
+});
+await call("get_newspaper_stats", { country: "Niger" }, {
+  check: (p) => (p.total_articles === 1061 ? null : `Niger article count ${p.total_articles}, expected 1061 (Nigeria conflation?)`),
+});
+await call("search_by_sentiment", { polarity: "tres positif", limit: 2 }, {
+  check: (p) => (p.total_matches > 1000 ? null : `unaccented polarity matched ${p.total_matches}`),
+});
+await call("get_sentiment_distribution", { country: "Benin" }, {
+  check: (p) => (p.total_articles > 1500 ? null : `Benin distribution looks wrong: ${p.total_articles}`),
+});
+await call("get_country_comparison", {});
+await call("get_article", { article_id: 67613 }, {
+  check: (p) => (p.description_ai ? null : "get_article lacks description_ai"),
+});
+
+// --- documents ----------------------------------------------------------------
+const docs = await call("search_documents", {}, {
+  check: (p) => (p.total_matches >= 20 ? null : `expected ~26 documents, got ${p.total_matches}`),
+});
+const docId = docs?.results?.[0]?.id;
+if (docId) {
+  await call("get_document", { document_id: Number(docId) }, {
+    check: (p) => (p.ocr_text ? null : "get_document returned no OCR"),
+  });
+} else {
+  fail("search_documents returned no id to drill into");
+}
+
+// --- semantic (expected to be disabled in the default environment) ------------
+const semanticOn = ["1", "true", "yes", "on"].includes(
+  (process.env.IWAC_SEMANTIC_SEARCH_ENABLED ?? "").trim().toLowerCase(),
+);
+if (!semanticOn) {
+  await call("semantic_search_articles", { query: "Islamic education reform" }, { expectError: true });
+}
+
+// --- error path ----------------------------------------------------------------
+await call("get_article", { article_id: 1 }, { expectError: true });
 
 await client.close();
 await transport.close();
+
+console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
+process.exitCode = failures === 0 ? 0 : 1;

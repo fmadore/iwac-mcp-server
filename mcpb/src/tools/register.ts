@@ -4,6 +4,7 @@ import { registerIndexTools } from "./indexTools.js";
 import { registerStatsTools } from "./stats.js";
 import { registerPublicationTools } from "./publications.js";
 import { registerReferenceTools } from "./references.js";
+import { registerDocumentTools } from "./documents.js";
 import { registerAudiovisualTools } from "./audiovisual.js";
 import type { Server } from "./_shared.js";
 
@@ -15,5 +16,6 @@ export function registerTools(server: Server): void {
   registerStatsTools(server);
   registerPublicationTools(server);
   registerReferenceTools(server);
+  registerDocumentTools(server);
   registerAudiovisualTools(server);
 }

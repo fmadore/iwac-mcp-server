@@ -4,7 +4,7 @@ import {
   annotate,
   capLimit,
   capOffset,
-  likeFilterIfExists,
+  countryFilterIfExists,
   pubDateOrder,
   runListQuery,
   textResult,
@@ -16,11 +16,12 @@ export function registerAudiovisualTools(server: Server): void {
   server.registerTool(
     "list_audiovisual",
     {
-      description: "List audiovisual materials.",
+      description:
+        "List audiovisual materials (currently 45 Nigerian recordings, incl. Hausa/Arabic content).",
       annotations: annotate("List audiovisual materials"),
       inputSchema: {
-        country: z.string().optional(),
-        limit: z.number().int().optional(),
+        country: z.string().optional().describe("Exact country name (the subset is currently all Nigeria)"),
+        limit: z.number().int().optional().describe("Default 20, max 50"),
         offset: z.number().int().optional(),
       },
     },
@@ -30,14 +31,14 @@ export function registerAudiovisualTools(server: Server): void {
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
-      likeFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", args.country);
 
       const cols = selectList(schema, [
-        ['"o:id"', "o:id", ["o:id"]],
+        ['"o:id"', "id", ["o:id"]],
         "title",
         "country",
         ["pub_date", "date", ["pub_date"]],
-        ['"descriptionAI"', "description", ["descriptionAI"]],
+        ['"descriptionAI"', "description_ai", ["descriptionAI"]],
         "language",
         ["iwac_url", "url", ["iwac_url"]],
       ]);

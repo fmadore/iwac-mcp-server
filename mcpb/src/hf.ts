@@ -10,7 +10,7 @@ interface TreeEntry {
 
 async function listTree(subset: Subset): Promise<TreeEntry[]> {
   const url = `https://huggingface.co/api/datasets/${config.datasetRepo}/tree/${config.datasetRevision}/${subset}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) {
     throw new Error(`Failed to list ${subset} tree: HTTP ${res.status}`);
   }
@@ -19,7 +19,8 @@ async function listTree(subset: Subset): Promise<TreeEntry[]> {
 
 async function downloadFile(remotePath: string, destPath: string): Promise<void> {
   const url = `https://huggingface.co/datasets/${config.datasetRepo}/resolve/${config.datasetRevision}/${remotePath}`;
-  const res = await fetch(url);
+  // Generous timeout: the largest subset is ~185 MB and may run on slow links.
+  const res = await fetch(url, { signal: AbortSignal.timeout(15 * 60_000) });
   if (!res.ok || !res.body) {
     throw new Error(`Failed to download ${remotePath}: HTTP ${res.status}`);
   }

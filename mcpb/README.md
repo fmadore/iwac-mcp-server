@@ -12,7 +12,7 @@ On first use the server downloads ~250 MB of parquet data from Hugging Face
 into `~/.iwac-mcp/cache/` (override via the extension settings). Subsequent
 queries are served locally through DuckDB.
 
-- **18 core tools** work without any API key (keyword search, filtering,
+- **20 core tools** work without any API key (keyword search, filtering,
   statistics, item details).
 - **2 optional semantic-search tools** require a free Google/Gemini API key and
   are disabled by default. Enable them in the extension settings.

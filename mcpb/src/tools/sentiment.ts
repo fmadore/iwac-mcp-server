@@ -4,8 +4,9 @@ import {
   annotate,
   capLimit,
   capOffset,
+  countryFilterIfExists,
+  foldedEquals,
   likeFilterIfExists,
-  normaliseSentiment,
   pubDateOrder,
   rowsToMap,
   runListQuery,
@@ -19,46 +20,53 @@ export function registerSentimentTools(server: Server): void {
     "search_by_sentiment",
     {
       description:
-        "Filter articles by Gemini sentiment (polarity: Très positif..Très négatif; centrality: Très central..Non abordé).",
+        "Filter articles by Gemini sentiment labels (accent/case-insensitive exact match).",
       annotations: annotate("Filter articles by AI sentiment"),
       inputSchema: {
-        polarity: z.string().optional(),
-        centrality: z.string().optional(),
-        country: z.string().optional(),
+        polarity: z
+          .string()
+          .optional()
+          .describe("Très positif | Positif | Neutre | Négatif | Très négatif | Non applicable"),
+        centrality: z
+          .string()
+          .optional()
+          .describe("Très central | Central | Secondaire | Marginal | Non abordé"),
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
         subject: z.string().optional(),
-        limit: z.number().int().optional(),
+        limit: z.number().int().optional().describe("Default 10, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("articles");
-      const limit = capLimit(args.limit, 20, 100);
+      const limit = capLimit(args.limit, 10, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
 
-      const polarity = normaliseSentiment(args.polarity);
-      const centrality = normaliseSentiment(args.centrality);
-      if (polarity && schema.has("gemini_polarite")) {
-        where.push("gemini_polarite = ?");
-        params.push(polarity);
+      if (args.polarity && schema.has("gemini_polarite")) {
+        where.push(foldedEquals("gemini_polarite"));
+        params.push(args.polarity);
       }
-      if (centrality && schema.has("gemini_centralite_islam_musulmans")) {
-        where.push("gemini_centralite_islam_musulmans = ?");
-        params.push(centrality);
+      if (args.centrality && schema.has("gemini_centralite_islam_musulmans")) {
+        where.push(foldedEquals("gemini_centralite_islam_musulmans"));
+        params.push(args.centrality);
       }
-      likeFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", args.country);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
 
       const cols = selectList(schema, [
-        ['"o:id"', "o:id", ["o:id"]],
+        ['"o:id"', "id", ["o:id"]],
         "title",
         "newspaper",
         "country",
-        "pub_date",
-        "gemini_polarite",
-        "gemini_centralite_islam_musulmans",
-        "gemini_subjectivite_score",
+        ["pub_date", "date", ["pub_date"]],
+        ["gemini_polarite", "polarity", ["gemini_polarite"]],
+        ["gemini_centralite_islam_musulmans", "centrality", ["gemini_centralite_islam_musulmans"]],
+        ["gemini_subjectivite_score", "subjectivity", ["gemini_subjectivite_score"]],
         ["iwac_url", "url", ["iwac_url"]],
       ]);
       return textResult(
@@ -82,7 +90,10 @@ export function registerSentimentTools(server: Server): void {
       description: "Aggregate Gemini polarity and centrality counts across a filter set.",
       annotations: annotate("Aggregate AI sentiment"),
       inputSchema: {
-        country: z.string().optional(),
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
         newspaper: z.string().optional(),
         subject: z.string().optional(),
       },
@@ -91,7 +102,7 @@ export function registerSentimentTools(server: Server): void {
       const schema = await ensureView("articles");
       const where: string[] = [];
       const params: unknown[] = [];
-      likeFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", args.country);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

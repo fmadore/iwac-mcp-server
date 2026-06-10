@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { ensureView, getById, selectList } from "../db.js";
+import { ensureView, getById, q, selectList } from "../db.js";
 import {
   annotate,
   capLimit,
   capOffset,
+  countryFilterIfExists,
   errorResult,
+  foldedLike,
   likeFilterIfExists,
   pubDateOrder,
   referenceSummaryCols,
@@ -26,26 +28,32 @@ export function registerReferenceTools(server: Server): void {
         "Results include a short abstract snippet — use get_reference for the full abstract and bibliographic detail.",
       annotations: annotate("Search academic references"),
       inputSchema: {
-        keyword: z.string().optional().describe("Substring match on title + abstract (one term per call)"),
+        keyword: z.string().optional().describe("Substring match on title + abstract (one term per call, accent-insensitive)"),
         author: z.string().optional(),
         reference_type: z
           .string()
           .optional()
           .describe(
-            "e.g. Article de revue | Chapitre | Thèse | Livre | Rapport | Communication | Compte rendu | Ouvrage collectif | Article de blog",
+            "Substring match. Values: Article de revue | Chapitre de livre | Livre | Mémoire de maitrise | Rapport | " +
+              "Thèse de doctorat | Communication scientifique | Compte rendu de livre | Article d'encyclopédie | " +
+              "Mémoire de licence | Article de blog | Working paper. Use the full label for precision — " +
+              "'Livre' alone also matches 'Chapitre de livre' and 'Compte rendu de livre'.",
           ),
         subject: z.string().optional().describe("Subject tag (sparse: ~27% of references are tagged)"),
-        country: z.string().optional(),
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional)"),
         language: z.string().optional().describe("e.g. Français | Anglais"),
         date_from: z.string().optional().describe("Earliest year, YYYY"),
         date_to: z.string().optional().describe("Latest year, YYYY"),
-        limit: z.number().int().optional().describe("Default 20, max 100"),
+        limit: z.number().int().optional().describe("Default 10, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("references");
-      const limit = capLimit(args.limit, 20, 100);
+      const limit = capLimit(args.limit, 10, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
@@ -53,20 +61,18 @@ export function registerReferenceTools(server: Server): void {
       if (args.keyword) {
         const parts: string[] = [];
         const kw = `%${args.keyword}%`;
-        if (schema.has("title")) {
-          parts.push("title ILIKE ?");
-          params.push(kw);
-        }
-        if (schema.has("abstract")) {
-          parts.push("abstract ILIKE ?");
-          params.push(kw);
+        for (const col of ["title", "abstract"]) {
+          if (schema.has(col)) {
+            parts.push(foldedLike(q(col)));
+            params.push(kw);
+          }
         }
         if (parts.length) where.push(`(${parts.join(" OR ")})`);
       }
       likeFilterIfExists(schema, where, params, "author", args.author);
       likeFilterIfExists(schema, where, params, "type", args.reference_type);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
-      likeFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", args.country);
       likeFilterIfExists(schema, where, params, "language", args.language);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
@@ -89,7 +95,7 @@ export function registerReferenceTools(server: Server): void {
     "get_reference",
     {
       description:
-        "Full bibliographic record for one academic reference (by o:id), including the complete abstract " +
+        "Full bibliographic record for one academic reference (by id), including the complete abstract " +
         "(present for ~51% of references), subjects, DOI/URL, and host-work details (book, volume, issue, pages).",
       annotations: annotate("Get reference details"),
       inputSchema: { reference_id: z.number().int() },

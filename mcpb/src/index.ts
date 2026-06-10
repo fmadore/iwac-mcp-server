@@ -4,18 +4,25 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { registerTools } from "./tools/register.js";
 import { config } from "./config.js";
 
+// Injected by esbuild (scripts/bundle.mjs) from package.json — single source of
+// truth for the version reported in the MCP handshake.
+declare const __IWAC_VERSION__: string;
+const VERSION = typeof __IWAC_VERSION__ === "string" ? __IWAC_VERSION__ : "0.0.0-dev";
+
 async function main(): Promise<void> {
   const server = new McpServer(
     {
       name: "iwac-mcp-server",
-      version: "0.4.1",
+      version: VERSION,
     },
     {
       instructions:
         "Read-only access to the Islam West Africa Collection (IWAC). " +
         "Start with get_collection_stats for an overview, then use search_articles, " +
-        "search_publications, search_index, or search_references to find records. " +
-        "Use get_article / get_index_entry / get_publication_fulltext to drill into one item. " +
+        "search_publications, search_index, search_references, or search_documents to find records. " +
+        "Use get_article / get_index_entry / get_publication_fulltext / get_reference / get_document " +
+        "to drill into one item. All keyword and filter matching is accent- and case-insensitive; " +
+        "country filters take exact names (Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria, Togo). " +
         "Semantic search tools require IWAC_SEMANTIC_SEARCH_ENABLED=true and a Google API key. " +
         "\n\n" +
         "CITATIONS: every result object includes a `url` field such as " +
