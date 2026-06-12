@@ -23,21 +23,32 @@ Load reference files **as needed**, not all upfront:
 1. **references/tools-by-phase.md** — all 22 tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
 2. **references/research-domains.md** — French search terms and transliteration variants by domain. Read when crafting search-term variants (Extended mode, or when a Brief search comes back thin).
 3. **references/biases-and-limitations.md** — collection biases, coverage gaps, sentiment caveats. Read before writing the synthesis.
+4. **references/capabilities-overview.md** — plain-language description of the collection and recommended ways into the data. Read when the user asks what you can do (see "Capability Questions" below).
 
 For data schema and Omeka S API details, defer to the `iwac-data` skill.
+
+## Capability Questions
+
+When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 22 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
+
+1. One short paragraph on what the collection is and covers.
+2. The main ways into the data (keyword, curated themes, people/organizations, semantic, sentiment, periodicals, scholarship) — described as research moves, not tool names.
+3. Three to five example research questions, tailored to anything the user has already mentioned.
+
+Close by inviting a research question. Present the Brief/Extended choice only once an actual question is on the table.
 
 ## Research Depth
 
 **Before any research, present the user with an explicit choice:**
 
 > How deep should I go?
-> - [ ] **Brief** -- Quick overview: article counts, key titles, top actors. ~2-3 min.
-> - [ ] **Extended** -- Full 5-phase analysis: multiple search variants, full-text reading, sentiment comparison, cross-subset triangulation, confidence grading. ~5 min.
+> - [ ] **Brief** -- Quick overview: article counts, key titles, top actors, plus a close reading of 2-3 key articles.
+> - [ ] **Extended** -- Full 5-phase analysis: multiple search variants, full-text reading, sentiment comparison, cross-subset triangulation, confidence grading. Takes considerably more time — and tokens — than Brief.
 
-Wait for the user to choose before proceeding.
+Do not attach time estimates to the options. Wait for the user to choose before proceeding.
 
 ### Brief mode workflow
-1. Run Phase 1 scoping (stats, country comparison, relevant subjects) in a single parallel batch.
+1. Run Phase 1 scoping (stats, country comparison, relevant subjects) in a single parallel batch — but only the calls the question actually needs. Corpus sizes, country lists, and filter vocabularies are already documented in this skill and tools-by-phase.md; don't spend calls rediscovering them.
 2. Run Phase 2 with **one primary search per filter combination** (e.g., subject tag + country + date range). Skip keyword variants and supplementary searches. Use `limit=10` and `with_description=true` so each hit carries its AI abstract.
 3. Run a **lightweight Phase 3**: pick the 2-3 most relevant articles (triage on `description_ai`) and call `get_article` to read their OCR text. Skip `get_sentiment_distribution`.
 4. Skip Phase 4 (triangulation).
@@ -48,13 +59,24 @@ Follow the full five-phase workflow described below. Use multiple search term va
 
 If the user does not specify, **default to Brief mode** and mention that an extended analysis is available.
 
+## Token Budget
+
+Comprehensiveness has a token price — spend deliberately. The goal is a well-evidenced answer, not an exhaustive dump.
+
+- **Brief** should stay around ≤25k tokens of tool output: one scoping batch, a handful of searches at limit 10, 2-3 full articles.
+- **Extended** typically lands at 50-120k tokens of tool output. Past that, returns diminish — stop searching and synthesize what you have.
+- **Stop rules:** when two consecutive search variants surface no new items, that dimension is saturated — move on. When `total_matches` exceeds ~50, analyze the metadata (counts, dates, newspapers, sentiment) instead of reading items; read only the triaged finalists.
+- **Counting ≠ fetching.** `total_matches` and the stats/distribution tools answer "how much / when / what tone" without retrieving rows. Never page through a large result set, and never set limit=100 "just in case".
+- **Full text is the expensive part** (`get_article` ≈ 1-7k tokens; `get_publication_fulltext` up to ~7k, plus ~1.6k when the issue has a TOC). Cap full reads at 2-3 (Brief) / 6-8 (Extended), always triaged on `description_ai` first.
+- If a question genuinely requires bulk reading (dozens of full articles), say what it will cost and confirm with the user before doing it.
+
 ## Critical Search Rules
 
 1. **Articles and publications are French-language sources** — develop keyword terms in French. **References are bilingual** (537 FR / 300 EN): always search them with French AND English terms. Semantic search tools accept queries in any language.
 2. **Accents no longer matter for matching** (server ≥ 0.6.0 folds accents and case on both sides): `pelerinage` finds `pèlerinage`, `Bénin` finds `Benin`, `These` finds `Thèse de doctorat`. Still write proper French in outputs.
 3. **Country filters take exact names** — `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo` (+ `Nigeria` in references/index/audiovisual only). Partial names ("Burkina") return nothing. Niger no longer over-matches Nigeria.
 4. **Know each tool's keyword scope.** Articles: title + OCR + AI abstract. Publications: title + subject + OCR. References: title + abstract, **one term per call** (substring match — "pèlerinage Mecque" as one string misses everything). For curated themes, prefer the `subject` parameter over `keyword`.
-5. **Publication discovery does NOT run on tables of contents** — only ~4/1,501 issues have one, so `semantic_search_publications` is near-dead until TOCs are enriched. Navigate via `list_periodicals` (25 series), `subject` (87% tagged), country, and year; use OCR `keyword` for content, and `get_publication_fulltext` (capped keyword excerpts) to read inside one long issue.
+5. **Tables of contents now cover part of the publications corpus** (verified June 2026): 325/1,501 issues (~22%) have a TOC + embedding — complete for 17 of the 25 series (the smaller magazines: Le Rendez-Vous, Plume Libre, L'Appel, Alif, La Preuve, An-Nasr Trimestriel, Le CERFIste…), but absent for the three largest (Islam Info 695 issues, An-Nasr Vendredi 318, Islam Hebdo 122). `search_publications` keyword also matches TOCs and returns the matching entries as `matching_toc_entries`; `semantic_search_publications` is genuinely useful for the TOC-covered series. For the big three series, navigate via `list_periodicals`, `subject` (87% tagged), country, and year; use OCR `keyword` for content, and `get_publication_fulltext` (capped keyword excerpts) to read inside one long issue.
 6. **Triage on AI abstracts before reading OCR.** `search_articles(with_description=true, limit≤10)` returns each article's ~500-char `description_ai` — usually enough to pick the 2-3 articles worth a full `get_article` (~1k tokens each).
 7. **Niger and Nigeria are dramatically underrepresented.** Always disclose this in cross-country comparisons (see biases-and-limitations.md §2).
 
@@ -84,7 +106,7 @@ If the user does not specify, **default to Brief mode** and mention that an exte
 4. Use `semantic_search_articles` (if enabled) for conceptual or thematic queries where exact keywords may miss relevant articles -- queries can be in any language. Use alongside keyword search, not as a replacement.
 5. Use `search_index` to find persons, organizations, places, and events; note the canonical form, then search articles with it
 6. Use `search_by_sentiment` for specific polarity/centrality patterns (supports `subject` for topic-specific slices)
-7. Use `search_publications` (series/subject/country/year filters + OCR keyword) for Islamic community media
+7. Use `search_publications` (series/subject/country/year filters; keyword matches title + subject + TOC + OCR, with TOC hits returned as `matching_toc_entries`) for Islamic community media; `semantic_search_publications` (if enabled) works for the 17 TOC-covered series
 8. Use `search_references` for academic literature -- French AND English terms, one keyword per call; drill into promising hits with `get_reference` (full abstract, 51% have one)
 9. Use `search_documents` when grassroots/association sources could matter (26 items, mostly Burkina Faso)
 10. **Record every search and its result count**, including zero-result searches -- null results constrain interpretation
@@ -164,4 +186,5 @@ See **references/research-domains.md** for comprehensive term lists by domain.
 4. **Always distinguish source types.** MCP tool outputs, AI sentiment labels, AI abstracts (`description_ai`), and OCR text have different evidential status.
 5. **AI sentiment is interpretive, not factual.** Gemini sentiment labels are analytical signals, not ground truth. Use topic-specific sentiment (via `subject` filter) rather than whole-corpus baselines when comparing themes.
 6. **Search incrementally.** Keep limits low, search one dimension at a time, avoid retrieving full OCR text unless needed.
-7. **Publications are mostly entire issues.** Individual articles within an issue are not separated; use `get_publication_fulltext` keyword excerpts to localise content inside an issue.
+7. **Publications are mostly entire issues.** Individual articles within an issue are not separated; use the table of contents where one exists (17 of 25 series) and `get_publication_fulltext` keyword excerpts to localise content inside an issue.
+8. **Mind the 1990-91 press-system break.** Pre-1991 articles (~11% of the corpus) come almost entirely from state or single-party organs; the private press only emerges with political liberalisation. Temporal comparisons crossing 1990 compare two different press systems (see biases-and-limitations.md §6).

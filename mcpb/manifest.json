@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "iwac-mcp-server",
   "display_name": "Islam West Africa Collection (IWAC)",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
-  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications, 4,700 index entries, plus audiovisual materials, archival documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality) and per-article AI abstracts. All matching is accent- and case-insensitive.\n\n**No API key is required for the 20 core tools** (keyword search, filtering, statistics, item details). Two optional semantic-search tools use Gemini embeddings and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
+  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual materials, archival documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality) and per-article AI abstracts. All matching is accent- and case-insensitive.\n\n**No API key is required for the 20 core tools** (keyword search, filtering, statistics, item details). Two optional semantic-search tools use Gemini embeddings — covering all articles and the publication series with tables of contents — and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
   "author": {
     "name": "Frédérick Madore",
     "email": "frederick.madore@uni-bayreuth.de",
@@ -60,15 +60,15 @@
     { "name": "get_collection_stats", "description": "Overall stats for all six IWAC subsets." },
     { "name": "get_newspaper_stats", "description": "Per-newspaper article counts and date ranges." },
     { "name": "get_country_comparison", "description": "Compare article counts and sentiment across countries." },
-    { "name": "search_publications", "description": "Search Islamic publications (periodical issues, books) by keyword (title, subject, OCR), series, subject, country, and year." },
+    { "name": "search_publications", "description": "Search Islamic publications (periodical issues, books) by keyword (title, subject, table of contents, OCR), series, subject, country, and year." },
     { "name": "list_periodicals", "description": "List the periodical/series titles in the publications subset, with issue counts and year ranges." },
     { "name": "get_publication_fulltext", "description": "Retrieve full OCR text of a publication, optionally with capped keyword excerpts." },
-    { "name": "semantic_search_publications", "description": "Optional. Semantic similarity search over publication tables of contents. Disabled by default — requires a free Google/Gemini API key." },
+    { "name": "semantic_search_publications", "description": "Optional. Semantic similarity search over publication tables of contents (17 of 25 series covered). Disabled by default — requires a free Google/Gemini API key." },
     { "name": "search_references", "description": "Search academic references (journal articles, chapters, theses, books, reports) by keyword, author, type, subject, country, language, and year; returns an abstract snippet." },
     { "name": "get_reference", "description": "Get the full bibliographic record for a reference, including the complete abstract, DOI, subjects, and host-work details." },
     { "name": "search_documents", "description": "Search the archival-documents subset (association reports, flyers — mostly Burkina Faso)." },
     { "name": "get_document", "description": "Get full metadata, AI description, and OCR text for an archival document." },
-    { "name": "list_audiovisual", "description": "List audiovisual materials with AI descriptions." }
+    { "name": "list_audiovisual", "description": "List audiovisual materials (Nigeria; includes Hausa and Arabic recordings)." }
   ],
   "compatibility": {
     "claude_desktop": ">=0.10.0",

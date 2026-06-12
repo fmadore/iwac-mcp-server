@@ -54,7 +54,7 @@ Primary search tool for the 12,287 newspaper articles.
 **Tip:** Sentiment comes inline — build topic-specific sentiment tables directly from search results. With `with_description=true` you can usually pick the 2-3 articles worth a full `get_article` without any intermediate calls.
 
 ### semantic_search_articles *(optional — requires semantic search enabled + Google API key)*
-Semantic similarity over article OCR via Gemini embeddings.
+Semantic similarity over article OCR via Gemini embeddings. Coverage is effectively complete: 12,286/12,287 articles are embedded.
 - `query`: natural language, **any language**
 - `country` / `newspaper` / `date_from` / `date_to` (optional post-filters), `limit` (default 10, max 50)
 - Returns article summaries ranked by `similarity_score`
@@ -76,13 +76,13 @@ Filter articles by Gemini sentiment labels (exact match, accents optional).
 
 ### search_publications
 Search the 1,501 Islamic publications (mostly complete periodical issues; OCR is 97% filled, median ~16k tokens/issue).
-- `keyword` (optional): substring match on title + subject + OCR
+- `keyword` (optional): substring match on title + subject + **table of contents** + OCR
 - `newspaper` (optional): periodical/series title — discover via `list_periodicals`
 - `subject` (optional): ~87% of issues are tagged
 - `country` (optional, exact name)
 - `date_from` / `date_to` (optional): years (YYYY)
 - `limit` (default 10, max 100), `offset`
-- Returns: id, title, newspaper, country, date, language, subject, nb_pages, url
+- Returns: id, title, newspaper, country, date, language, subject, nb_pages, url — plus `matching_toc_entries` when the keyword hits an issue's table of contents (325/1,501 issues have one; see `semantic_search_publications` below for series coverage)
 
 ### search_references
 Search the 864 academic references. **Bilingual** — search French AND English terms.
@@ -107,8 +107,9 @@ The 45 audiovisual items — all Nigeria, incl. Hausa/Arabic recordings. (AI des
 - `country` (optional), `limit` (default 20, max 50), `offset`
 
 ### semantic_search_publications *(optional — requires semantic search enabled + Google API key)*
-Semantic similarity over publication **tables of contents** — but only ~4/1,501 issues have a TOC, so coverage is near-zero until the dataset is enriched. **Prefer `search_publications`.**
+Semantic similarity over publication **tables of contents** via Gemini embeddings. TOC coverage (verified June 2026): **325/1,501 issues (~22%)**, all embedded — **complete for 17 of the 25 series** (Le Rendez-Vous 78, Plume Libre 49, L'Appel 48, Alif 32, La Preuve 28, An-Nasr Trimestriel 16, Le CERFIste 13, Al-Azan 13, ASSALAM 11, Al Mawadda 11, Al Maoulid Info 7, Le Pacific 6, Al Maoulid Magazine 5, AJMCI Infos 4, Al Muwassat Info 2, Bulletin d'information du CNI 1, Les Échos de l'AEEMCI 1), but **zero for the three largest** (Islam Info 695, An-Nasr Vendredi 318, Islam Hebdo 122) and five other small series.
 - `query` (any language), `country` (optional), `limit` (default 10, max 50)
+- Good for conceptual discovery inside the covered magazines; for Islam Info / An-Nasr Vendredi / Islam Hebdo, fall back to `search_publications` keyword + subject.
 
 ---
 
@@ -128,6 +129,7 @@ Full bibliographic record for one academic reference.
 OCR text of one publication. Two modes:
 - `publication_id` (int) alone → full text capped at 25k chars (`char_count` reports the true size — issues run up to ~1.1M chars)
 - `+ keyword` → excerpts around matches: `context_chars` (default 2000, max 5000), `max_excerpts` (default 10, max 25). `match_count` = total matches; `excerpts_returned` = how many you got; a `truncation_message` appears when capped.
+- When the issue has a table of contents, the response includes `tableOfContents` (avg ~6.4k chars ≈ 1.6k tokens) — often enough to locate an article without any keyword excerpts.
 
 ### get_document
 Full archival-document detail (metadata, AI description, capped OCR).
@@ -174,9 +176,11 @@ See `search_references` above (12 values, with counts).
 
 ## Token Efficiency Tips
 
+- Budget guide: a Brief run should stay around ≤25k tokens of tool output; an Extended run typically lands at 50-120k. Past that, stop searching and synthesize.
 - Default limits are 10 — raise only when you need breadth; `total_matches` + `has_more` tell you what's there without fetching it
-- Triage with `with_description=true` (limit ≤ 10) instead of calling `get_article` on everything; read full OCR only for the 2-3 finalists
-- A `search_articles` page of 10 ≈ 1.3k tokens; `get_article` ≈ 1-7k tokens; capped `get_publication_fulltext` ≤ ~7k tokens
-- Use stats/distribution tools for overviews before fetching individual items
+- Stop rule: when two consecutive search variants surface no new items, the dimension is saturated — move on
+- Triage with `with_description=true` (limit ≤ 10) instead of calling `get_article` on everything; read full OCR only for the 2-3 finalists (Brief) / 6-8 (Extended)
+- A `search_articles` page of 10 ≈ 1.3k tokens; `get_article` ≈ 1-7k tokens; capped `get_publication_fulltext` ≤ ~7k tokens (+ ~1.6k when the issue has a TOC)
+- Use stats/distribution tools for overviews before fetching individual items; when `total_matches` exceeds ~50, analyze metadata rather than reading items
 - Combine filters (country + subject/keyword + date range) to narrow before reading
 - For temporal filtering: articles take `YYYY-MM-DD` or `YYYY`; publications/references take years

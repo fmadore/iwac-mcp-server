@@ -45,9 +45,10 @@
 > served as cheap column lookups. The MCP server never generates at request
 > time. Whole-issue work is map-reduce (chunk → per-chunk extract → reduce) in
 > monthly batches, so no single call is large. Verified fill rates that motivate
-> this list: references abstract 51% / subject 27%; publications TOC **4/1,501**,
-> subject 87%, OCR 97% (median ~16k, max ~278k tokens/issue); audiovisual
-> descriptionAI **0/45**.
+> this list (June 2026): references abstract 51% / subject 27%; publications TOC
+> **325/1,501** (complete for 17/25 series; Islam Info, An-Nasr Vendredi and
+> Islam Hebdo still have none), subject 87%, OCR 97% (median ~16k, max ~278k
+> tokens/issue); audiovisual descriptionAI **0/45**.
 
 ### References (864 rows)
 
@@ -65,11 +66,12 @@
 
 ### Publications (1,501 rows)
 
-- [ ] **Extract `tableOfContents` from OCR** — only 4/1,501 issues have a TOC
-  today, which is why `semantic_search_publications` and the TOC-match path are
-  near-dead. Map-reduce over OCR to extract article-level entries (page, title,
-  author); store as `tableOfContents` and recompute `embedding_tableOfContents`.
-  Revives both TOC tools corpus-wide.
+- [ ] **Extract `tableOfContents` from OCR** — **mostly done (June 2026):**
+  325/1,501 issues now have a TOC + `embedding_tableOfContents`, covering 17 of
+  the 25 series completely (avg TOC ~6.4k chars). `semantic_search_publications`
+  and the `matching_toc_entries` path now work for those series. Remaining: the
+  three largest series — Islam Info (695 issues), An-Nasr Vendredi (318),
+  Islam Hebdo (122) — plus 5 small series (~41 issues).
 - [ ] **Per-issue `descriptionAI`** (2–4 sentences: themes, notable pieces).
   Publications have *no* summary surface at all today.
 - [ ] (stretch) **Article-level publications index** — explode extracted TOCs
@@ -87,7 +89,8 @@
 ### Server tools that light up once the columns land
 
 - `semantic_search_references` — new tool, needs `embedding_abstract`.
-- `semantic_search_publications` — becomes useful once real TOCs/embeddings exist.
+- `semantic_search_publications` — ✅ now useful for the 17 TOC-covered series;
+  corpus-wide once Islam Info / An-Nasr Vendredi / Islam Hebdo TOCs land.
 - `search_publications` — returns AI summaries once `descriptionAI` is populated
   (add a description column to `publicationSummaryCols`).
 

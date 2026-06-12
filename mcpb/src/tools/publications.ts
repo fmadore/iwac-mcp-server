@@ -250,8 +250,8 @@ export function registerPublicationTools(server: Server): void {
     {
       description:
         "Semantic similarity search over publication tables of contents using Gemini embeddings. " +
-        "Note: TOC coverage is currently very sparse (few issues have a table of contents), so this returns " +
-        "limited results until TOCs are enriched — prefer search_publications for keyword/OCR search. " +
+        "TOC coverage: ~22% of issues — complete for 17 of the 25 series (the smaller magazines), but absent " +
+        "for the three largest (Islam Info, An-Nasr Vendredi, Islam Hebdo); use search_publications for those. " +
         "Requires semantic search to be enabled and a Google API key.",
       annotations: annotate("Semantic search for publications"),
       inputSchema: {
