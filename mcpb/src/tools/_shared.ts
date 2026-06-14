@@ -459,3 +459,83 @@ export function extractMatchingTocEntries(toc: string, keyword: string): string 
   const entries = toc.split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
   return entries.filter((e) => foldText(e).includes(kw)).join("\n\n");
 }
+
+export interface ExcerptResult {
+  excerpts: string[];
+  excerpts_returned: number;
+  match_count: number;
+  note?: string;
+  truncated?: boolean;
+  truncation_message?: string;
+}
+
+/**
+ * Keyword-in-context retrieval for a long OCR blob: find every accent-insensitive
+ * match and return a window of `context_chars` (half each side) around each, up to
+ * `max_excerpts` / CHARACTER_LIMIT total. Lets the model read just the relevant
+ * passages of a long document/issue instead of the whole (capped) OCR. Shared by
+ * get_publication_fulltext, get_document, and get_article.
+ *
+ * Accent/case-folding is index-stable (foldText maps each UTF-16 unit to exactly
+ * one unit), so match offsets stay valid in the original text and excerpt
+ * extraction agrees with the accent-insensitive SQL search that found the item.
+ */
+export function keywordExcerpts(
+  ocr: string,
+  keyword: string,
+  opts: { contextChars?: number; maxExcerpts?: number } = {},
+): ExcerptResult {
+  const contextChars = Math.max(200, Math.min(opts.contextChars ?? 2000, 5000));
+  const maxExcerpts = capLimit(opts.maxExcerpts, 10, 25);
+  const half = Math.floor(contextChars / 2);
+  const haystack = foldText(ocr);
+  const needle = foldText(keyword);
+
+  // All match positions first (cheap), then excerpts up to the caps. A common
+  // keyword in a 1M-char issue can match hundreds of times — uncapped, that once
+  // produced a single ~150k-char (~38k-token) response.
+  const positions: number[] = [];
+  let pos = 0;
+  while (true) {
+    const idx = haystack.indexOf(needle, pos);
+    if (idx === -1) break;
+    positions.push(idx);
+    pos = idx + Math.max(1, needle.length);
+  }
+  if (positions.length === 0) {
+    return { excerpts: [], excerpts_returned: 0, match_count: 0, note: `Keyword '${keyword}' not found in full text` };
+  }
+
+  const excerpts: string[] = [];
+  let coveredUntil = -1; // skip matches already visible in the previous excerpt
+  let totalChars = 0;
+  let capped = false;
+  for (const idx of positions) {
+    if (idx < coveredUntil) continue;
+    if (excerpts.length >= maxExcerpts || totalChars >= CHARACTER_LIMIT) {
+      capped = true;
+      break;
+    }
+    const start = Math.max(0, idx - half);
+    const end = Math.min(ocr.length, idx + needle.length + half);
+    let ex = ocr.slice(start, end);
+    if (start > 0) ex = "..." + ex;
+    if (end < ocr.length) ex += "...";
+    excerpts.push(ex);
+    totalChars += ex.length;
+    coveredUntil = end;
+  }
+
+  const result: ExcerptResult = {
+    excerpts,
+    excerpts_returned: excerpts.length,
+    match_count: positions.length,
+  };
+  if (capped) {
+    result.truncated = true;
+    result.truncation_message =
+      `Showing ${excerpts.length} excerpts for ${positions.length} matches. ` +
+      `Use a more specific keyword, or raise max_excerpts (max 25).`;
+  }
+  return result;
+}

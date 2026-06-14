@@ -119,10 +119,10 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 **Goal:** Examine individual items in detail for high-value hits.
 
 **Actions:**
-1. Use `get_article` for full article detail: metadata, `description_ai`, sentiment, OCR text (capped at 25k chars)
+1. Use `get_article` for full article detail: metadata, `description_ai`, sentiment, OCR text (capped at 25k chars). Pass a `keyword` to get focused ~2000-char excerpts around matches instead of the whole OCR — useful for long articles.
 2. Use `get_reference` for the full scholarly abstract and host-work details
 3. Use `get_publication_fulltext` with a `keyword` for capped excerpts inside a long issue (`match_count` tells you the total; `excerpts_returned` what you got)
-4. Use `get_index_entry` / `get_document` for authority records and archival documents
+4. Use `get_index_entry` for authority records, and `get_document` for archival documents — `get_document` also takes a `keyword` (with `context_chars` / `max_excerpts`) for excerpts inside a long document, the same windowing as `get_publication_fulltext`
 5. Cross-reference article subjects and spatial fields with index entries
 6. Note the IWAC URL for each item to enable verification against the original source
 

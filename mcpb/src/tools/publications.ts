@@ -6,12 +6,11 @@ import {
   capLimit,
   capOffset,
   capText,
-  CHARACTER_LIMIT,
   countryFilterIfExists,
   errorResult,
   extractMatchingTocEntries,
   foldedLike,
-  foldText,
+  keywordExcerpts,
   likeFilterIfExists,
   publicationSummaryCols,
   pubDateOrder,
@@ -185,61 +184,13 @@ export function registerPublicationTools(server: Server): void {
         return textResult(result);
       }
 
-      const contextChars = Math.max(200, Math.min(args.context_chars ?? 2000, 5000));
-      const maxExcerpts = capLimit(args.max_excerpts, 10, 25);
-      const half = Math.floor(contextChars / 2);
-      // Accent/case-fold both sides (index-stable) so excerpt extraction agrees
-      // with the accent-insensitive SQL search that found this publication.
-      const haystack = foldText(ocr);
-      const needle = foldText(args.keyword);
-
-      // All match positions first (cheap), then excerpts up to the caps. A common
-      // keyword in a 1M-char issue can match hundreds of times — uncapped, that
-      // once produced a single ~150k-char (~38k-token) response.
-      const positions: number[] = [];
-      let pos = 0;
-      while (true) {
-        const idx = haystack.indexOf(needle, pos);
-        if (idx === -1) break;
-        positions.push(idx);
-        pos = idx + Math.max(1, needle.length);
-      }
-      if (positions.length === 0) {
-        result.excerpts = [];
-        result.match_count = 0;
-        result.note = `Keyword '${args.keyword}' not found in full text`;
-        return textResult(result);
-      }
-
-      const excerpts: string[] = [];
-      let coveredUntil = -1; // skip matches already visible in the previous excerpt
-      let totalChars = 0;
-      let capped = false;
-      for (const idx of positions) {
-        if (idx < coveredUntil) continue;
-        if (excerpts.length >= maxExcerpts || totalChars >= CHARACTER_LIMIT) {
-          capped = true;
-          break;
-        }
-        const start = Math.max(0, idx - half);
-        const end = Math.min(ocr.length, idx + needle.length + half);
-        let ex = ocr.slice(start, end);
-        if (start > 0) ex = "..." + ex;
-        if (end < ocr.length) ex += "...";
-        excerpts.push(ex);
-        totalChars += ex.length;
-        coveredUntil = end;
-      }
-
-      result.excerpts = excerpts;
-      result.excerpts_returned = excerpts.length;
-      result.match_count = positions.length;
-      if (capped) {
-        result.truncated = true;
-        result.truncation_message =
-          `Showing ${excerpts.length} excerpts for ${positions.length} matches. ` +
-          `Use a more specific keyword, or raise max_excerpts (max 25) / page through with a narrower term.`;
-      }
+      Object.assign(
+        result,
+        keywordExcerpts(ocr, args.keyword, {
+          contextChars: args.context_chars,
+          maxExcerpts: args.max_excerpts,
+        }),
+      );
       return textResult(result);
     },
   );

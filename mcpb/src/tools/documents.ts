@@ -8,6 +8,7 @@ import {
   countryFilterIfExists,
   errorResult,
   foldedLike,
+  keywordExcerpts,
   documentSummaryCols,
   pubDateOrder,
   runListQuery,
@@ -69,11 +70,22 @@ export function registerDocumentTools(server: Server): void {
   server.registerTool(
     "get_document",
     {
-      description: "Get one archival document (by id): full metadata, AI description, and OCR text.",
+      description:
+        "Get one archival document (by id): full metadata, AI description, and OCR text. " +
+        "Pass a `keyword` to get ~2000-char excerpts around each match instead of the full (capped) OCR — " +
+        "useful for long documents.",
       annotations: annotate("Get document details"),
-      inputSchema: { document_id: z.number().int() },
+      inputSchema: {
+        document_id: z.number().int(),
+        keyword: z
+          .string()
+          .optional()
+          .describe("Return excerpts around matches instead of the full OCR (accent-insensitive)"),
+        context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
+        max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
+      },
     },
-    async ({ document_id }) => {
+    async ({ document_id, keyword, context_chars, max_excerpts }) => {
       const schema = await ensureView("documents");
       const cols = selectList(schema, [
         ['"o:id"', "id", ["o:id"]],
@@ -96,8 +108,12 @@ export function registerDocumentTools(server: Server): void {
       ]);
       const row = await getById("documents", cols, document_id);
       if (!row) return errorResult({ error: `Document ${document_id} not found` });
-      if (typeof row.ocr_text === "string") {
-        const capped = capText(row.ocr_text);
+      const ocr = typeof row.ocr_text === "string" ? row.ocr_text : "";
+      if (keyword && ocr.trim()) {
+        delete row.ocr_text;
+        Object.assign(row, keywordExcerpts(ocr, keyword, { contextChars: context_chars, maxExcerpts: max_excerpts }));
+      } else if (ocr) {
+        const capped = capText(ocr, { suggestKeyword: true });
         row.ocr_text = capped.text;
         if (capped.truncated) {
           row.truncated = true;

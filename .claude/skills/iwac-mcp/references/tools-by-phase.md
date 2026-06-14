@@ -118,6 +118,7 @@ Semantic similarity over publication **tables of contents** via Gemini embedding
 ### get_article
 Full article detail.
 - `article_id` (int)
+- `+ keyword` → ~2000-char excerpts around matches instead of full OCR: `context_chars` (default 2000, max 5000), `max_excerpts` (default 10, max 25); `match_count` / `excerpts_returned` as in get_publication_fulltext
 - Returns: id, identifier, title, author, newspaper, country, date, subject, spatial, language, nb_pages, url, **description_ai** (~500-char AI abstract), polarity, centrality, subjectivity, word_count, lexical_richness, readability, ocr_text (capped at 25k chars; only 48 articles exceed it)
 
 ### get_reference
@@ -134,6 +135,7 @@ OCR text of one publication. Two modes:
 ### get_document
 Full archival-document detail (metadata, AI description, capped OCR).
 - `document_id` (int)
+- `+ keyword` → ~2000-char excerpts around matches instead of full OCR: `context_chars` (default 2000, max 5000), `max_excerpts` (default 10, max 25); `match_count` / `excerpts_returned`. Useful for the handful of documents over 25k chars (e.g. the COSIM statutes).
 
 ### get_index_entry
 Detailed index entry. **Raw dataset columns, French names** (Titre, Titre alternatif, Type, Description, Prénom, Nom, Coordonnées, frequency, first/last_occurrence, countries…).
