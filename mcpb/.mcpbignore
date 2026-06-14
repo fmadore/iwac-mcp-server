@@ -10,6 +10,9 @@ smoke-test.mjs
 probe-cols.mjs
 download-all.mjs
 
+# Built bundles (never pack a bundle inside another bundle)
+*.mcpb
+
 # Dev metadata
 .gitignore
 .git/

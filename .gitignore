@@ -8,6 +8,7 @@ yarn-error.log*
 mcpb/server/
 mcpb/*.mcpb
 iwac-mcp-skill.zip
+.duckdb-binding-stash/
 
 # Local cache / secrets
 .cache/

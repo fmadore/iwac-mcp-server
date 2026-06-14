@@ -8,23 +8,30 @@ Ships as a one-click [Desktop Extension](https://github.com/modelcontextprotocol
 
 ## Install
 
-Each [release](https://github.com/fmadore/iwac-mcp-server/releases) ships **two**
-assets. The `.mcpb` gives Claude the data and tools; the `.zip` adds a research
-skill that teaches Claude *how* to use them. Install the server first, then
-**install the skill too — strongly recommended** for getting the most out of the
-tools: it makes Claude search and synthesize far more efficiently, with fewer
-wasted queries.
+Each [release](https://github.com/fmadore/iwac-mcp-server/releases) ships a
+server bundle **for your operating system** plus a research-skill `.zip`. The
+`.mcpb` gives Claude the data and tools; the `.zip` adds a research skill that
+teaches Claude *how* to use them. Install the server first, then **install the
+skill too — strongly recommended** for getting the most out of the tools: it
+makes Claude search and synthesize far more efficiently, with fewer wasted
+queries.
 
-### 1. The MCP server — `iwac-mcp-server.mcpb`
+### 1. The MCP server — pick the bundle for your OS
 
-1. Download the latest `iwac-mcp-server.mcpb` from
+| Your OS                            | Download                       |
+| ---------------------------------- | ------------------------------ |
+| Windows (Intel/AMD or Snapdragon)  | `iwac-mcp-server-windows.mcpb` |
+| macOS (Apple Silicon or Intel)     | `iwac-mcp-server-macos.mcpb`   |
+
+1. Download the bundle for your OS from
    [Releases](https://github.com/fmadore/iwac-mcp-server/releases).
 2. Double-click the file. Claude Desktop shows an install dialog — click **Install**.
 3. On first use the server downloads ~250 MB of parquet data from Hugging Face
    into `~/.iwac-mcp/cache/` (override in the extension settings).
 
 No Python, no `uv`, no venv — the bundle ships a self-contained Node runtime and
-DuckDB bindings for macOS, Windows, and Linux (x64 and arm64).
+the DuckDB binaries for your OS (x64 and arm64; Claude Desktop picks the right
+one). Claude Desktop has no Linux build, so no Linux bundle is published.
 
 ### 2. The research skill — `iwac-mcp-skill.zip` (strongly recommended)
 

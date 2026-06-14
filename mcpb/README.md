@@ -5,8 +5,19 @@ Anthropic Desktop Extension (`.mcpb`) for one-click install in Claude Desktop.
 
 ## Install (end users)
 
-Download `iwac-mcp-server.mcpb` from the [releases page](https://github.com/fmadore/iwac-mcp-server/releases)
-and double-click it. Claude Desktop will show an install dialog; click **Install**.
+Download the bundle for **your operating system** from the
+[releases page](https://github.com/fmadore/iwac-mcp-server/releases) and
+double-click it. Claude Desktop will show an install dialog; click **Install**.
+
+| Your OS                          | Download                          |
+| -------------------------------- | --------------------------------- |
+| Windows (Intel/AMD or Snapdragon)| `iwac-mcp-server-windows.mcpb`    |
+| macOS (Apple Silicon or Intel)   | `iwac-mcp-server-macos.mcpb`      |
+
+Each bundle ships only its own OS's native DuckDB binaries (Claude Desktop picks
+the right CPU architecture automatically), which keeps the download small and
+makes installation reliable. Claude Desktop has no Linux build, so no Linux
+bundle is published.
 
 On first use the server downloads ~250 MB of parquet data from Hugging Face
 into `~/.iwac-mcp/cache/` (override via the extension settings). Subsequent
@@ -22,20 +33,24 @@ queries are served locally through DuckDB.
 ```bash
 cd mcpb
 npm install
-node scripts/install-duckdb-bindings.mjs   # pulls all 6 platform binaries
-npm run typecheck                          # tsc --noEmit (type safety)
-npm run build                              # esbuild -> server/index.js (single file)
-node smoke-test.mjs                        # spawn server, call each tool
+npm run install-bindings                    # fetch the 4 macOS/Windows binaries
+npm run typecheck                           # tsc --noEmit (type safety)
+npm run build                               # esbuild -> server/index.js (single file)
+node smoke-test.mjs                         # spawn server, call each tool
 ```
 
-Pack the server bundle:
+Pack the per-OS server bundles (one `.mcpb` per OS, each with only that OS's
+DuckDB binaries):
 
 ```bash
-npm prune --omit=dev
-node scripts/install-duckdb-bindings.mjs   # re-hydrate after prune
-npx mcpb validate manifest.json
-npx mcpb pack . iwac-mcp-server.mcpb
+npm run release        # prepack-mcpb + install-bindings + pack-platforms
+# or just repackage without rebuilding server/index.js:
+npm run pack-platforms # -> iwac-mcp-server-windows.mcpb + iwac-mcp-server-macos.mcpb
 ```
+
+`pack-platforms` stashes the non-target binaries out of the pack tree per OS, so
+it runs offline against whatever `install-bindings` has placed in `node_modules`.
+`pack-mcpb` still exists for a quick host-only single bundle during development.
 
 Pack the research skill (a separate release asset — zips the repo-root
 `.claude/skills/iwac-mcp/` at `HEAD`, so commit skill changes before running it):
@@ -44,7 +59,8 @@ Pack the research skill (a separate release asset — zips the repo-root
 npm run pack-skill                         # -> ../iwac-mcp-skill.zip (repo root)
 ```
 
-Upload **both** `iwac-mcp-server.mcpb` and `iwac-mcp-skill.zip` to the release.
+Upload **all three** assets to the release: `iwac-mcp-server-windows.mcpb`,
+`iwac-mcp-server-macos.mcpb`, and `iwac-mcp-skill.zip`.
 
 ## Layout
 
@@ -55,7 +71,9 @@ Upload **both** `iwac-mcp-server.mcpb` and `iwac-mcp-skill.zip` to the release.
 | `server/index.js`            | Single esbuild bundle (server + MCP SDK + zod)  |
 | `node_modules/`              | Runtime externals: `@duckdb/*` + `@google/genai`|
 | `scripts/bundle.mjs`         | esbuild config (single-file bundle)             |
-| `scripts/install-duckdb-bindings.mjs` | Force-install all 6 platform bindings  |
+| `scripts/duckdb-bindings.mjs`| Shared helper: fetch/extract platform bindings  |
+| `scripts/install-duckdb-bindings.mjs` | Fetch the 4 macOS/Windows bindings     |
+| `scripts/pack-platforms.mjs` | Build one `.mcpb` per OS (Windows, macOS)       |
 | `smoke-test.mjs`             | Local MCP round-trip test                       |
 | `.mcpbignore`                | Files excluded from the `.mcpb` archive         |
 

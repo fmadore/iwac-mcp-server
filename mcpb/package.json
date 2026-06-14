@@ -1,6 +1,6 @@
 {
   "name": "iwac-mcp-server-bundle",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Node MCP server for the Islam West Africa Collection, packaged as a Claude Desktop extension (.mcpb).",
   "private": true,
   "type": "module",
@@ -10,7 +10,10 @@
     "build": "node scripts/bundle.mjs",
     "clean": "rimraf server",
     "prepack-mcpb": "npm run clean && npm run typecheck && npm run build",
+    "install-bindings": "node scripts/install-duckdb-bindings.mjs",
     "pack-mcpb": "mcpb pack . iwac-mcp-server.mcpb",
+    "pack-platforms": "node scripts/pack-platforms.mjs",
+    "release": "npm run prepack-mcpb && npm run install-bindings && npm run pack-platforms",
     "pack-skill": "git -C .. archive --format=zip --prefix=iwac-mcp/ -o iwac-mcp-skill.zip HEAD:.claude/skills/iwac-mcp"
   },
   "dependencies": {
@@ -22,8 +25,6 @@
   "optionalDependencies": {
     "@duckdb/node-bindings-darwin-arm64": "^1.5.3-r.2",
     "@duckdb/node-bindings-darwin-x64": "^1.5.3-r.2",
-    "@duckdb/node-bindings-linux-arm64": "^1.5.3-r.2",
-    "@duckdb/node-bindings-linux-x64": "^1.5.3-r.2",
     "@duckdb/node-bindings-win32-arm64": "^1.5.3-r.2",
     "@duckdb/node-bindings-win32-x64": "^1.5.3-r.2"
   },
