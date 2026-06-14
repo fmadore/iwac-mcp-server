@@ -67,7 +67,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 - **Extended** typically lands at 50-120k tokens of tool output. Past that, returns diminish — stop searching and synthesize what you have.
 - **Stop rules:** when two consecutive search variants surface no new items, that dimension is saturated — move on. When `total_matches` exceeds ~50, analyze the metadata (counts, dates, newspapers, sentiment) instead of reading items; read only the triaged finalists.
 - **Counting ≠ fetching.** `total_matches` and the stats/distribution tools answer "how much / when / what tone" without retrieving rows. Never page through a large result set, and never set limit=100 "just in case".
-- **Full text is the expensive part** (`get_article` ≈ 1-7k tokens; `get_publication_fulltext` up to ~7k, plus ~1.6k when the issue has a TOC). Cap full reads at 2-3 (Brief) / 6-8 (Extended), always triaged on `description_ai` first.
+- **Full text is the expensive part** (`get_article` ≈ 1-7k tokens; `get_publication_fulltext` up to ~7k, plus ~1.6k when the issue has a TOC). Cap full reads at 2-3 (Brief) / 6-8 (Extended), always triaged on `description_ai` first. For a long item, pass a `keyword` to `get_article` / `get_document` / `get_publication_fulltext` to pull just the relevant ~2000-char windows instead of the whole capped OCR.
 - If a question genuinely requires bulk reading (dozens of full articles), say what it will cost and confirm with the user before doing it.
 
 ## Critical Search Rules
@@ -126,7 +126,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 5. Cross-reference article subjects and spatial fields with index entries
 6. Note the IWAC URL for each item to enable verification against the original source
 
-**Constraint:** Triage on `description_ai` first; request full OCR only for the finalists.
+**Constraint:** Triage on `description_ai` first; request full OCR only for the finalists — and for a long item, prefer a `keyword` excerpt (`get_article` / `get_document` / `get_publication_fulltext`) over the whole OCR.
 
 ### Phase 4 -- Triangulation
 

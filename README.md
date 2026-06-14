@@ -82,6 +82,11 @@ case-insensitive.
 | References   | `search_references`, `get_reference`                                                        |
 | Other        | `search_documents`, `get_document`, `list_audiovisual`                                      |
 
+The three full-text tools — `get_article`, `get_document`, and
+`get_publication_fulltext` — optionally take a `keyword` to return ~2000-char
+excerpts around each match, so Claude reads just the relevant passages of a long
+article, archival document, or periodical issue instead of the whole OCR.
+
 Every result object includes a `url` field pointing at the canonical IWAC record,
 e.g. `https://islam.zmo.de/s/afrique_ouest/item/28576`.
 
