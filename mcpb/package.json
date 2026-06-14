@@ -10,7 +10,8 @@
     "build": "node scripts/bundle.mjs",
     "clean": "rimraf server",
     "prepack-mcpb": "npm run clean && npm run typecheck && npm run build",
-    "pack-mcpb": "mcpb pack . iwac-mcp-server.mcpb"
+    "pack-mcpb": "mcpb pack . iwac-mcp-server.mcpb",
+    "pack-skill": "git -C .. archive --format=zip --prefix=iwac-mcp/ -o iwac-mcp-skill.zip HEAD:.claude/skills/iwac-mcp"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.3-r.2",

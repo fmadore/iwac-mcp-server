@@ -8,6 +8,15 @@ Ships as a one-click [Desktop Extension](https://github.com/modelcontextprotocol
 
 ## Install
 
+Each [release](https://github.com/fmadore/iwac-mcp-server/releases) ships **two**
+assets. The `.mcpb` gives Claude the data and tools; the `.zip` adds a research
+skill that teaches Claude *how* to use them. Install the server first, then
+**install the skill too — strongly recommended** for getting the most out of the
+tools: it makes Claude search and synthesize far more efficiently, with fewer
+wasted queries.
+
+### 1. The MCP server — `iwac-mcp-server.mcpb`
+
 1. Download the latest `iwac-mcp-server.mcpb` from
    [Releases](https://github.com/fmadore/iwac-mcp-server/releases).
 2. Double-click the file. Claude Desktop shows an install dialog — click **Install**.
@@ -16,6 +25,38 @@ Ships as a one-click [Desktop Extension](https://github.com/modelcontextprotocol
 
 No Python, no `uv`, no venv — the bundle ships a self-contained Node runtime and
 DuckDB bindings for macOS, Windows, and Linux (x64 and arm64).
+
+### 2. The research skill — `iwac-mcp-skill.zip` (strongly recommended)
+
+The [`iwac-mcp` skill](.claude/skills/iwac-mcp/SKILL.md) wraps the raw tools in a
+structured research workflow: a five-phase methodology, francophone search
+strategy, source attribution with confidence grading, and bias/coverage caveats.
+**It makes the server far more efficient to use** — Claude picks the right tool
+and search terms on the first pass (fewer wasted queries), searches French
+sources properly, and returns a cited synthesis instead of a raw tool dump. You
+can run the tools without it, but you'll get more out of every query with it
+installed.
+
+Download `iwac-mcp-skill.zip` from the same release, then:
+
+- **Claude Desktop** — open **Customize → Skills → + → Create skill → Upload a
+  skill** and select the zip. (Or unzip it into `~/.claude/skills/` and restart
+  Claude Desktop.)
+- **Claude Code** — unzip it into your skills directory; Claude Code discovers it
+  live, no restart needed:
+
+  ```bash
+  # macOS / Linux
+  unzip iwac-mcp-skill.zip -d ~/.claude/skills/
+  ```
+
+  ```powershell
+  # Windows (PowerShell)
+  Expand-Archive iwac-mcp-skill.zip -DestinationPath $HOME\.claude\skills\
+  ```
+
+  Both land the skill at `~/.claude/skills/iwac-mcp/`. Unzip into a project's
+  `.claude/skills/` instead to scope it to one repository.
 
 ## What it gives Claude
 

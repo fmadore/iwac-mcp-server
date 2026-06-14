@@ -28,7 +28,7 @@ npm run build                              # esbuild -> server/index.js (single 
 node smoke-test.mjs                        # spawn server, call each tool
 ```
 
-Pack:
+Pack the server bundle:
 
 ```bash
 npm prune --omit=dev
@@ -36,6 +36,15 @@ node scripts/install-duckdb-bindings.mjs   # re-hydrate after prune
 npx mcpb validate manifest.json
 npx mcpb pack . iwac-mcp-server.mcpb
 ```
+
+Pack the research skill (a separate release asset — zips the repo-root
+`.claude/skills/iwac-mcp/` at `HEAD`, so commit skill changes before running it):
+
+```bash
+npm run pack-skill                         # -> ../iwac-mcp-skill.zip (repo root)
+```
+
+Upload **both** `iwac-mcp-server.mcpb` and `iwac-mcp-skill.zip` to the release.
 
 ## Layout
 

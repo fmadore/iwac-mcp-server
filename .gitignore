@@ -7,6 +7,7 @@ yarn-error.log*
 # Build artifacts
 mcpb/server/
 mcpb/*.mcpb
+iwac-mcp-skill.zip
 
 # Local cache / secrets
 .cache/
