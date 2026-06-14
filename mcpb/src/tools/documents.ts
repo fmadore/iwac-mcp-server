@@ -27,13 +27,13 @@ export function registerDocumentTools(server: Server): void {
       inputSchema: {
         keyword: z.string().optional().describe("Substring match on title, OCR, AI description and subject (accent-insensitive)"),
         country: z.string().optional().describe("Exact country name, e.g. Burkina Faso | Togo | Benin"),
-        limit: z.number().int().optional().describe("Default 10, max 50"),
+        limit: z.number().int().optional().describe("Default 15, max 50"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("documents");
-      const limit = capLimit(args.limit, 10, 50);
+      const limit = capLimit(args.limit, 15, 50);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];

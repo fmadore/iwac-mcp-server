@@ -37,11 +37,29 @@ function bigintReplacer(_key: string, value: unknown): unknown {
 }
 
 /**
- * Drop null/undefined and empty-string values recursively. The parquet encodes
- * missing values as "" rather than NULL, so result rows would otherwise carry
- * dozens of `"author": ""` entries — pure token waste for the model.
+ * Characters that must never reach the model: C0 control codes and DEL (except
+ * tab/newline/carriage-return, which are legitimate in OCR text) plus every
+ * Unicode Private-Use Area code point (BMP U+E000–U+F8FF and the two
+ * supplementary planes). The dataset and this server's code are clean today, but
+ * a stray private-use "sentinel" leaking into a field — e.g. `ite⟨U+E000⟩m` in a
+ * `url` — silently breaks links, so the server scrubs its own output instead of
+ * trusting every future dataset revision or upstream pipeline step.
+ */
+const STRIP_CHARS =
+  /[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
+
+function sanitizeString(s: string): string {
+  return s.replace(STRIP_CHARS, "");
+}
+
+/**
+ * Drop null/undefined and empty-string values recursively, and scrub stray
+ * control/private-use characters from every string. The parquet encodes missing
+ * values as "" rather than NULL, so result rows would otherwise carry dozens of
+ * `"author": ""` entries — pure token waste for the model.
  */
 function compactValue(value: unknown): unknown {
+  if (typeof value === "string") return sanitizeString(value);
   if (Array.isArray(value)) return value.map(compactValue);
   if (value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
     const out: Record<string, unknown> = {};

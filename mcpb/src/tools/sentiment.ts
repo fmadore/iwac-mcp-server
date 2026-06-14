@@ -36,13 +36,13 @@ export function registerSentimentTools(server: Server): void {
           .optional()
           .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
         subject: z.string().optional(),
-        limit: z.number().int().optional().describe("Default 10, max 100"),
+        limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("articles");
-      const limit = capLimit(args.limit, 10, 100);
+      const limit = capLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];

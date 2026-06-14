@@ -48,7 +48,7 @@ Primary search tool for the 12,287 newspaper articles.
 - `subject` (optional): substring match on the pipe-separated curated tags
 - `date_from` / `date_to` (optional): `YYYY-MM-DD` or `YYYY` (day precision)
 - `with_description` (optional, boolean): include each article's ~500-char AI abstract (`description_ai`) — ~125 tokens/row, pair with limit ≤ 10
-- `limit` (default 10, max 100), `offset`
+- `limit` (default 20, max 100), `offset`
 - Returns: id, title, author, newspaper, country, date, subject, spatial, language, **polarity**, **centrality**, **subjectivity**, url
 
 **Tip:** Sentiment comes inline — build topic-specific sentiment tables directly from search results. With `with_description=true` you can usually pick the 2-3 articles worth a full `get_article` without any intermediate calls.
@@ -72,7 +72,7 @@ Filter articles by Gemini sentiment labels (exact match, accents optional).
 - `polarity` (optional): Très positif | Positif | Neutre | Négatif | Très négatif | Non applicable
 - `centrality` (optional): Très central | Central | Secondaire | Marginal | Non abordé
 - `country` (optional, exact name), `subject` (optional)
-- `limit` (default 10, max 100), `offset`
+- `limit` (default 20, max 100), `offset`
 
 ### search_publications
 Search the 1,501 Islamic publications (mostly complete periodical issues; OCR is 97% filled, median ~16k tokens/issue).
@@ -81,7 +81,7 @@ Search the 1,501 Islamic publications (mostly complete periodical issues; OCR is
 - `subject` (optional): ~87% of issues are tagged
 - `country` (optional, exact name)
 - `date_from` / `date_to` (optional): years (YYYY)
-- `limit` (default 10, max 100), `offset`
+- `limit` (default 20, max 100), `offset`
 - Returns: id, title, newspaper, country, date, language, subject, nb_pages, url — plus `matching_toc_entries` when the keyword hits an issue's table of contents (325/1,501 issues have one; see `semantic_search_publications` below for series coverage)
 
 ### search_references
@@ -93,13 +93,13 @@ Search the 864 academic references. **Bilingual** — search French AND English 
 - `country` (optional, exact name; Nigeria valid here)
 - `language` (optional): Français | Anglais
 - `date_from` / `date_to` (optional): years
-- `limit` (default 10, max 100), `offset`
+- `limit` (default 20, max 100), `offset`
 - Returns summary + `abstract_snippet` (320 chars) + doi — full abstract via `get_reference`
 
 ### search_documents
 Search the 26 archival documents (Islamic association reports, flyers, project documents — 19 Burkina Faso, 4 Togo, 2 Benin). All have OCR + AI description.
 - `keyword` (optional): substring on title + OCR + AI description + subject
-- `country` (optional, exact name), `limit` (default 10, max 50), `offset`
+- `country` (optional, exact name), `limit` (default 15, max 50), `offset`
 - Call with no arguments to list all 26.
 
 ### list_audiovisual
@@ -177,10 +177,10 @@ See `search_references` above (12 values, with counts).
 ## Token Efficiency Tips
 
 - Budget guide: a Brief run should stay around ≤25k tokens of tool output; an Extended run typically lands at 50-120k. Past that, stop searching and synthesize.
-- Default limits are 10 — raise only when you need breadth; `total_matches` + `has_more` tell you what's there without fetching it
+- Default limits are 20 for the main searches (15 for documents) — raise toward `max` only when you need breadth; `total_matches` + `has_more` tell you what's there without fetching it
 - Stop rule: when two consecutive search variants surface no new items, the dimension is saturated — move on
 - Triage with `with_description=true` (limit ≤ 10) instead of calling `get_article` on everything; read full OCR only for the 2-3 finalists (Brief) / 6-8 (Extended)
-- A `search_articles` page of 10 ≈ 1.3k tokens; `get_article` ≈ 1-7k tokens; capped `get_publication_fulltext` ≤ ~7k tokens (+ ~1.6k when the issue has a TOC)
+- A `search_articles` page of 20 ≈ 2.5k tokens; `get_article` ≈ 1-7k tokens; capped `get_publication_fulltext` ≤ ~7k tokens (+ ~1.6k when the issue has a TOC)
 - Use stats/distribution tools for overviews before fetching individual items; when `total_matches` exceeds ~50, analyze metadata rather than reading items
 - Combine filters (country + subject/keyword + date range) to narrow before reading
 - For temporal filtering: articles take `YYYY-MM-DD` or `YYYY`; publications/references take years

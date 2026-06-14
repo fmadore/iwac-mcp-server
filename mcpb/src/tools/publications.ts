@@ -41,13 +41,13 @@ export function registerPublicationTools(server: Server): void {
           .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
         date_from: z.string().optional().describe("Earliest year, YYYY"),
         date_to: z.string().optional().describe("Latest year, YYYY"),
-        limit: z.number().int().optional().describe("Default 10, max 100"),
+        limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("publications");
-      const limit = capLimit(args.limit, 10, 100);
+      const limit = capLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
 
       const where: string[] = [];

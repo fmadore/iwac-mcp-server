@@ -47,13 +47,13 @@ export function registerReferenceTools(server: Server): void {
         language: z.string().optional().describe("e.g. Français | Anglais"),
         date_from: z.string().optional().describe("Earliest year, YYYY"),
         date_to: z.string().optional().describe("Latest year, YYYY"),
-        limit: z.number().int().optional().describe("Default 10, max 100"),
+        limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("references");
-      const limit = capLimit(args.limit, 10, 100);
+      const limit = capLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];

@@ -58,14 +58,14 @@ export function registerArticleTools(server: Server): void {
         with_description: z
           .boolean()
           .optional()
-          .describe("Include each article's ~500-char AI abstract (description_ai) for triage without get_article. Adds ~125 tokens/row — pair with limit ≤ 10."),
-        limit: z.number().int().optional().describe("Default 10, max 100"),
+          .describe("Include each article's ~500-char AI abstract (description_ai) for triage without get_article. Adds ~125 tokens/row, so pass a smaller limit (≤10) when enabling it."),
+        limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("articles");
-      const limit = capLimit(args.limit, 10, 100);
+      const limit = capLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];

@@ -52,7 +52,7 @@ Do not attach time estimates to the options. Wait for the user to choose before 
 2. Run Phase 2 with **one primary search per filter combination** (e.g., subject tag + country + date range). Skip keyword variants and supplementary searches. Use `limit=10` and `with_description=true` so each hit carries its AI abstract.
 3. Run a **lightweight Phase 3**: pick the 2-3 most relevant articles (triage on `description_ai`) and call `get_article` to read their OCR text. Skip `get_sentiment_distribution`.
 4. Skip Phase 4 (triangulation).
-5. Produce a Phase 5 synthesis that draws on both metadata and the articles read. Keep it concise but substantive.
+5. Produce a Phase 5 synthesis that draws on both metadata and the articles read. Keep it concise but substantive — and still open with the one-line evidence-base ledger (items read in full vs. triaged on AI abstracts vs. surveyed by count).
 
 ### Extended mode workflow
 Follow the full five-phase workflow described below. Use multiple search term variants, read key articles in full, run topic-specific sentiment analysis, and produce a detailed synthesis with confidence grading.
@@ -63,7 +63,7 @@ If the user does not specify, **default to Brief mode** and mention that an exte
 
 Comprehensiveness has a token price — spend deliberately. The goal is a well-evidenced answer, not an exhaustive dump.
 
-- **Brief** should stay around ≤25k tokens of tool output: one scoping batch, a handful of searches at limit 10, 2-3 full articles.
+- **Brief** should stay around ≤25k tokens of tool output: one scoping batch, a handful of searches at the default limit (20 rows; drop to ≤10 when adding `with_description`), 2-3 full articles.
 - **Extended** typically lands at 50-120k tokens of tool output. Past that, returns diminish — stop searching and synthesize what you have.
 - **Stop rules:** when two consecutive search variants surface no new items, that dimension is saturated — move on. When `total_matches` exceeds ~50, analyze the metadata (counts, dates, newspapers, sentiment) instead of reading items; read only the triaged finalists.
 - **Counting ≠ fetching.** `total_matches` and the stats/distribution tools answer "how much / when / what tone" without retrieving rows. Never page through a large result set, and never set limit=100 "just in case".
@@ -148,7 +148,8 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 3. Document null results alongside positive findings
 4. Separate primary evidence (articles, publications, documents) from secondary evidence (references, index metadata) from AI-derived evidence (sentiment, description_ai)
 5. Note any limitations specific to the research question (see biases-and-limitations.md)
-6. **Offer follow-up questions.** End every synthesis with 2-4 concrete follow-up research questions the user could explore next. These should branch naturally from the findings -- e.g., drilling into a specific actor, comparing with another country, examining a different time period, or exploring a related theme the data surfaced. Frame them as actionable prompts the user can pick up directly.
+6. **State the evidence base explicitly.** Open the synthesis with a one-line ledger of what was actually read versus skimmed, so the reader can weigh the findings: how many items were **read in full** (`get_article` / `get_publication_fulltext` / `get_document` / `get_reference`), how many were **triaged on AI abstracts/snippets only** (`description_ai`, `abstract_snippet`, `matching_toc_entries`), and how many total matches were **surveyed by count** (`total_matches`, stats/distribution tools) without retrieval. Example: *"Evidence base: 4 articles read in full, 18 triaged on AI abstracts, ~1,900 keyword matches surveyed by count; plus 2 reference abstracts and 1 archival document read in full."* Never let an AI abstract or snippet stand in for — or read as if it were — the full OCR text.
+7. **Offer follow-up questions.** End every synthesis with 2-4 concrete follow-up research questions the user could explore next. These should branch naturally from the findings -- e.g., drilling into a specific actor, comparing with another country, examining a different time period, or exploring a related theme the data surfaced. Frame them as actionable prompts the user can pick up directly.
 
 ## Confidence Grading
 
@@ -167,6 +168,8 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 **For null results:** `Search for [term] in [tool] with [parameters] returned 0 results.`
 
 **For AI sentiment findings:** All sentiment data uses Gemini; the result keys are `polarity`, `centrality`, `subjectivity`. When comparing topics or countries, use `get_sentiment_distribution` with `subject` filter for aggregate data, or tabulate the sentiment columns from `search_articles` results.
+
+**For the evidence-base ledger (open every synthesis with one):** Report three tiers separately — items **read in full**, items **triaged on an AI abstract/snippet only**, and matches **surveyed by count only**. Example: `Evidence base: 4 articles + 1 document read in full; 18 articles triaged on description_ai; 1,909 keyword matches surveyed by count.` This keeps full-text evidence visibly distinct from AI-derived (abstract/snippet) evidence, which carries weaker evidential status.
 
 ## Arabic-Islamic Transliteration Variants
 
