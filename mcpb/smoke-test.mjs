@@ -59,6 +59,23 @@ async function call(name, args, opts = {}) {
   return parsed;
 }
 
+// --- cold-start fan-out (regression guard) ---------------------------------
+// MUST be the first tool call: get_collection_stats fans ensureView() across
+// all six subsets at once, which is the only path that races getConn(). Running
+// it cold (before any single-subset call warms the shared connection) is what
+// catches a reintroduced "Table with name articles does not exist" race. Under
+// the bug, racing callers build views on throwaway in-memory DBs, so the later
+// articles query throws (whole call isError) and/or subset_counts go null.
+await call("get_collection_stats", {}, {
+  check: (p) => {
+    const nullSubset = Object.entries(p.subset_counts ?? {}).find(([, n]) => n === null);
+    if (nullSubset) return `subset_counts.${nullSubset[0]} is null (view built on the wrong connection?)`;
+    if (!(p.date_range?.earliest && p.date_range.earliest >= "1900"))
+      return `date_range missing/garbled: ${JSON.stringify(p.date_range)}`;
+    return null;
+  },
+});
+
 // --- index / lists ---------------------------------------------------------
 await call("search_index", { keyword: "Ouagadougou", limit: 2 }, {
   check: (p) => (p.total_matches > 0 ? null : "no matches for Ouagadougou"),
@@ -114,12 +131,7 @@ await call("get_publication_fulltext", { publication_id: 11763, keyword: "peleri
 });
 
 // --- articles ----------------------------------------------------------------
-await call("get_collection_stats", {}, {
-  check: (p) =>
-    p.date_range?.earliest && p.date_range.earliest >= "1900"
-      ? null
-      : `date_range missing/garbled: ${JSON.stringify(p.date_range)}`,
-});
+// (get_collection_stats runs first, as a cold-start regression guard — see top.)
 // Accent-insensitive keyword: unaccented query must reach the accented corpus.
 await call("search_articles", { keyword: "pelerinage", limit: 1 }, {
   check: (p) => (p.total_matches > 1000 ? null : `accent folding broken: ${p.total_matches} matches`),

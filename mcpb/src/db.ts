@@ -2,14 +2,32 @@ import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import { ensureSubset, subsetGlob } from "./hf.js";
 import type { Subset } from "./config.js";
 
-let _conn: DuckDBConnection | null = null;
+let _connPromise: Promise<DuckDBConnection> | null = null;
 const _schemas: Map<Subset, Promise<Set<string>>> = new Map();
 
-async function getConn(): Promise<DuckDBConnection> {
-  if (_conn) return _conn;
-  const instance = await DuckDBInstance.create(":memory:");
-  _conn = await instance.connect();
-  return _conn;
+/**
+ * Lazily open the single shared in-memory DuckDB connection. The in-flight
+ * PROMISE is memoized (not just the resolved connection) so that concurrent
+ * first-callers share one `:memory:` instance. get_collection_stats fans
+ * ensureView() across all six subsets at once via Promise.all; if we only
+ * cached the resolved connection, each racing caller would see `_conn === null`
+ * (the first `await` yields before assignment) and create its OWN separate
+ * in-memory database. Views created on one such database are invisible to
+ * queries run on another, surfacing as "Table with name articles does not
+ * exist" — intermittent, because it depends on which connection wins the race.
+ */
+function getConn(): Promise<DuckDBConnection> {
+  if (!_connPromise) {
+    _connPromise = (async () => {
+      const instance = await DuckDBInstance.create(":memory:");
+      return instance.connect();
+    })();
+    // If the very first open fails, drop the cached promise so a later call can retry.
+    _connPromise.catch(() => {
+      _connPromise = null;
+    });
+  }
+  return _connPromise;
 }
 
 /**

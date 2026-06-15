@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "iwac-mcp-server",
   "display_name": "Islam West Africa Collection (IWAC)",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
   "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual materials, archival documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality) and per-article AI abstracts. All matching is accent- and case-insensitive.\n\n**No API key is required for the 20 core tools** (keyword search, filtering, statistics, item details). Two optional semantic-search tools use Gemini embeddings — covering all articles and the publication series with tables of contents — and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
   "author": {
