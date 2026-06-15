@@ -96,6 +96,11 @@
 
 ## Skill Improvements
 
+- [ ] **Persona-based research framing** — branch research on *lens* (Islamic
+  scholar / historian / media studies), informed by local scholars & imams, as
+  a framing axis alongside the Brief/Extended depth choice. See
+  [#6](https://github.com/fmadore/iwac-mcp-server/issues/6).
+
 - [ ] **Enrich `research-domains.md` with actual IWAC frequency data**
   Use `list_subjects` (200 subjects), `list_persons`, and `list_locations` to
   replace manually curated search terms with data-grounded suggestions
