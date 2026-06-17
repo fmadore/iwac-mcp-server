@@ -26,6 +26,11 @@ ENV NODE_ENV=production \
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/server ./server
+# Pre-create the cache mountpoint owned by node, so a fresh named volume mounted
+# at /cache is writable by the non-root user (Docker copies this directory's
+# ownership onto an empty volume). Without it the first parquet write under a
+# read-only rootfs fails with `EACCES: mkdir '/cache/...'`.
+RUN mkdir -p /cache && chown node:node /cache
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8000/health || exit 1
