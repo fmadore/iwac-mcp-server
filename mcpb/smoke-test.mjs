@@ -9,6 +9,9 @@ const transport = new StdioClientTransport({
   command: process.execPath,
   args: ["server/index.js"],
   stderr: "inherit",
+  // Propagate env (e.g. IWAC_SEMANTIC_SEARCH_ENABLED) to the spawned server; the
+  // SDK's default child environment otherwise strips arbitrary vars.
+  env: process.env,
 });
 
 const client = new Client({ name: "smoke", version: "0.0.0" });
@@ -24,9 +27,21 @@ const serverVersion = client.getServerVersion()?.version;
 console.log(`server version: ${serverVersion}`);
 if (!serverVersion || serverVersion === "0.0.0-dev") fail("server version not injected from package.json");
 
+const semanticOn = ["1", "true", "yes", "on"].includes(
+  (process.env.IWAC_SEMANTIC_SEARCH_ENABLED ?? "").trim().toLowerCase(),
+);
+
 const tools = await client.listTools();
 console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
-if (tools.tools.length !== 24) fail(`expected 24 tools, got ${tools.tools.length}`);
+// The 2 semantic_search_* tools register only when IWAC_SEMANTIC_SEARCH_ENABLED=true;
+// the live HTTP endpoint runs with it off, so they are dropped there entirely.
+const expectedTools = semanticOn ? 24 : 22;
+if (tools.tools.length !== expectedTools) fail(`expected ${expectedTools} tools, got ${tools.tools.length}`);
+const semanticPresent = ["semantic_search_articles", "semantic_search_publications"].filter((n) =>
+  tools.tools.some((t) => t.name === n),
+);
+if (semanticOn && semanticPresent.length !== 2) fail(`semantic enabled but only registered: ${semanticPresent.join(", ") || "none"}`);
+if (!semanticOn && semanticPresent.length !== 0) fail(`semantic disabled but still registered: ${semanticPresent.join(", ")}`);
 
 /**
  * Call a tool and run assertions. opts:
@@ -206,13 +221,9 @@ if (fetchId) {
 await call("fetch", { id: "articles:1" }, { expectError: true }); // unknown id
 await call("fetch", { id: "garbage" }, { expectError: true }); // malformed id
 
-// --- semantic (expected to be disabled in the default environment) ------------
-const semanticOn = ["1", "true", "yes", "on"].includes(
-  (process.env.IWAC_SEMANTIC_SEARCH_ENABLED ?? "").trim().toLowerCase(),
-);
-if (!semanticOn) {
-  await call("semantic_search_articles", { query: "Islamic education reform" }, { expectError: true });
-}
+// --- semantic: registration is gated on IWAC_SEMANTIC_SEARCH_ENABLED, so the
+// presence/absence of the two semantic tools is asserted against the tools list
+// near the top of this script (no call here — that would need a Google API key). ---
 
 // --- error path ----------------------------------------------------------------
 await call("get_article", { article_id: 1 }, { expectError: true });

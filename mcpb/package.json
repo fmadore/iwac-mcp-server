@@ -1,6 +1,6 @@
 {
   "name": "iwac-mcp-server-bundle",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Node MCP server for the Islam West Africa Collection, packaged as a Claude Desktop extension (.mcpb).",
   "private": true,
   "type": "module",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ensureView, getById, getManyByIds, q, query, selectList } from "../db.js";
 import { semanticSearch } from "../embeddings.js";
+import { config } from "../config.js";
 import {
   annotate,
   capLimit,
@@ -194,6 +195,10 @@ export function registerPublicationTools(server: Server): void {
       return textResult(result);
     },
   );
+
+  // Semantic search is dropped entirely when disabled (e.g. the public HTTP
+  // endpoint); kept for the .mcpb / Claude Desktop build where a Google key is set.
+  if (!config.semanticSearchEnabled) return;
 
   // === semantic_search_publications =======================================
   server.registerTool(
