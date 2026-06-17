@@ -26,7 +26,7 @@ if (!serverVersion || serverVersion === "0.0.0-dev") fail("server version not in
 
 const tools = await client.listTools();
 console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
-if (tools.tools.length !== 22) fail(`expected 22 tools, got ${tools.tools.length}`);
+if (tools.tools.length !== 24) fail(`expected 24 tools, got ${tools.tools.length}`);
 
 /**
  * Call a tool and run assertions. opts:
@@ -173,6 +173,38 @@ if (docId) {
 } else {
   fail("search_documents returned no id to drill into");
 }
+
+// --- unified search / fetch (OpenAI Deep Research contract) -------------------
+const searchHits = await call("search", { query: "ramadan", limit: 5 }, {
+  check: (p) => {
+    if (!Array.isArray(p.results) || p.results.length === 0) return "search returned no results";
+    const bad = p.results.find((r) => !r.id || !/^[a-z_]+:.+/.test(r.id) || !r.url);
+    return bad ? `result missing namespaced id/url: ${JSON.stringify(bad)}` : null;
+  },
+});
+// Tokenize-AND regression guard: a multi-word query must still match. The
+// single-substring keyword filters look for the literal phrase and return
+// nothing here — search() splits into tokens and ANDs them.
+await call("search", { query: "Islam Niger", limit: 5 }, {
+  check: (p) =>
+    Array.isArray(p.results) && p.results.length > 0
+      ? null
+      : "multi-word query matched nothing (tokenization regressed)",
+});
+const fetchId = searchHits?.results?.[0]?.id;
+if (fetchId) {
+  await call("fetch", { id: fetchId }, {
+    check: (p) => {
+      if (!p.url) return "fetch result missing url";
+      if (typeof p.text !== "string" || p.text.length === 0) return "fetch result missing text";
+      return null;
+    },
+  });
+} else {
+  fail("search returned no id to fetch");
+}
+await call("fetch", { id: "articles:1" }, { expectError: true }); // unknown id
+await call("fetch", { id: "garbage" }, { expectError: true }); // malformed id
 
 // --- semantic (expected to be disabled in the default environment) ------------
 const semanticOn = ["1", "true", "yes", "on"].includes(

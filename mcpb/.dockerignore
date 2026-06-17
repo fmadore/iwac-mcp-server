@@ -1,0 +1,9 @@
+node_modules
+server
+*.mcpb
+*.zip
+.git
+.gitignore
+.DS_Store
+*.log
+npm-debug.log*

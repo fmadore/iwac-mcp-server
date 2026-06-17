@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -39,6 +40,23 @@ function parseBool(v: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+/**
+ * Bearer token for the remote HTTP transport. Prefer a mounted secret file
+ * (Docker/production convention: /run/secrets/iwac_mcp_token), falling back to
+ * an env var for local dev. Returns undefined when neither is set — stdio mode
+ * (Claude Desktop) never needs it, and the HTTP server refuses to start without it.
+ */
+function readBearerToken(): string | undefined {
+  const file = process.env.IWAC_MCP_TOKEN_FILE?.trim() || "/run/secrets/iwac_mcp_token";
+  try {
+    const v = fs.readFileSync(file, "utf8").trim();
+    if (v) return v;
+  } catch {
+    // file absent/unreadable — fall through to the env var
+  }
+  return process.env.IWAC_MCP_BEARER_TOKEN?.trim() || undefined;
+}
+
 export const config = {
   datasetRepo: DATASET_REPO,
   datasetRevision: DATASET_REVISION,
@@ -54,4 +72,7 @@ export const config = {
     process.env.GOOGLE_API_KEY?.trim() ||
     process.env.GEMINI_API_KEY?.trim() ||
     undefined,
+  // Remote HTTP transport (node server/index.js --http). Unused by stdio mode.
+  httpPort: Number.parseInt(process.env.PORT || "8000", 10),
+  bearerToken: readBearerToken(),
 };
