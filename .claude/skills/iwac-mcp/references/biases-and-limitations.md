@@ -107,7 +107,7 @@ The 4,697 index entries (persons, organizations, places, events, subjects) repre
 - **Substring matching only** — no wildcards, fuzzy matching, or Boolean operators. One term per call; run variants as separate searches.
 - **Keyword scope varies by tool:** articles = title + OCR + AI abstract; publications = title + subject + OCR; references = title + abstract. Keyword does NOT search the spatial field — use `subject` for curated tags.
 - **Accents and case are folded** (server ≥ 0.6.0): `pelerinage`, `Bénin`, `These` all match. Spelling differences still matter.
-- **Country filters take exact names** (Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo; Nigeria only in references/index/audiovisual). Partial names return nothing.
+- **Country filters take exact names** (Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo, Nigeria; accents optional). Nigeria carries data only in references/index/audiovisual (0 press articles). Invalid or partial names now **error** with `valid_values` (v0.8.0+) rather than returning a misleading empty result.
 - **Articles and publications are French-language** — formulate keywords in French. References are bilingual: search French AND English. Semantic search (if enabled) accepts any language.
 
 ## Disclosure Template

@@ -46,7 +46,9 @@ if (!semanticOn && semanticPresent.length !== 0) fail(`semantic disabled but sti
 /**
  * Call a tool and run assertions. opts:
  *   expectError — the call SHOULD return isError (default false)
- *   check(parsed, body) — return a failure message string, or falsy if OK
+ *   check(parsed, body) — runs on success only; return a failure message or falsy
+ *   checkBody(body) — runs on the raw text regardless of error state (use to
+ *     assert the shape of an expected error, e.g. valid_values / valid_categories)
  */
 async function call(name, args, opts = {}) {
   const res = await client.callTool({ name, arguments: args });
@@ -69,6 +71,10 @@ async function call(name, args, opts = {}) {
   }
   if (opts.check && parsed) {
     const msg = opts.check(parsed, body);
+    if (msg) fail(`${name}: ${msg}`);
+  }
+  if (opts.checkBody) {
+    const msg = opts.checkBody(body);
     if (msg) fail(`${name}: ${msg}`);
   }
   return parsed;
@@ -194,7 +200,10 @@ const searchHits = await call("search", { query: "ramadan", limit: 5 }, {
   check: (p) => {
     if (!Array.isArray(p.results) || p.results.length === 0) return "search returned no results";
     const bad = p.results.find((r) => !r.id || !/^[a-z_]+:.+/.test(r.id) || !r.url);
-    return bad ? `result missing namespaced id/url: ${JSON.stringify(bad)}` : null;
+    if (bad) return `result missing namespaced id/url: ${JSON.stringify(bad)}`;
+    if (typeof p.ranking !== "string" || !p.ranking) return "search response missing ranking note";
+    if (!p.results.every((r) => typeof r.category === "string")) return "search results missing category";
+    return null;
   },
 });
 // Tokenize-AND regression guard: a multi-word query must still match. The
@@ -218,8 +227,57 @@ if (fetchId) {
 } else {
   fail("search returned no id to fetch");
 }
-await call("fetch", { id: "articles:1" }, { expectError: true }); // unknown id
-await call("fetch", { id: "garbage" }, { expectError: true }); // malformed id
+// Missing & malformed ids must error AND advertise the valid categories (discoverability).
+await call("fetch", { id: "articles:999999999" }, {
+  expectError: true,
+  checkBody: (b) =>
+    b.includes("valid_categories") && b.includes("audiovisual")
+      ? null
+      : `missing-id error should list valid_categories: ${b.slice(0, 160)}`,
+});
+await call("fetch", { id: "garbage" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_categories") ? null : "malformed-id error should list valid_categories"),
+});
+
+// --- strict enum validation + limit transparency (new in v0.8.0) -------------
+// Invalid enumerated filters must error with valid_values, not silently return 0
+// rows (which reads as a real historical absence).
+await call("search_articles", { country: "Atlantis", limit: 1 }, {
+  expectError: true,
+  checkBody: (b) =>
+    b.includes("valid_values") && b.includes("Burkina Faso")
+      ? null
+      : `invalid country should error with valid_values: ${b.slice(0, 160)}`,
+});
+await call("search_by_sentiment", { polarity: "ecstatic", limit: 1 }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "invalid polarity should list valid_values"),
+});
+await call("search_index", { keyword: "a", index_type: "people", limit: 1 }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "invalid index_type should list valid_values"),
+});
+// A valid country with no rows is a finding, NOT an error.
+await call("search_articles", { country: "Nigeria", limit: 1 }, {
+  check: (p) => (Number.isInteger(p.total_matches) ? null : "valid country Nigeria should return a normal envelope"),
+});
+// Over-max limit is capped VISIBLY: applied limit + requested_limit + warning.
+await call("list_subjects", { limit: 500 }, {
+  check: (p) => {
+    if (p.limit !== 200) return `applied limit should be 200, got ${p.limit}`;
+    if (p.requested_limit !== 500) return `requested_limit should be 500, got ${p.requested_limit}`;
+    if (!p.limit_warning) return "missing limit_warning when capped";
+    return null;
+  },
+});
+// list_locations(country) carries a note disambiguating mentioned-in vs located-in.
+await call("list_locations", { country: "Benin", limit: 3 }, {
+  check: (p) =>
+    typeof p.note === "string" && p.note.includes("mentioned-in")
+      ? null
+      : "list_locations(country) should carry a mentioned-in semantics note",
+});
 
 // --- semantic: registration is gated on IWAC_SEMANTIC_SEARCH_ENABLED, so the
 // presence/absence of the two semantic tools is asserted against the tools list

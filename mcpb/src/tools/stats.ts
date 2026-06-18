@@ -3,10 +3,13 @@ import { ensureView, query, queryOne, queryScalarSingle, viewName } from "../db.
 import { ALL_SUBSETS } from "../config.js";
 import {
   annotate,
+  COUNTRIES,
   countryFilterIfExists,
+  errorResult,
   likeFilterIfExists,
   rowsToMap,
   textResult,
+  validateEnum,
   type Server,
 } from "./_shared.js";
 
@@ -93,9 +96,11 @@ export function registerStatsTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("articles");
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
       const where: string[] = [];
       const params: unknown[] = [];
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const hasDate = schema.has("pub_date");
       const dateCols = hasDate
@@ -115,7 +120,7 @@ export function registerStatsTools(server: Server): void {
         )) ?? 0,
       );
       return textResult({
-        country_filter: args.country ?? null,
+        country_filter: country.canonical ?? null,
         total_newspapers: rows.length,
         total_articles: total,
         newspapers: rows,

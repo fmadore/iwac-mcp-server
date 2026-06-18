@@ -2,15 +2,20 @@ import { z } from "zod";
 import { ensureView, query, queryScalarSingle, selectList } from "../db.js";
 import {
   annotate,
-  capLimit,
   capOffset,
+  CENTRALITY_VALUES,
+  COUNTRIES,
   countryFilterIfExists,
+  errorResult,
   foldedEquals,
   likeFilterIfExists,
+  POLARITY_VALUES,
   pubDateOrder,
+  resolveLimit,
   rowsToMap,
   runListQuery,
   textResult,
+  validateEnum,
   type Server,
 } from "./_shared.js";
 
@@ -42,20 +47,26 @@ export function registerSentimentTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("articles");
-      const limit = capLimit(args.limit, 20, 100);
+      const polarity = validateEnum(args.polarity, POLARITY_VALUES, "polarity");
+      if (polarity.err) return errorResult(polarity.err);
+      const centrality = validateEnum(args.centrality, CENTRALITY_VALUES, "centrality");
+      if (centrality.err) return errorResult(centrality.err);
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
 
-      if (args.polarity && schema.has("gemini_polarite")) {
+      if (polarity.canonical && schema.has("gemini_polarite")) {
         where.push(foldedEquals("gemini_polarite"));
-        params.push(args.polarity);
+        params.push(polarity.canonical);
       }
-      if (args.centrality && schema.has("gemini_centralite_islam_musulmans")) {
+      if (centrality.canonical && schema.has("gemini_centralite_islam_musulmans")) {
         where.push(foldedEquals("gemini_centralite_islam_musulmans"));
-        params.push(args.centrality);
+        params.push(centrality.canonical);
       }
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
 
       const cols = selectList(schema, [
@@ -100,9 +111,11 @@ export function registerSentimentTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("articles");
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
       const where: string[] = [];
       const params: unknown[] = [];
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -117,7 +130,7 @@ export function registerSentimentTools(server: Server): void {
         model: "gemini",
         total_articles: total,
         filters: {
-          country: args.country ?? null,
+          country: country.canonical ?? null,
           newspaper: args.newspaper ?? null,
           subject: args.subject ?? null,
         },

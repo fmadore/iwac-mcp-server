@@ -1,6 +1,6 @@
 # IWAC MCP Tools by Research Phase
 
-22 tools (20 core + 2 optional semantic) organized by the workflow phase where they are most useful. Server v0.6.0+: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields.
+22 tools (20 core + 2 optional semantic) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`) are **validated**: an invalid value returns `{error, valid_values}` (isError) instead of a silent zero-result.
 
 ## Phase 1: Scoping Tools
 
@@ -24,12 +24,14 @@ List the 214 curated subject terms sorted by frequency.
 - Returns id, title, description, frequency, url
 
 ### list_locations
-List the 683 geographic locations from the index.
-- `country` (optional, exact name), `limit` (default 50, max 200), `offset`
+List the 683 geographic locations from the index, ranked by frequency.
+- `country` (optional, exact name) — selects places **mentioned in records from that country, not located there** (so Beninese sources surface La Mecque, Côte d'Ivoire, etc.); `frequency` is the entry's collection-wide total, not a per-country count. The response adds a `note` restating this. Nigeria returns nothing (index frequency derives from articles/publications/references).
+- `limit` (default 50, max 200), `offset`
 
 ### list_persons
-List the 2,833 persons from the index.
-- `country` (optional, exact name), `limit` (default 50, max 200), `offset`
+List the 2,833 persons from the index, ranked by frequency.
+- `country` (optional, exact name) — selects persons **mentioned in records from that country** (same mentioned-in semantics as list_locations; `frequency` is collection-wide).
+- `limit` (default 50, max 200), `offset`
 
 ### list_periodicals
 The 25 Islamic periodical/series titles in the publications subset, with issue counts and year ranges (e.g. Islam Info 695 issues, An-Nasr Vendredi 318, Islam Hebdo 122).
@@ -63,7 +65,7 @@ Semantic similarity over article OCR via Gemini embeddings. Coverage is effectiv
 ### search_index
 Search the 4,697 authority records by name.
 - `keyword`: matched against the entry title (accent-insensitive)
-- `index_type` (optional): Personnes | Lieux | Organisations | Événements | Sujets | Notices d'autorité
+- `index_type` (optional): exact type, **validated** (accents optional) — Personnes | Lieux | Organisations | Événements | Sujets | Notices d'autorité; an unrecognised value errors with `valid_values`
 - `limit` (default 20, max 100), `offset`
 - Returns: id, title, type, description, frequency, first_occurrence, last_occurrence, countries, url
 
@@ -156,8 +158,10 @@ Aggregated Gemini sentiment counts.
 
 ## Valid Filter Values (verified against the dataset)
 
+**Validation (v0.8.0+):** `country`, `polarity`, `centrality`, and `index_type` are checked accent/case-insensitively; an invalid value returns `{error, valid_values}` (isError) — correct and retry. Free-text filters (`newspaper`, `subject`, `author`, `reference_type`, `language`) are **not** validated, so a typo there returns 0 rows silently — sanity-check them.
+
 ### Countries
-Exact names: `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo` — plus `Nigeria` in references, index and audiovisual only (no Nigerian press articles). Accents are optional (`Bénin` works); partial names (`Burkina`) do not.
+Exact names: `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo`, `Nigeria` (all six are accepted everywhere; `Nigeria` simply yields 0 press articles — a real finding, not an error). Accents are optional (`Bénin` works); partial names (`Burkina`) are invalid and now error.
 
 ### Polarity scale (articles, Gemini)
 Très positif (1,400) | Positif (5,984) | Neutre (3,999) | Négatif (569) | Très négatif (24) | Non applicable (311)
@@ -179,7 +183,7 @@ See `search_references` above (12 values, with counts).
 ## Token Efficiency Tips
 
 - Budget guide: a Brief run should stay around ≤25k tokens of tool output; an Extended run typically lands at 50-120k. Past that, stop searching and synthesize.
-- Default limits are 20 for the main searches (15 for documents) — raise toward `max` only when you need breadth; `total_matches` + `has_more` tell you what's there without fetching it
+- Default limits are 20 for the main searches (15 for documents) — raise toward `max` only when you need breadth; `total_matches` + `has_more` tell you what's there without fetching it. Asking past a tool's `max` doesn't fail — the page is capped and `limit_warning` + `requested_limit` flag it — so there's no point requesting 500
 - Stop rule: when two consecutive search variants surface no new items, the dimension is saturated — move on
 - Triage with `with_description=true` (limit ≤ 10) instead of calling `get_article` on everything; read full OCR only for the 2-3 finalists (Brief) / 6-8 (Extended)
 - A `search_articles` page of 20 ≈ 2.5k tokens; `get_article` ≈ 1-7k tokens; capped `get_publication_fulltext` ≤ ~7k tokens (+ ~1.6k when the issue has a TOC)

@@ -2,15 +2,19 @@ import { z } from "zod";
 import { ensureView, getById, q, selectList } from "../db.js";
 import {
   annotate,
-  capLimit,
   capOffset,
+  COUNTRIES,
   countryFilterIfExists,
   errorResult,
+  foldedEquals,
   foldedLike,
+  INDEX_TYPES,
   indexFreqOrder,
   indexSummaryCols,
+  resolveLimit,
   runListQuery,
   textResult,
+  validateEnum,
   type Server,
 } from "./_shared.js";
 
@@ -28,20 +32,25 @@ export function registerIndexTools(server: Server): void {
         index_type: z
           .string()
           .optional()
-          .describe("Personnes | Lieux | Organisations | Événements | Sujets | Notices d'autorité"),
+          .describe(
+            "Exact type (accents optional), validated against: Personnes | Lieux | Organisations | " +
+              "Événements | Sujets | Notices d'autorité. An unrecognised value returns an error listing the valid types.",
+          ),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("index");
-      const limit = capLimit(args.limit, 20, 100);
+      const indexType = validateEnum(args.index_type, INDEX_TYPES, "index_type");
+      if (indexType.err) return errorResult(indexType.err);
+      const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [foldedLike(q("Titre"))];
       const params: unknown[] = [`%${args.keyword}%`];
-      if (args.index_type && schema.has("Type")) {
-        where.push(foldedLike(q("Type")));
-        params.push(`%${args.index_type}%`);
+      if (indexType.canonical && schema.has("Type")) {
+        where.push(foldedEquals(q("Type")));
+        params.push(indexType.canonical);
       }
       return textResult(
         await runListQuery({
@@ -92,6 +101,7 @@ function registerIndexListTool(
   defaultLimit: number,
   maxLimit: number,
 ): void {
+  const typeLower = indexType.toLowerCase();
   const inputSchema: Record<string, z.ZodTypeAny> = {
     limit: z.number().int().optional().describe(`Default ${defaultLimit}, max ${maxLimit}`),
     offset: z.number().int().optional(),
@@ -100,24 +110,40 @@ function registerIndexListTool(
     inputSchema.country = z
       .string()
       .optional()
-      .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional)");
+      .describe(
+        "Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional). " +
+          `Selects ${typeLower} MENTIONED IN records from that country, not entities located there.`,
+      );
   }
+
+  // For the country-filtered lists, spell out the semantics that surprised testers:
+  // the filter is "appears in records from country X", not "located in X", and the
+  // frequency ranking is collection-wide, so foreign places (e.g. La Mecque) and
+  // high-frequency entries from elsewhere legitimately appear under a country filter.
+  const countrySemantics = withCountry
+    ? ` The optional 'country' filter selects entries that APPEAR IN records from that country ` +
+      `(mentioned-in, not located-in), ranked by collection-wide 'frequency' — so foreign and ` +
+      `cross-border entries can appear. Nigeria returns none here (index frequency is computed from ` +
+      `articles + publications + references, which have no Nigerian items — Nigeria is audiovisual only).`
+    : "";
 
   server.registerTool(
     name,
     {
-      description: `List ${indexType.toLowerCase()} from the IWAC index, sorted by frequency.`,
-      annotations: annotate(`List ${indexType.toLowerCase()} from the index`),
+      description: `List ${typeLower} from the IWAC index, sorted by frequency (most-referenced first).${countrySemantics}`,
+      annotations: annotate(`List ${typeLower} from the index`),
       inputSchema,
     },
     async (args: Record<string, unknown>) => {
       const schema = await ensureView("index");
-      const limit = capLimit(args.limit as number | undefined, defaultLimit, maxLimit);
+      const country = validateEnum(args.country as string | undefined, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit as number | undefined, defaultLimit, maxLimit);
       const offset = capOffset(args.offset as number | undefined);
       const where: string[] = [`${q("Type")} = ?`];
       const params: unknown[] = [indexType];
       if (withCountry) {
-        countryFilterIfExists(schema, where, params, "countries", args.country as string | undefined);
+        countryFilterIfExists(schema, where, params, "countries", country.canonical);
       }
       const cols = selectList(schema, [
         ['"o:id"', "id", ["o:id"]],
@@ -127,17 +153,21 @@ function registerIndexListTool(
         ...(withCountry ? (["countries"] as const) : []),
         ["iwac_url", "url", ["iwac_url"]],
       ]);
-      return textResult(
-        await runListQuery({
-          subset: "index",
-          where,
-          params,
-          cols,
-          orderBy: indexFreqOrder(schema),
-          limit,
-          offset,
-        }),
-      );
+      const env = await runListQuery({
+        subset: "index",
+        where,
+        params,
+        cols,
+        orderBy: indexFreqOrder(schema),
+        limit,
+        offset,
+      });
+      if (withCountry && country.canonical) {
+        env.note =
+          `country filters to ${typeLower} that appear in records from ${country.canonical} ` +
+          `(mentioned-in, not located-in); 'frequency' is each entry's collection-wide total, not a count within ${country.canonical}.`;
+      }
+      return textResult(env);
     },
   );
 }

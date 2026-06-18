@@ -107,6 +107,75 @@ export function capOffset(v: number | undefined): number {
   return Math.max(0, v ?? 0);
 }
 
+/**
+ * A limit clamped to [1, max] that REMEMBERS the original request, so a tool can
+ * surface a visible cap (`requested_limit` + `limit_warning`) instead of silently
+ * truncating. A list that quietly returns 200 of the 500 rows asked for reads as
+ * "that's all there is" — the opposite of what happened.
+ */
+export interface ResolvedLimit {
+  value: number;
+  requested: number | undefined;
+  capped: boolean;
+  max: number;
+}
+
+export function resolveLimit(v: number | undefined, def: number, max: number): ResolvedLimit {
+  const value = Math.max(1, Math.min(v ?? def, max));
+  return { value, requested: v, capped: v !== undefined && v > max, max };
+}
+
+// -----------------------------------------------------------------------------
+// Closed-vocabulary filter validation
+// -----------------------------------------------------------------------------
+//
+// Enumerated filters (country, sentiment, index type) are validated up front so
+// an invalid value returns an explicit, self-correctable error instead of a
+// silent zero-result. Silent zero is genuinely dangerous for research: a typo'd
+// `country=Atlantis` looks identical to a real historical absence. Open free-text
+// filters (newspaper, subject, author, reference_type, language) are deliberately
+// NOT validated here — reference_type is a substring match ("Livre" intentionally
+// also matches "Chapitre de livre") and language is an open multi-value field, so
+// rejecting "unknown" values there would reject legitimate queries.
+
+/** Canonical country names (HF storage form). Accents/case optional on input. */
+export const COUNTRIES = ["Benin", "Burkina Faso", "Côte d'Ivoire", "Niger", "Nigeria", "Togo"] as const;
+
+/** Gemini polarity labels (articles). */
+export const POLARITY_VALUES = ["Très positif", "Positif", "Neutre", "Négatif", "Très négatif", "Non applicable"] as const;
+
+/** Gemini centrality labels (articles). */
+export const CENTRALITY_VALUES = ["Très central", "Central", "Secondaire", "Marginal", "Non abordé"] as const;
+
+/** Authority-index `Type` values. */
+export const INDEX_TYPES = ["Personnes", "Organisations", "Lieux", "Événements", "Sujets", "Notices d'autorité"] as const;
+
+export interface EnumValidation {
+  /** Canonical spelling when the input matched (undefined when no value was given). */
+  canonical?: string;
+  /** An `{error, valid_values}` payload to wrap in errorResult when the input is invalid. */
+  err?: { error: string; valid_values: string[] };
+}
+
+/**
+ * Validate a closed-vocabulary filter accent/case-insensitively. Returns the
+ * canonical spelling on a match (so the SQL filter uses the dataset's exact
+ * value), an `{error, valid_values}` payload on a miss, or an empty object when
+ * no value was supplied (the filter is simply skipped). Folding mirrors the
+ * SQL-side strip_accents(lower()) via foldText, so `cote d'ivoire` ≡ `Côte d'Ivoire`.
+ */
+export function validateEnum(
+  value: string | undefined,
+  vocab: readonly string[],
+  field: string,
+): EnumValidation {
+  if (value === undefined || value.trim() === "") return {};
+  const folded = foldText(value).trim();
+  const match = vocab.find((v) => foldText(v).trim() === folded);
+  if (match) return { canonical: match };
+  return { err: { error: `Invalid ${field}: ${value}`, valid_values: [...vocab] } };
+}
+
 // -----------------------------------------------------------------------------
 // Pagination
 // -----------------------------------------------------------------------------
@@ -115,8 +184,11 @@ export interface PaginationEnvelope<T> {
   count: number;
   total_matches: number;
   offset: number;
+  limit: number;
   has_more: boolean;
   next_offset?: number;
+  requested_limit?: number;
+  limit_warning?: string;
   results: T[];
   [key: string]: unknown;
 }
@@ -127,19 +199,24 @@ export async function paginated<T>(
   pageSql: string,
   pageParams: unknown[],
   offset: number,
-  limit: number,
+  limit: ResolvedLimit,
 ): Promise<PaginationEnvelope<T>> {
   const total = Number((await queryScalarSingle<number | bigint>(countSql, countParams)) ?? 0);
   const results = (await query(pageSql, pageParams)) as unknown as T[];
-  const hasMore = offset + limit < total;
+  const hasMore = offset + limit.value < total;
   const env: PaginationEnvelope<T> = {
     count: results.length,
     total_matches: total,
     offset,
+    limit: limit.value,
     has_more: hasMore,
     results,
   };
-  if (hasMore) env.next_offset = offset + limit;
+  if (hasMore) env.next_offset = offset + limit.value;
+  if (limit.capped) {
+    env.requested_limit = limit.requested;
+    env.limit_warning = `Requested limit ${limit.requested} exceeds the maximum ${limit.max}; applied ${limit.value}.`;
+  }
   return env;
 }
 
@@ -155,14 +232,14 @@ export async function runListQuery<T = Row>(opts: {
   params: unknown[];
   cols: string;
   orderBy: string;
-  limit: number;
+  limit: ResolvedLimit;
   offset: number;
 }): Promise<PaginationEnvelope<T>> {
   const { subset, where, params, cols, orderBy, limit, offset } = opts;
   const view = viewName(subset);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const countSql = `SELECT COUNT(*) FROM ${view} ${whereSql}`;
-  const pageSql = `SELECT ${cols} FROM ${view} ${whereSql} ${orderBy} LIMIT ${limit} OFFSET ${offset}`;
+  const pageSql = `SELECT ${cols} FROM ${view} ${whereSql} ${orderBy} LIMIT ${limit.value} OFFSET ${offset}`;
   return paginated<T>(countSql, params, pageSql, params, offset, limit);
 }
 

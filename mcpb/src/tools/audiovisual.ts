@@ -2,12 +2,15 @@ import { z } from "zod";
 import { ensureView, selectList } from "../db.js";
 import {
   annotate,
-  capLimit,
   capOffset,
+  COUNTRIES,
   countryFilterIfExists,
+  errorResult,
   pubDateOrder,
+  resolveLimit,
   runListQuery,
   textResult,
+  validateEnum,
   type Server,
 } from "./_shared.js";
 
@@ -27,11 +30,13 @@ export function registerAudiovisualTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("audiovisual");
-      const limit = capLimit(args.limit, 20, 50);
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 20, 50);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
 
       const cols = selectList(schema, [
         ['"o:id"', "id", ["o:id"]],

@@ -4,9 +4,9 @@ import { semanticSearch } from "../embeddings.js";
 import { config } from "../config.js";
 import {
   annotate,
-  capLimit,
   capOffset,
   capText,
+  COUNTRIES,
   countryFilterIfExists,
   errorResult,
   extractMatchingTocEntries,
@@ -15,8 +15,10 @@ import {
   likeFilterIfExists,
   publicationSummaryCols,
   pubDateOrder,
+  resolveLimit,
   runListQuery,
   textResult,
+  validateEnum,
   yearRangeFilter,
   type Server,
 } from "./_shared.js";
@@ -47,7 +49,9 @@ export function registerPublicationTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("publications");
-      const limit = capLimit(args.limit, 20, 100);
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
 
       const where: string[] = [];
@@ -65,7 +69,7 @@ export function registerPublicationTools(server: Server): void {
       }
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
       const cols = publicationSummaryCols(schema);
@@ -110,10 +114,12 @@ export function registerPublicationTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("publications");
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
       if (!schema.has("newspaper")) return textResult({ total_periodicals: 0, periodicals: [] });
       const where: string[] = [`NULLIF(trim(newspaper), '') IS NOT NULL`];
       const params: unknown[] = [];
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
       const dateCols = schema.has("pub_date")
         ? `, MIN(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS earliest_year,` +
           ` MAX(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS latest_year`
@@ -127,7 +133,7 @@ export function registerPublicationTools(server: Server): void {
         params,
       );
       return textResult({
-        country_filter: args.country ?? null,
+        country_filter: country.canonical ?? null,
         total_periodicals: rows.length,
         periodicals: rows,
       });
@@ -220,13 +226,15 @@ export function registerPublicationTools(server: Server): void {
       },
     },
     async (args) => {
-      const limit = capLimit(args.limit, 10, 50);
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 10, 50);
       try {
         const hits = await semanticSearch({
           subset: "publications",
           embeddingColumn: "embedding_tableOfContents",
           query: args.query,
-          overfetch: limit * 5,
+          overfetch: limit.value * 5,
         });
         const schema = await ensureView("publications");
         const cols = publicationSummaryCols(schema);
@@ -234,7 +242,7 @@ export function registerPublicationTools(server: Server): void {
 
         const extraWhere: string[] = [];
         const extraParams: unknown[] = [];
-        countryFilterIfExists(schema, extraWhere, extraParams, "country", args.country);
+        countryFilterIfExists(schema, extraWhere, extraParams, "country", country.canonical);
 
         const rows = await getManyByIds(
           "publications",
@@ -255,12 +263,14 @@ export function registerPublicationTools(server: Server): void {
           };
           if (!row.tableOfContents) delete out.tableOfContents;
           results.push(out);
-          if (results.length >= limit) break;
+          if (results.length >= limit.value) break;
         }
         return textResult({
           query: args.query,
           count: results.length,
-          filters: { country: args.country ?? null },
+          limit: limit.value,
+          ...(limit.capped ? { requested_limit: limit.requested } : {}),
+          filters: { country: country.canonical ?? null },
           results,
         });
       } catch (err) {

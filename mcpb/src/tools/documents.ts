@@ -2,17 +2,19 @@ import { z } from "zod";
 import { ensureView, getById, q, selectList } from "../db.js";
 import {
   annotate,
-  capLimit,
   capOffset,
   capText,
+  COUNTRIES,
   countryFilterIfExists,
   errorResult,
   foldedLike,
   keywordExcerpts,
   documentSummaryCols,
   pubDateOrder,
+  resolveLimit,
   runListQuery,
   textResult,
+  validateEnum,
   type Server,
 } from "./_shared.js";
 
@@ -27,14 +29,19 @@ export function registerDocumentTools(server: Server): void {
       annotations: annotate("Search archival documents"),
       inputSchema: {
         keyword: z.string().optional().describe("Substring match on title, OCR, AI description and subject (accent-insensitive)"),
-        country: z.string().optional().describe("Exact country name, e.g. Burkina Faso | Togo | Benin"),
+        country: z
+          .string()
+          .optional()
+          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional; corpus is mostly Burkina Faso/Togo/Benin)"),
         limit: z.number().int().optional().describe("Default 15, max 50"),
         offset: z.number().int().optional(),
       },
     },
     async (args) => {
       const schema = await ensureView("documents");
-      const limit = capLimit(args.limit, 15, 50);
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 15, 50);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
@@ -50,7 +57,7 @@ export function registerDocumentTools(server: Server): void {
         }
         if (parts.length) where.push(`(${parts.join(" OR ")})`);
       }
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
 
       return textResult(
         await runListQuery({

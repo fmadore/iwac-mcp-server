@@ -5,9 +5,9 @@ import { config } from "../config.js";
 import {
   annotate,
   articleSummaryCols,
-  capLimit,
   capOffset,
   capText,
+  COUNTRIES,
   countryFilterIfExists,
   dateRangeFilter,
   errorResult,
@@ -15,8 +15,10 @@ import {
   keywordExcerpts,
   likeFilterIfExists,
   pubDateOrder,
+  resolveLimit,
   runListQuery,
   textResult,
+  validateEnum,
   type Server,
 } from "./_shared.js";
 
@@ -67,12 +69,14 @@ export function registerArticleTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("articles");
-      const limit = capLimit(args.limit, 20, 100);
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
 
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
       articleKeywordFilter(schema, where, params, args.keyword);
@@ -180,13 +184,15 @@ export function registerArticleTools(server: Server): void {
       },
     },
     async (args) => {
-      const limit = capLimit(args.limit, 10, 50);
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 10, 50);
       try {
         const hits = await semanticSearch({
           subset: "articles",
           embeddingColumn: "embedding_OCR",
           query: args.query,
-          overfetch: limit * 5,
+          overfetch: limit.value * 5,
         });
         const schema = await ensureView("articles");
         const cols = articleSummaryCols(schema);
@@ -194,7 +200,7 @@ export function registerArticleTools(server: Server): void {
         // Push the metadata filters into SQL and fetch every candidate in one query.
         const extraWhere: string[] = [];
         const extraParams: unknown[] = [];
-        countryFilterIfExists(schema, extraWhere, extraParams, "country", args.country);
+        countryFilterIfExists(schema, extraWhere, extraParams, "country", country.canonical);
         likeFilterIfExists(schema, extraWhere, extraParams, "newspaper", args.newspaper);
         dateRangeFilter(schema, extraWhere, extraParams, args.date_from, args.date_to);
 
@@ -213,13 +219,15 @@ export function registerArticleTools(server: Server): void {
           const row = byId.get(h.id);
           if (!row) continue;
           results.push({ ...row, similarity_score: Number(h.score.toFixed(4)) });
-          if (results.length >= limit) break;
+          if (results.length >= limit.value) break;
         }
         return textResult({
           query: args.query,
           count: results.length,
+          limit: limit.value,
+          ...(limit.capped ? { requested_limit: limit.requested } : {}),
           filters: {
-            country: args.country ?? null,
+            country: country.canonical ?? null,
             newspaper: args.newspaper ?? null,
             date_from: args.date_from ?? null,
             date_to: args.date_to ?? null,

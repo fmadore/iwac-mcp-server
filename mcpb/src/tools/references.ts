@@ -2,16 +2,18 @@ import { z } from "zod";
 import { ensureView, getById, q, selectList } from "../db.js";
 import {
   annotate,
-  capLimit,
   capOffset,
+  COUNTRIES,
   countryFilterIfExists,
   errorResult,
   foldedLike,
   likeFilterIfExists,
   pubDateOrder,
   referenceSummaryCols,
+  resolveLimit,
   runListQuery,
   textResult,
+  validateEnum,
   yearRangeFilter,
   type Server,
 } from "./_shared.js";
@@ -53,7 +55,9 @@ export function registerReferenceTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("references");
-      const limit = capLimit(args.limit, 20, 100);
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: unknown[] = [];
@@ -72,7 +76,7 @@ export function registerReferenceTools(server: Server): void {
       likeFilterIfExists(schema, where, params, "author", args.author);
       likeFilterIfExists(schema, where, params, "type", args.reference_type);
       likeFilterIfExists(schema, where, params, "subject", args.subject);
-      countryFilterIfExists(schema, where, params, "country", args.country);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "language", args.language);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 

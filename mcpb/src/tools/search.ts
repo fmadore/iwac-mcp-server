@@ -17,6 +17,7 @@ import {
   capText,
   errorResult,
   foldedLike,
+  resolveLimit,
   textResult,
   type Server,
 } from "./_shared.js";
@@ -80,6 +81,7 @@ interface Hit {
   id: string;
   title: string;
   url: string;
+  category: Subset;
 }
 
 async function searchSubset(subset: Subset, queryStr: string, limit: number): Promise<Hit[]> {
@@ -106,6 +108,7 @@ async function searchSubset(subset: Subset, queryStr: string, limit: number): Pr
     id: `${subset}:${String(r.id)}`,
     title: typeof r.title === "string" ? r.title : String(r.title ?? ""),
     url: typeof r.url === "string" ? r.url : String(r.url ?? ""),
+    category: subset,
   }));
 }
 
@@ -195,6 +198,27 @@ function detailCols(subset: Subset, schema: Set<string>): string {
   return selectList(schema, common);
 }
 
+/**
+ * Honest description of how `search` orders results — there is no relevance
+ * score, so we document the actual mechanics (which fields are matched, the
+ * round-robin interleave, the per-category tiebreak) rather than inventing one.
+ * Returned as the response's `ranking` field so scholarly users can judge the order.
+ */
+const RANKING_NOTE =
+  "Accent/case-insensitive substring match over each item's title + main text " +
+  "(articles: OCR + AI abstract; publications: subject + table of contents + OCR; references: abstract; " +
+  "documents: OCR + AI description + subject; index: description; audiovisual: AI description). " +
+  "Results are interleaved round-robin across categories so each is represented; within a category, " +
+  "index entries are ordered by collection frequency and dated items (articles, publications, references, " +
+  "documents) newest-first. There is no numeric relevance score — for precise filtering use the search_* tools.";
+
+/** Full-text tools to recommend in `fetch` when an item's text is truncated. */
+const FULLTEXT_TOOL: Partial<Record<Subset, { tool: string; idParam: string }>> = {
+  articles: { tool: "get_article", idParam: "article_id" },
+  publications: { tool: "get_publication_fulltext", idParam: "publication_id" },
+  documents: { tool: "get_document", idParam: "document_id" },
+};
+
 export function registerSearchTools(server: Server): void {
   // === search (OpenAI Deep Research contract) ==============================
   server.registerTool(
@@ -208,8 +232,9 @@ export function registerSearchTools(server: Server): void {
         "and case-insensitive; a multi-word query requires every word to appear somewhere in the item, so prefer a " +
         "single concept per call. Newspaper/document text is French; academic references are multilingual (try " +
         "French and English). Use the French transliteration of Islamic terms (Tabaski not 'Eid al-Adha', charia " +
-        "not 'sharia', Maouloud not 'Mawlid'). Returns {results:[{id,title,url}]}; pass an id to `fetch` to read the full text. For " +
-        "filtered queries (by country, date, or newspaper) use the search_* tools instead.",
+        "not 'sharia', Maouloud not 'Mawlid'). Returns {results:[{id,title,url,category}], ranking}; each result's " +
+        "`category` names its subset and the `ranking` field documents the ordering. Pass an id to `fetch` to read " +
+        "the full text. For filtered queries (by country, date, or newspaper) use the search_* tools instead.",
       annotations: annotate("Search the IWAC collection"),
       inputSchema: {
         query: z
@@ -220,9 +245,20 @@ export function registerSearchTools(server: Server): void {
       },
     },
     async ({ query: queryStr, limit }) => {
-      const cap = Math.max(1, Math.min(limit ?? 20, 50));
-      const lists = await Promise.all(SEARCH_SUBSETS.map((s) => searchSubset(s, queryStr, cap)));
-      return textResult({ results: interleave(lists, cap) });
+      const cap = resolveLimit(limit, 20, 50);
+      const lists = await Promise.all(SEARCH_SUBSETS.map((s) => searchSubset(s, queryStr, cap.value)));
+      const results = interleave(lists, cap.value);
+      const payload: Record<string, unknown> = {
+        results,
+        count: results.length,
+        limit: cap.value,
+        ranking: RANKING_NOTE,
+      };
+      if (cap.capped) {
+        payload.requested_limit = cap.requested;
+        payload.limit_warning = `Requested limit ${cap.requested} exceeds the maximum ${cap.max}; applied ${cap.value}.`;
+      }
+      return textResult(payload);
     },
   );
 
@@ -247,18 +283,22 @@ export function registerSearchTools(server: Server): void {
       if (!m) {
         return errorResult({
           error: `Invalid id '${rawId}'. Expected '<category>:<number>' from search, e.g. 'articles:28576'.`,
+          valid_categories: ALL_SUBSETS,
         });
       }
       const subset = m[1].toLowerCase() as Subset;
       const localId = m[2].trim();
       if (!ALL_SUBSETS.includes(subset)) {
-        return errorResult({ error: `Unknown category '${subset}'. Valid: ${ALL_SUBSETS.join(", ")}.` });
+        return errorResult({ error: `Unknown category '${subset}'.`, valid_categories: ALL_SUBSETS });
       }
 
       const schema = await ensureView(subset);
       const row = await getById(subset, detailCols(subset, schema), localId);
       if (!row) {
-        return errorResult({ error: `No ${subset} item with id '${localId}'.` });
+        return errorResult({
+          error: `No ${subset} item with id '${localId}'.`,
+          valid_categories: ALL_SUBSETS,
+        });
       }
 
       const title = typeof row.title === "string" ? row.title : String(row.title ?? "");
@@ -274,11 +314,24 @@ export function registerSearchTools(server: Server): void {
         if (typeof v === "string" && v.trim() === "") continue;
         metadata[k] = v;
       }
-      if (capped.truncated && capped.truncation_message) {
-        metadata.truncation_message = capped.truncation_message;
+
+      const result: Record<string, unknown> = { id: rawId, title, text, url, category: subset, metadata };
+      // Long OCR is capped here; point the caller at the keyword-excerpt tool for
+      // the subset so they can pull just the passages they need instead of re-fetching.
+      if (capped.truncated) {
+        result.text_truncated = true;
+        if (capped.truncation_message) metadata.truncation_message = capped.truncation_message;
+        const rec = FULLTEXT_TOOL[subset];
+        if (rec) {
+          result.recommended_tool = rec.tool;
+          result.recommended_usage = {
+            [rec.idParam]: /^\d+$/.test(localId) ? Number(localId) : localId,
+            keyword: "<your search term>",
+          };
+        }
       }
 
-      return textResult({ id: rawId, title, text, url, metadata });
+      return textResult(result);
     },
   );
 }
