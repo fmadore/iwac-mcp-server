@@ -207,7 +207,8 @@ export function registerSearchTools(server: Server): void {
         "Pass ONE concept or name — e.g. 'Tijaniyya', 'laïcité', 'Sheikh Gumi', 'pèlerinage'. Matching is accent- " +
         "and case-insensitive; a multi-word query requires every word to appear somewhere in the item, so prefer a " +
         "single concept per call. Newspaper/document text is French; academic references are multilingual (try " +
-        "French and English). Returns {results:[{id,title,url}]}; pass an id to `fetch` to read the full text. For " +
+        "French and English). Use the French transliteration of Islamic terms (Tabaski not 'Eid al-Adha', charia " +
+        "not 'sharia', Maouloud not 'Mawlid'). Returns {results:[{id,title,url}]}; pass an id to `fetch` to read the full text. For " +
         "filtered queries (by country, date, or newspaper) use the search_* tools instead.",
       annotations: annotate("Search the IWAC collection"),
       inputSchema: {

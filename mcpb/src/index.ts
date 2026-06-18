@@ -24,20 +24,28 @@ const INSTRUCTIONS =
   "Nigeria, and Togo.\n\n" +
   "WORKFLOW: call `search` with ONE concept or name at a time, then `fetch` an id from the " +
   "results to read the full text. Matching is substring-based, so 'pèlerinage' works but " +
-  "'pèlerinage Mecque' as one phrase returns little — search terms separately. Beyond " +
-  "search/fetch, finer tools exist (search_articles, search_publications, search_references, " +
-  "search_index, search_documents, plus get_* and list_*) with country, newspaper, subject, " +
-  "and date filters. All matching is accent- and case-insensitive; country filters take exact " +
-  "names (Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria, Togo).\n\n" +
+  "'pèlerinage Mecque' as one phrase returns little — search terms separately. When many items " +
+  "match, weigh result counts and AI abstracts before fetching full texts. Beyond search/fetch, " +
+  "finer tools exist (search_articles, search_publications, search_references, search_index, " +
+  "search_documents, plus get_* and list_*) with country, newspaper, subject, and date filters — " +
+  "prefer the `subject` filter over keywords for curated themes. All matching is accent- and " +
+  "case-insensitive; country filters take exact names (Benin, Burkina Faso, Côte d'Ivoire, " +
+  "Niger, Nigeria, Togo).\n\n" +
   "LANGUAGE: articles and documents are in FRENCH — query in French (laïcité, confrérie, " +
   "pèlerinage). Academic references are MULTILINGUAL — search both French AND English.\n\n" +
+  "TRANSLITERATION: Arabic-Islamic terms appear in FRENCH transliteration — search the French " +
+  "form and try variants: Tabaski or Aïd el-Kébir (not 'Eid al-Adha'); Korité or Aïd el-Fitr; " +
+  "Maouloud/Mouloud (not 'Mawlid'); charia (not 'sharia'); confrérie; Wahhabisme.\n\n" +
   "CITATIONS: every result has a `url` field such as " +
   "https://islam.zmo.de/s/afrique_ouest/item/28576 — always cite IWAC items using this full " +
   'URL (rendered as a markdown link), never a short form like "art. #28576" or "item 28576".\n\n' +
-  "CAVEATS: coverage is uneven across countries and periods; polarity/sentiment fields are " +
-  "AI-derived, not editorial ground truth; press coverage reflects what was published, not " +
-  "necessarily what happened. Semantic search tools require IWAC_SEMANTIC_SEARCH_ENABLED=true " +
-  "and a Google API key (disabled on the public HTTP endpoint).";
+  "CAVEATS: coverage is uneven — Niger is thin (one newspaper, 2018 on) and Nigeria has NO press " +
+  "articles (audiovisual only), so disclose this in any cross-country claim. The press is ~96% " +
+  "francophone, reflecting Western-educated Muslim voices more than Arabic-trained (arabisant) " +
+  "leaders. Never present results as exhaustive — absence of evidence is not evidence of absence. " +
+  "Polarity/sentiment fields are AI-derived, not editorial ground truth; press coverage reflects " +
+  "what was published, not necessarily what happened. Semantic search tools require " +
+  "IWAC_SEMANTIC_SEARCH_ENABLED=true and a Google API key (disabled on the public HTTP endpoint).";
 
 /**
  * Build a fully-configured MCP server. Called once for stdio, and once per
