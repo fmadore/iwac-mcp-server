@@ -22,15 +22,27 @@ const INSTRUCTIONS =
   "articles, Islamic publications, archival documents, audiovisual records, and academic " +
   "references on Islam and Muslim societies in Benin, Burkina Faso, Côte d'Ivoire, Niger, " +
   "Nigeria, and Togo.\n\n" +
-  "WORKFLOW: call `search` with ONE concept or name at a time, then `fetch` an id from the " +
-  "results to read the full text. Matching is substring-based, so 'pèlerinage' works but " +
-  "'pèlerinage Mecque' as one phrase returns little — search terms separately. When many items " +
-  "match, weigh result counts and AI abstracts before fetching full texts. Beyond search/fetch, " +
-  "finer tools exist (search_articles, search_publications, search_references, search_index, " +
-  "search_documents, plus get_* and list_*) with country, newspaper, subject, and date filters — " +
-  "prefer the `subject` filter over keywords for curated themes. All matching is accent- and " +
-  "case-insensitive; country filters take exact names (Benin, Burkina Faso, Côte d'Ivoire, " +
-  "Niger, Nigeria, Togo).\n\n" +
+  "WORKFLOW: start with `search` (a concept or name), then `fetch` an id from the results to read " +
+  "the full text. The unified `search` matches each word of a multi-word query independently — " +
+  "every word must appear somewhere in the item — so 'pèlerinage Mecque' narrows results rather " +
+  "than failing; prefer a single concept per call. The finer search_* tools' `keyword` filter " +
+  "instead does ONE literal substring match, so for those search one term at a time ('pèlerinage', " +
+  "then 'Mecque'). When many items match, weigh result counts and AI abstracts before fetching full " +
+  "texts. Beyond search/fetch, finer tools exist (search_articles, search_publications, " +
+  "search_references, search_index, search_documents, plus get_* and list_*) with country, " +
+  "newspaper, subject, and date filters — prefer the `subject` filter over keywords for curated " +
+  "themes. All matching is accent- and case-insensitive; country filters take exact names (Benin, " +
+  "Burkina Faso, Côte d'Ivoire, Niger, Nigeria, Togo).\n\n" +
+  "RESULTS & ERRORS: list/search tools return a pagination envelope — read `total_matches` to gauge " +
+  "scale without paging, and request a sane `limit` (an over-large one is capped visibly via " +
+  "`requested_limit` + `limit_warning`, never silently dropped). Enumerated filters (`country`, " +
+  "`polarity`, `centrality`, `index_type`) are validated: an invalid value returns {error, " +
+  "valid_values} to self-correct — an error to fix, not a finding — whereas a VALID value with 0 " +
+  "rows is a real absence (there is no Nigerian press, so country='Nigeria' on search_articles is " +
+  "genuinely empty). Free-text filters (newspaper, subject, author, reference_type, language) are " +
+  "NOT validated, so a typo there returns 0 silently — sanity-check them. On list_locations / " +
+  "list_persons, `country` means 'mentioned in records from that country' (not 'located there') and " +
+  "`frequency` is a collection-wide total; the response restates this in a `note`.\n\n" +
   "LANGUAGE: articles and documents are in FRENCH — query in French (laïcité, confrérie, " +
   "pèlerinage). Academic references are MULTILINGUAL — search both French AND English.\n\n" +
   "TRANSLITERATION: Arabic-Islamic terms appear in FRENCH transliteration — search the French " +

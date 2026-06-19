@@ -27,6 +27,19 @@ const serverVersion = client.getServerVersion()?.version;
 console.log(`server version: ${serverVersion}`);
 if (!serverVersion || serverVersion === "0.0.0-dev") fail("server version not injected from package.json");
 
+// Instructions parity (the ONLY guidance channel a skill-less client gets):
+// must reflect v0.8.x semantics and not the pre-v0.7 single-substring search myth.
+const instructions = client.getInstructions?.() ?? "";
+if (!instructions) {
+  fail("server handshake carried no instructions");
+} else {
+  if (instructions.includes("as one phrase returns little"))
+    fail("instructions still describe `search` as single-substring (multi-word now tokenizes/ANDs)");
+  for (const needle of ["valid_values", "mentioned in records from", "requested_limit"]) {
+    if (!instructions.includes(needle)) fail(`instructions missing v0.8 guidance: "${needle}"`);
+  }
+}
+
 const semanticOn = ["1", "true", "yes", "on"].includes(
   (process.env.IWAC_SEMANTIC_SEARCH_ENABLED ?? "").trim().toLowerCase(),
 );
