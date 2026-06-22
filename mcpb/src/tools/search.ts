@@ -44,8 +44,8 @@ const SPECS: Record<Subset, SubsetSpec> = {
   publications: { titleCol: "title", textCols: ["title", "subject", "tableOfContents", "OCR"] },
   references: { titleCol: "title", textCols: ["title", "abstract"] },
   documents: { titleCol: "title", textCols: ["title", "OCR", "descriptionAI", "subject"] },
-  index: { titleCol: "Titre", textCols: ["Titre", "Description"] },
-  audiovisual: { titleCol: "title", textCols: ["title", "descriptionAI"] },
+  index: { titleCol: "Titre", textCols: ["Titre", "Titre alternatif", "Description"] },
+  audiovisual: { titleCol: "title", textCols: ["title", "creator", "publisher", "subject", "spatial", "language", "source", "descriptionAI"] },
 };
 
 /**
@@ -188,9 +188,11 @@ function detailCols(subset: Subset, schema: Set<string>): string {
     case "audiovisual":
       return selectList(schema, [
         ...common,
-        "title", "country",
+        "title", "creator", "publisher", "country",
         ["pub_date", "date", ["pub_date"]],
-        "language",
+        "volume", "issue", "is_part_of", "extent", "medium", "subject", "spatial", "language", "source",
+        ["PDF", "media_url", ["PDF"]],
+        "iiif_manifest", "thumbnail",
         ['"descriptionAI"', "text", ["descriptionAI"]],
       ]);
   }
@@ -230,8 +232,8 @@ export function registerSearchTools(server: Server): void {
         "documents, academic references, and the authority index (persons/places/organisations/events/subjects). " +
         "Pass ONE concept or name — e.g. 'Tijaniyya', 'laïcité', 'Sheikh Gumi', 'pèlerinage'. Matching is accent- " +
         "and case-insensitive; a multi-word query requires every word to appear somewhere in the item, so prefer a " +
-        "single concept per call. Newspaper/document text is French; academic references are multilingual (try " +
-        "French and English). Use the French transliteration of Islamic terms (Tabaski not 'Eid al-Adha', charia " +
+        "single concept per call. Write query strings and concept keywords in French for press/publication/document/index discovery even when the user's report " +
+        "language is not French. Academic references are multilingual, so try French and English title/abstract terms when relevant; metadata/filter labels remain French. Use the French transliteration of Islamic terms (Tabaski not 'Eid al-Adha', charia " +
         "not 'sharia', Maouloud not 'Mawlid'). Returns {results:[{id,title,url,category}], ranking}; each result's " +
         "`category` names its subset and the `ranking` field documents the ordering. Pass an id to `fetch` to read " +
         "the full text. For filtered queries (by country, date, or newspaper) use the search_* tools instead.",
@@ -240,7 +242,7 @@ export function registerSearchTools(server: Server): void {
         query: z
           .string()
           .min(1)
-          .describe("One concept, name, or short phrase (French for press; French/English for scholarship)"),
+          .describe("One concept, name, or short phrase; use French concept terms for primary sources, and French/English terms for references"),
         limit: z.number().int().optional().describe("Max results across all categories. Default 20, max 50."),
       },
     },

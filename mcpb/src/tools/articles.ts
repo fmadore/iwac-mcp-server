@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ensureView, getById, getManyByIds, q, selectList } from "../db.js";
+import { ensureView, getById, getManyByIds, q, query, selectList, viewName } from "../db.js";
 import { semanticSearch } from "../embeddings.js";
 import { config } from "../config.js";
 import {
@@ -14,6 +14,7 @@ import {
   foldedLike,
   keywordExcerpts,
   likeFilterIfExists,
+  pipeValueFilterIfExists,
   pubDateOrder,
   resolveLimit,
   runListQuery,
@@ -47,10 +48,10 @@ export function registerArticleTools(server: Server): void {
     {
       description:
         "Search IWAC newspaper articles by keyword (title + OCR + AI abstract), country, newspaper, subject, " +
-        "and date range. Matching is accent- and case-insensitive.",
+        "and date range. Use French concept keywords regardless of the user's report language. Matching is accent- and case-insensitive.",
       annotations: annotate("Search newspaper articles"),
       inputSchema: {
-        keyword: z.string().optional().describe("Substring match on title, OCR text, and AI abstract"),
+        keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR text, and AI abstract"),
         country: z
           .string()
           .optional()
@@ -78,7 +79,7 @@ export function registerArticleTools(server: Server): void {
 
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
-      likeFilterIfExists(schema, where, params, "subject", args.subject);
+      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       articleKeywordFilter(schema, where, params, args.keyword);
       dateRangeFilter(schema, where, params, args.date_from, args.date_to);
 
@@ -169,10 +170,10 @@ export function registerArticleTools(server: Server): void {
     "semantic_search_articles",
     {
       description:
-        "Semantic similarity search over article OCR using Gemini embeddings. Requires semantic search to be enabled and a Google API key.",
+        "Semantic similarity search over article OCR using Gemini embeddings. The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
       annotations: annotate("Semantic search for articles"),
       inputSchema: {
-        query: z.string(),
+        query: z.string().describe("Natural-language query, any language"),
         country: z
           .string()
           .optional()
@@ -188,28 +189,34 @@ export function registerArticleTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       const limit = resolveLimit(args.limit, 10, 50);
       try {
+        const schema = await ensureView("articles");
+        const cols = articleSummaryCols(schema);
+
+        const candidateWhere: string[] = [];
+        const candidateParams: unknown[] = [];
+        countryFilterIfExists(schema, candidateWhere, candidateParams, "country", country.canonical);
+        likeFilterIfExists(schema, candidateWhere, candidateParams, "newspaper", args.newspaper);
+        dateRangeFilter(schema, candidateWhere, candidateParams, args.date_from, args.date_to);
+        const candidateRows = candidateWhere.length
+          ? await query(
+              `SELECT CAST("o:id" AS VARCHAR) AS id FROM ${viewName("articles")} WHERE ${candidateWhere.join(" AND ")}`,
+              candidateParams,
+            )
+          : null;
+        const candidateIds = candidateRows?.map((r) => String(r.id));
+
         const hits = await semanticSearch({
           subset: "articles",
           embeddingColumn: "embedding_OCR",
           query: args.query,
-          overfetch: limit.value * 5,
+          limit: limit.value,
+          candidateIds,
         });
-        const schema = await ensureView("articles");
-        const cols = articleSummaryCols(schema);
-
-        // Push the metadata filters into SQL and fetch every candidate in one query.
-        const extraWhere: string[] = [];
-        const extraParams: unknown[] = [];
-        countryFilterIfExists(schema, extraWhere, extraParams, "country", country.canonical);
-        likeFilterIfExists(schema, extraWhere, extraParams, "newspaper", args.newspaper);
-        dateRangeFilter(schema, extraWhere, extraParams, args.date_from, args.date_to);
 
         const rows = await getManyByIds(
           "articles",
           cols,
           hits.map((h) => h.id),
-          extraWhere,
-          extraParams,
         );
         const byId = new Map(rows.map((r) => [String(r.id), r]));
 
@@ -232,6 +239,7 @@ export function registerArticleTools(server: Server): void {
             date_from: args.date_from ?? null,
             date_to: args.date_to ?? null,
           },
+          ...(candidateIds ? { candidate_count: candidateIds.length } : {}),
           results,
         });
       } catch (err) {

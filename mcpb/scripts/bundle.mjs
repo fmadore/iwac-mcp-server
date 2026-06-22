@@ -12,12 +12,16 @@
 //                    external preserves its exact current runtime behaviour.
 import * as esbuild from "esbuild";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
 
 await esbuild.build({
-  entryPoints: ["src/index.ts"],
-  outfile: "server/index.js",
+  absWorkingDir: rootDir,
+  entryPoints: [join(rootDir, "src", "index.ts")],
+  outfile: join(rootDir, "server", "index.js"),
   bundle: true,
   platform: "node",
   format: "esm",

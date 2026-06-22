@@ -107,7 +107,8 @@ export async function semanticSearch(opts: {
   subset: Subset;
   embeddingColumn: string;
   query: string;
-  overfetch: number;
+  limit: number;
+  candidateIds?: Iterable<string | number>;
 }): Promise<SemanticHit[]> {
   requireSemanticEnabled();
   const idx = await loadIndex(opts.subset, opts.embeddingColumn);
@@ -118,66 +119,27 @@ export async function semanticSearch(opts: {
     );
   }
 
-  const n = idx.ids.length;
   const dim = idx.dim;
-  const scores = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
+  let targetIndexes: number[];
+  if (opts.candidateIds) {
+    const candidateSet = new Set(Array.from(opts.candidateIds, (v) => String(v)));
+    targetIndexes = [];
+    for (let i = 0; i < idx.ids.length; i++) {
+      if (candidateSet.has(idx.ids[i])) targetIndexes.push(i);
+    }
+  } else {
+    targetIndexes = Array.from({ length: idx.ids.length }, (_, i) => i);
+  }
+  if (targetIndexes.length === 0) return [];
+
+  const scored: SemanticHit[] = [];
+  for (const i of targetIndexes) {
     const off = i * dim;
     let s = 0;
     for (let j = 0; j < dim; j++) s += idx.matrix[off + j] * q[j];
-    scores[i] = s;
+    scored.push({ id: idx.ids[i], score: s });
   }
 
-  const k = Math.min(opts.overfetch, n);
-  const top = topKIndices(scores, k);
-  return top.map((i) => ({ id: idx.ids[i], score: scores[i] }));
-}
-
-/**
- * Indices of the `k` highest scores, sorted descending. Uses a size-`k` min-heap
- * so the scan is O(n log k) with O(k) extra memory, rather than allocating and
- * fully sorting all `n` indices to keep only the top few.
- */
-function topKIndices(scores: Float32Array, k: number): number[] {
-  const n = scores.length;
-  if (k >= n) {
-    const all = Array.from({ length: n }, (_, i) => i);
-    all.sort((a, b) => scores[b] - scores[a]);
-    return all;
-  }
-  const heap = new Int32Array(k); // root (heap[0]) holds the smallest kept score
-  let size = 0;
-  const swap = (a: number, b: number) => {
-    const t = heap[a];
-    heap[a] = heap[b];
-    heap[b] = t;
-  };
-  for (let i = 0; i < n; i++) {
-    if (size < k) {
-      heap[size] = i;
-      let c = size++;
-      while (c > 0) {
-        const p = (c - 1) >> 1;
-        if (scores[heap[c]] >= scores[heap[p]]) break;
-        swap(c, p);
-        c = p;
-      }
-    } else if (scores[i] > scores[heap[0]]) {
-      heap[0] = i;
-      let p = 0;
-      while (true) {
-        const l = 2 * p + 1;
-        const r = 2 * p + 2;
-        let smallest = p;
-        if (l < size && scores[heap[l]] < scores[heap[smallest]]) smallest = l;
-        if (r < size && scores[heap[r]] < scores[heap[smallest]]) smallest = r;
-        if (smallest === p) break;
-        swap(p, smallest);
-        p = smallest;
-      }
-    }
-  }
-  const result = Array.from(heap.subarray(0, size));
-  result.sort((a, b) => scores[b] - scores[a]);
-  return result;
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, Math.min(opts.limit, scored.length));
 }

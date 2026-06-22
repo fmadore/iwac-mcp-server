@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ensureView, getById, getManyByIds, q, query, selectList } from "../db.js";
+import { ensureView, getById, getManyByIds, q, query, selectList, viewName } from "../db.js";
 import { semanticSearch } from "../embeddings.js";
 import { config } from "../config.js";
 import {
@@ -13,6 +13,7 @@ import {
   foldedLike,
   keywordExcerpts,
   likeFilterIfExists,
+  pipeValueFilterIfExists,
   publicationSummaryCols,
   pubDateOrder,
   resolveLimit,
@@ -30,11 +31,11 @@ export function registerPublicationTools(server: Server): void {
     {
       description:
         "Search Islamic publications (periodical issues, books). `keyword` matches title, subject and full OCR text; " +
-        "filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
+        "use French concept keywords regardless of the user's report language. Filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
         "get_publication_fulltext for keyword excerpts from a single issue.",
       annotations: annotate("Search publications"),
       inputSchema: {
-        keyword: z.string().optional().describe("Substring match on title + subject + OCR (accent-insensitive)"),
+        keyword: z.string().optional().describe("French concept keyword; substring match on title + subject + OCR (accent-insensitive)"),
         newspaper: z.string().optional().describe("Periodical/series title (see list_periodicals)"),
         subject: z.string().optional().describe("Subject tag (~87% of issues are tagged)"),
         country: z
@@ -68,7 +69,7 @@ export function registerPublicationTools(server: Server): void {
         if (parts.length) where.push(`(${parts.join(" OR ")})`);
       }
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
-      likeFilterIfExists(schema, where, params, "subject", args.subject);
+      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
@@ -214,10 +215,10 @@ export function registerPublicationTools(server: Server): void {
         "Semantic similarity search over publication tables of contents using Gemini embeddings. " +
         "TOC coverage: ~22% of issues — complete for 17 of the 25 series (the smaller magazines), but absent " +
         "for the three largest (Islam Info, An-Nasr Vendredi, Islam Hebdo); use search_publications for those. " +
-        "Requires semantic search to be enabled and a Google API key.",
+        "The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
       annotations: annotate("Semantic search for publications"),
       inputSchema: {
-        query: z.string(),
+        query: z.string().describe("Natural-language query, any language"),
         country: z
           .string()
           .optional()
@@ -230,26 +231,33 @@ export function registerPublicationTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       const limit = resolveLimit(args.limit, 10, 50);
       try {
-        const hits = await semanticSearch({
-          subset: "publications",
-          embeddingColumn: "embedding_tableOfContents",
-          query: args.query,
-          overfetch: limit.value * 5,
-        });
         const schema = await ensureView("publications");
         const cols = publicationSummaryCols(schema);
         const tocExpr = schema.has("tableOfContents") ? `, ${q("tableOfContents")}` : "";
 
-        const extraWhere: string[] = [];
-        const extraParams: unknown[] = [];
-        countryFilterIfExists(schema, extraWhere, extraParams, "country", country.canonical);
+        const candidateWhere: string[] = [];
+        const candidateParams: unknown[] = [];
+        countryFilterIfExists(schema, candidateWhere, candidateParams, "country", country.canonical);
+        const candidateRows = candidateWhere.length
+          ? await query(
+              `SELECT CAST("o:id" AS VARCHAR) AS id FROM ${viewName("publications")} WHERE ${candidateWhere.join(" AND ")}`,
+              candidateParams,
+            )
+          : null;
+        const candidateIds = candidateRows?.map((r) => String(r.id));
+
+        const hits = await semanticSearch({
+          subset: "publications",
+          embeddingColumn: "embedding_tableOfContents",
+          query: args.query,
+          limit: limit.value,
+          candidateIds,
+        });
 
         const rows = await getManyByIds(
           "publications",
           `${cols}${tocExpr}`,
           hits.map((h) => h.id),
-          extraWhere,
-          extraParams,
         );
         const byId = new Map(rows.map((r) => [String(r.id), r]));
 
@@ -271,6 +279,7 @@ export function registerPublicationTools(server: Server): void {
           limit: limit.value,
           ...(limit.capped ? { requested_limit: limit.requested } : {}),
           filters: { country: country.canonical ?? null },
+          ...(candidateIds ? { candidate_count: candidateIds.length } : {}),
           results,
         });
       } catch (err) {

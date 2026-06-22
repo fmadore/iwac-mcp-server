@@ -8,6 +8,7 @@ import {
   errorResult,
   foldedLike,
   likeFilterIfExists,
+  pipeValueFilterIfExists,
   pubDateOrder,
   referenceSummaryCols,
   resolveLimit,
@@ -26,11 +27,11 @@ export function registerReferenceTools(server: Server): void {
       description:
         "Search academic references (journal articles, book chapters, theses, books, reports) by keyword and metadata. " +
         "`keyword` is a single substring match over title + abstract, so search ONE term per call " +
-        "(combined terms like 'pèlerinage Mecque' miss results); references are bilingual, so try French AND English terms. " +
+        "(combined terms like 'pèlerinage Mecque' miss results). References are multilingual: try French and English title/abstract keywords when relevant; metadata/filter values such as `reference_type` and `language` use French labels. " +
         "Results include a short abstract snippet — use get_reference for the full abstract and bibliographic detail.",
       annotations: annotate("Search academic references"),
       inputSchema: {
-        keyword: z.string().optional().describe("Substring match on title + abstract (one term per call, accent-insensitive)"),
+        keyword: z.string().optional().describe("One French or English concept keyword; substring match on title + abstract (one term per call, accent-insensitive)"),
         author: z.string().optional(),
         reference_type: z
           .string()
@@ -75,9 +76,9 @@ export function registerReferenceTools(server: Server): void {
       }
       likeFilterIfExists(schema, where, params, "author", args.author);
       likeFilterIfExists(schema, where, params, "type", args.reference_type);
-      likeFilterIfExists(schema, where, params, "subject", args.subject);
+      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       countryFilterIfExists(schema, where, params, "country", country.canonical);
-      likeFilterIfExists(schema, where, params, "language", args.language);
+      pipeValueFilterIfExists(schema, where, params, "language", args.language);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
       return textResult(

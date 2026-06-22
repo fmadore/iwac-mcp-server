@@ -5,7 +5,7 @@
 # the IWAC-docker repo. The Claude Desktop / stdio path is unaffected by this image.
 
 # ---- build ----
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -13,7 +13,7 @@ COPY . .
 RUN npm run typecheck && npm run build
 
 # ---- runtime ----
-FROM node:24-alpine
+FROM node:26-alpine
 WORKDIR /app
 ENV NODE_ENV=production \
     IWAC_CACHE_DIR=/cache \

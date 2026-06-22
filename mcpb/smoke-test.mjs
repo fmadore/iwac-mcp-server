@@ -48,7 +48,7 @@ const tools = await client.listTools();
 console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
 // The 2 semantic_search_* tools register only when IWAC_SEMANTIC_SEARCH_ENABLED=true;
 // the live HTTP endpoint runs with it off, so they are dropped there entirely.
-const expectedTools = semanticOn ? 24 : 22;
+const expectedTools = semanticOn ? 26 : 24;
 if (tools.tools.length !== expectedTools) fail(`expected ${expectedTools} tools, got ${tools.tools.length}`);
 const semanticPresent = ["semantic_search_articles", "semantic_search_publications"].filter((n) =>
   tools.tools.some((t) => t.name === n),
@@ -114,6 +114,12 @@ await call("get_collection_stats", {}, {
 await call("search_index", { keyword: "Ouagadougou", limit: 2 }, {
   check: (p) => (p.total_matches > 0 ? null : "no matches for Ouagadougou"),
 });
+await call("search_index", { keyword: "Dahomey", limit: 2 }, {
+  check: (p) =>
+    p.results?.some((r) => r.title === "Bénin")
+      ? null
+      : "alias search for Dahomey did not find canonical Bénin entry",
+});
 // Unaccented type value must still match "Événements" (accent-insensitive matching).
 await call("search_index", { keyword: "a", index_type: "evenements", limit: 1 }, {
   check: (p) => (p.total_matches > 0 ? null : "unaccented index_type 'evenements' matched nothing"),
@@ -124,8 +130,33 @@ await call("list_persons", { limit: 3 });
 // NB: audiovisual descriptionAI is empty corpus-wide in the current revision,
 // so rows legitimately carry no description_ai key.
 await call("list_audiovisual", { limit: 2 }, {
-  check: (p) => (p.total_matches === 45 ? null : `expected 45 audiovisual items, got ${p.total_matches}`),
+  check: (p) => {
+    if (p.total_matches !== 45) return `expected 45 audiovisual items, got ${p.total_matches}`;
+    if (!p.results?.[0]?.medium) return "list_audiovisual should expose medium";
+    if (!p.results?.[0]?.media_url) return "list_audiovisual should expose media_url";
+    return null;
+  },
 });
+const avHits = await call("search_audiovisual", { language: "Haoussa", limit: 2 }, {
+  check: (p) => {
+    if (p.total_matches < 20) return `expected many Hausa audiovisual items, got ${p.total_matches}`;
+    if (!p.results?.[0]?.creator && !p.results?.[0]?.publisher) return "search_audiovisual should expose creator/publisher metadata when present";
+    return null;
+  },
+});
+const avId = avHits?.results?.[0]?.id;
+if (avId) {
+  await call("get_audiovisual", { audiovisual_id: Number(avId) }, {
+    check: (p) => {
+      if (!p.url) return "get_audiovisual missing IWAC URL";
+      if (!p.media_url) return "get_audiovisual missing media_url";
+      if (!p.medium) return "get_audiovisual missing medium";
+      return null;
+    },
+  });
+} else {
+  fail("search_audiovisual returned no id to drill into");
+}
 await call("get_index_entry", { entry_id: 376 });
 
 // --- references -------------------------------------------------------------
@@ -143,6 +174,9 @@ if (refId) {
 // Niger must not match Nigeria-only references (pipe-aware exact country match).
 await call("search_references", { country: "Nigeria", limit: 1 }, {
   check: (p) => (p.total_matches > 0 && p.total_matches < 100 ? null : `Nigeria count looks wrong: ${p.total_matches}`),
+});
+await call("search_references", { subject: "state", limit: 1 }, {
+  check: (p) => (p.total_matches > 0 && p.total_matches < 30 ? null : `pipe-aware reference subject filter looks wrong: ${p.total_matches}`),
 });
 
 // --- publications ------------------------------------------------------------
@@ -180,6 +214,9 @@ await call("search_articles", { keyword: "ramadan", date_from: "1995-01-01", dat
 });
 await call("search_articles", { country: "Burkina Faso", with_description: true, limit: 2 }, {
   check: (p) => (p.results?.[0]?.description_ai ? null : "with_description did not add description_ai"),
+});
+await call("search_articles", { subject: "Mosquée", limit: 1 }, {
+  check: (p) => (p.total_matches > 1000 && p.total_matches < 1500 ? null : `pipe-aware subject filter looks wrong for Mosquée: ${p.total_matches}`),
 });
 await call("get_newspaper_stats", { country: "Niger" }, {
   check: (p) => (p.total_articles === 1061 ? null : `Niger article count ${p.total_articles}, expected 1061 (Nigeria conflation?)`),

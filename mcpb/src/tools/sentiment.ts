@@ -9,6 +9,7 @@ import {
   errorResult,
   foldedEquals,
   likeFilterIfExists,
+  pipeValueFilterIfExists,
   POLARITY_VALUES,
   pubDateOrder,
   resolveLimit,
@@ -67,7 +68,7 @@ export function registerSentimentTools(server: Server): void {
         params.push(centrality.canonical);
       }
       countryFilterIfExists(schema, where, params, "country", country.canonical);
-      likeFilterIfExists(schema, where, params, "subject", args.subject);
+      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
 
       const cols = selectList(schema, [
         ['"o:id"', "id", ["o:id"]],
@@ -117,7 +118,7 @@ export function registerSentimentTools(server: Server): void {
       const params: unknown[] = [];
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
-      likeFilterIfExists(schema, where, params, "subject", args.subject);
+      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
       const total = Number(

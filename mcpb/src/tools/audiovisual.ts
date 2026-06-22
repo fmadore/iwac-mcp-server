@@ -1,11 +1,14 @@
 import { z } from "zod";
-import { ensureView, selectList } from "../db.js";
+import { ensureView, getById, q, selectList } from "../db.js";
 import {
   annotate,
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
   errorResult,
+  foldedEquals,
+  foldedLike,
+  pipeValueFilterIfExists,
   pubDateOrder,
   resolveLimit,
   runListQuery,
@@ -14,7 +17,91 @@ import {
   type Server,
 } from "./_shared.js";
 
+function audiovisualSummaryCols(schema: Set<string>): string {
+  return selectList(schema, [
+    ['"o:id"', "id", ["o:id"]],
+    "title",
+    "creator",
+    "publisher",
+    "country",
+    ["pub_date", "date", ["pub_date"]],
+    "medium",
+    "extent",
+    "subject",
+    "spatial",
+    "language",
+    ["PDF", "media_url", ["PDF"]],
+    ["iwac_url", "url", ["iwac_url"]],
+  ]);
+}
+
+function audiovisualKeywordFilter(
+  schema: Set<string>,
+  where: string[],
+  params: unknown[],
+  keyword: string | undefined,
+): void {
+  if (!keyword) return;
+  const parts: string[] = [];
+  for (const col of ["title", "creator", "publisher", "subject", "spatial", "language", "source", "descriptionAI"]) {
+    if (schema.has(col)) {
+      parts.push(foldedLike(q(col)));
+      params.push(`%${keyword}%`);
+    }
+  }
+  if (parts.length) where.push(`(${parts.join(" OR ")})`);
+}
+
 export function registerAudiovisualTools(server: Server): void {
+  // === search_audiovisual ==================================================
+  server.registerTool(
+    "search_audiovisual",
+    {
+      description:
+        "Search audiovisual materials by keyword and metadata. Keyword matches title, creator, publisher, subject, spatial, language, source, and AI description where present.",
+      annotations: annotate("Search audiovisual materials"),
+      inputSchema: {
+        keyword: z.string().optional().describe("Substring match across audiovisual title/metadata fields"),
+        country: z.string().optional().describe("Exact country name (the subset is currently all Nigeria)"),
+        language: z.string().optional().describe("Exact language value, e.g. Haoussa | Arabe | Anglais"),
+        medium: z.string().optional().describe("Exact medium: audio | video"),
+        subject: z.string().optional().describe("Exact subject tag"),
+        limit: z.number().int().optional().describe("Default 20, max 50"),
+        offset: z.number().int().optional(),
+      },
+    },
+    async (args) => {
+      const schema = await ensureView("audiovisual");
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const limit = resolveLimit(args.limit, 20, 50);
+      const offset = capOffset(args.offset);
+      const where: string[] = [];
+      const params: unknown[] = [];
+
+      audiovisualKeywordFilter(schema, where, params, args.keyword);
+      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "language", args.language);
+      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
+      if (args.medium && schema.has("medium")) {
+        where.push(foldedEquals(q("medium")));
+        params.push(args.medium);
+      }
+
+      return textResult(
+        await runListQuery({
+          subset: "audiovisual",
+          where,
+          params,
+          cols: audiovisualSummaryCols(schema),
+          orderBy: pubDateOrder(schema),
+          limit,
+          offset,
+        }),
+      );
+    },
+  );
+
   // === list_audiovisual ====================================================
   server.registerTool(
     "list_audiovisual",
@@ -38,26 +125,58 @@ export function registerAudiovisualTools(server: Server): void {
       const params: unknown[] = [];
       countryFilterIfExists(schema, where, params, "country", country.canonical);
 
-      const cols = selectList(schema, [
-        ['"o:id"', "id", ["o:id"]],
-        "title",
-        "country",
-        ["pub_date", "date", ["pub_date"]],
-        ['"descriptionAI"', "description_ai", ["descriptionAI"]],
-        "language",
-        ["iwac_url", "url", ["iwac_url"]],
-      ]);
       return textResult(
         await runListQuery({
           subset: "audiovisual",
           where,
           params,
-          cols,
+          cols: audiovisualSummaryCols(schema),
           orderBy: pubDateOrder(schema),
           limit,
           offset,
         }),
       );
+    },
+  );
+
+  // === get_audiovisual =====================================================
+  server.registerTool(
+    "get_audiovisual",
+    {
+      description:
+        "Get one audiovisual record by id, including creator/publisher, media URL, duration, medium, subjects, places, language, source, and IWAC URL.",
+      annotations: annotate("Get audiovisual details"),
+      inputSchema: { audiovisual_id: z.number().int() },
+    },
+    async ({ audiovisual_id }) => {
+      const schema = await ensureView("audiovisual");
+      const cols = selectList(schema, [
+        ['"o:id"', "id", ["o:id"]],
+        "identifier",
+        "added_date",
+        ["iwac_url", "url", ["iwac_url"]],
+        "iiif_manifest",
+        ["PDF", "media_url", ["PDF"]],
+        "thumbnail",
+        "title",
+        "creator",
+        "publisher",
+        "country",
+        ["pub_date", "date", ["pub_date"]],
+        ['"descriptionAI"', "description_ai", ["descriptionAI"]],
+        "volume",
+        "issue",
+        "is_part_of",
+        "extent",
+        "medium",
+        "subject",
+        "spatial",
+        "language",
+        "source",
+      ]);
+      const row = await getById("audiovisual", cols, audiovisual_id);
+      if (!row) return errorResult({ error: `Audiovisual item ${audiovisual_id} not found` });
+      return textResult(row);
     },
   );
 }

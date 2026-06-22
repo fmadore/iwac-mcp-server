@@ -11,6 +11,7 @@ import {
   INDEX_TYPES,
   indexFreqOrder,
   indexSummaryCols,
+  pipeValueEquals,
   resolveLimit,
   runListQuery,
   textResult,
@@ -46,8 +47,13 @@ export function registerIndexTools(server: Server): void {
       if (indexType.err) return errorResult(indexType.err);
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
-      const where: string[] = [foldedLike(q("Titre"))];
+      const namePredicates = [foldedLike(q("Titre"))];
       const params: unknown[] = [`%${args.keyword}%`];
+      if (schema.has("Titre alternatif")) {
+        namePredicates.push(pipeValueEquals(q("Titre alternatif")));
+        params.push(args.keyword);
+      }
+      const where: string[] = [`(${namePredicates.join(" OR ")})`];
       if (indexType.canonical && schema.has("Type")) {
         where.push(foldedEquals(q("Type")));
         params.push(indexType.canonical);

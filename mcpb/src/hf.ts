@@ -55,6 +55,15 @@ async function downloadFile(remotePath: string, destPath: string): Promise<void>
   await fs.rename(tmp, destPath);
 }
 
+async function hasLocalParquet(localDir: string): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(localDir);
+    return entries.some((name) => name.endsWith(".parquet"));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Ensure the parquet files for a subset are present locally.
  * Returns the local directory containing `train-*.parquet` files.
@@ -63,7 +72,19 @@ export async function ensureSubset(subset: Subset): Promise<string> {
   const localDir = path.join(config.cacheDir, subset);
   await fs.mkdir(localDir, { recursive: true });
 
-  const tree = await listTree(subset);
+  let tree: TreeEntry[];
+  try {
+    tree = await listTree(subset);
+  } catch (err) {
+    if (await hasLocalParquet(localDir)) {
+      console.error(
+        `[iwac] warning: failed to refresh Hugging Face metadata for ${subset}; using cached parquet files in ${localDir}. ` +
+          `Freshness could not be verified. ${(err as Error).message}`,
+      );
+      return localDir;
+    }
+    throw err;
+  }
   const parquetFiles = tree.filter(
     (e) => e.type === "file" && e.path.endsWith(".parquet"),
   );

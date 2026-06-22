@@ -25,10 +25,10 @@ export function registerDocumentTools(server: Server): void {
     {
       description:
         "Search the small archival-documents subset (~26 items: Islamic association reports, flyers, project " +
-        "documents — mostly Burkina Faso). All have OCR text and an AI description. Call with no arguments to list all.",
+        "documents — mostly Burkina Faso). Use French concept keywords regardless of the user's report language. All have OCR text and an AI description. Call with no arguments to list all.",
       annotations: annotate("Search archival documents"),
       inputSchema: {
-        keyword: z.string().optional().describe("Substring match on title, OCR, AI description and subject (accent-insensitive)"),
+        keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR, AI description and subject (accent-insensitive)"),
         country: z
           .string()
           .optional()

@@ -43,8 +43,15 @@ const INSTRUCTIONS =
   "NOT validated, so a typo there returns 0 silently — sanity-check them. On list_locations / " +
   "list_persons, `country` means 'mentioned in records from that country' (not 'located there') and " +
   "`frequency` is a collection-wide total; the response restates this in a `note`.\n\n" +
-  "LANGUAGE: articles and documents are in FRENCH — query in French (laïcité, confrérie, " +
-  "pèlerinage). Academic references are MULTILINGUAL — search both French AND English.\n\n" +
+  "REPORT LANGUAGE: write the final report, synthesis, and follow-up questions in the language " +
+  "of the user's question. If the question is mixed, use its dominant language.\n\n" +
+  "QUERY LANGUAGE: formulate keyword/substr search strings and concept keywords in FRENCH for " +
+  "press articles, publications, documents, and index searches, even when the " +
+  "user asks in another language (laïcité, confrérie, pèlerinage, enseignement islamique). " +
+  "Academic references are multilingual: search title/abstract keywords in French and English when " +
+  "relevant, while keeping metadata/filter values such as reference_type and language in French. " +
+  "Semantic embedding queries (`semantic_search_articles`, " +
+  "`semantic_search_publications`) may be in any language. Keep proper names and canonical filter values exact.\n\n" +
   "TRANSLITERATION: Arabic-Islamic terms appear in FRENCH transliteration — search the French " +
   "form and try variants: Tabaski or Aïd el-Kébir (not 'Eid al-Adha'); Korité or Aïd el-Fitr; " +
   "Maouloud/Mouloud (not 'Mawlid'); charia (not 'sharia'); confrérie; Wahhabisme.\n\n" +

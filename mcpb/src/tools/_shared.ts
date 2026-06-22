@@ -297,6 +297,33 @@ export function countryFilterIfExists(
   params.push(value);
 }
 
+/**
+ * Pipe-separated field filter: exact match against one `|`-split segment,
+ * accent/case-folded. Use for controlled multi-value fields such as subject,
+ * spatial, language, countries, and `Titre alternatif`. A substring predicate
+ * would make `Mosquée` match `Construction mosquée`, or `state` match
+ * `Islamic State in the Greater Sahara`, which turns curated filters into
+ * noisy keyword searches.
+ */
+export function pipeValueFilterIfExists(
+  schema: Set<string>,
+  where: string[],
+  params: unknown[],
+  column: string,
+  value: string | undefined,
+): void {
+  if (!value || !schema.has(column)) return;
+  where.push(pipeValueEquals(q(column)));
+  params.push(value);
+}
+
+export function pipeValueEquals(colExpr: string): string {
+  return (
+    `list_contains(list_transform(str_split(coalesce(${colExpr}, ''), '|'), ` +
+    `x -> strip_accents(lower(trim(x)))), strip_accents(lower(trim(?))))`
+  );
+}
+
 /** First 4-digit run of a date-ish string ("2015", "2015-06-01") as a year int. */
 function parseYear(v: string | undefined): number | undefined {
   if (!v) return undefined;
@@ -455,6 +482,7 @@ export function indexSummaryCols(schema: Set<string>): string {
   return selectList(schema, [
     ['"o:id"', "id", ["o:id"]],
     [q("Titre"), "title", ["Titre"]],
+    [q("Titre alternatif"), "alternate_titles", ["Titre alternatif"]],
     [q("Type"), "type", ["Type"]],
     [q("Description"), "description", ["Description"]],
     "frequency",
