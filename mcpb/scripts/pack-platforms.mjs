@@ -73,6 +73,7 @@ try {
     try {
       fs.rmSync(path.join(ROOT, target.outfile), { force: true });
       execSync(`mcpb pack . ${target.outfile}`, { cwd: ROOT, stdio: "inherit" });
+      execSync(`mcpb clean ${target.outfile}`, { cwd: ROOT, stdio: "inherit" });
       const mb = (fs.statSync(path.join(ROOT, target.outfile)).size / 1048576).toFixed(1);
       console.error(`-> ${target.outfile}: ${mb} MB  (bindings: ${[...keep].join(", ")})`);
     } finally {

@@ -23,7 +23,7 @@ On first use the server downloads ~250 MB of parquet data from Hugging Face
 into `~/.iwac-mcp/cache/` (override via the extension settings). Subsequent
 queries are served locally through DuckDB.
 
-- **22 core tools** work without any API key (keyword search, filtering,
+- **24 core tools** work without any API key (keyword search, filtering,
   statistics, item details).
 - **2 optional semantic-search tools** require a free Google/Gemini API key and
   are disabled by default. Enable them in the extension settings.
@@ -53,7 +53,7 @@ it runs offline against whatever `install-bindings` has placed in `node_modules`
 `pack-mcpb` still exists for a quick host-only single bundle during development.
 
 Pack the research skill (a separate release asset — zips the repo-root
-`.claude/skills/iwac-mcp/` at `HEAD`, so commit skill changes before running it):
+`.agents/skills/iwac-mcp/` at `HEAD`, so commit skill changes before running it):
 
 ```bash
 npm run pack-skill                         # -> ../iwac-mcp-skill.zip (repo root)

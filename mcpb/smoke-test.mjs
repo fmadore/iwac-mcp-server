@@ -64,7 +64,7 @@ if (!semanticOn && semanticPresent.length !== 0) fail(`semantic disabled but sti
  *     assert the shape of an expected error, e.g. valid_values / valid_categories)
  */
 async function call(name, args, opts = {}) {
-  const res = await client.callTool({ name, arguments: args });
+  const res = await client.callTool({ name, arguments: args }, undefined, { timeout: 5 * 60_000 });
   const body = res.content?.[0]?.text ?? "";
   const isErr = res.isError === true;
   const preview = body.slice(0, 220).replace(/\s+/g, " ");

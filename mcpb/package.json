@@ -15,8 +15,8 @@
     "install-bindings": "node scripts/install-duckdb-bindings.mjs",
     "pack-mcpb": "mcpb pack . iwac-mcp-server.mcpb",
     "pack-platforms": "node scripts/pack-platforms.mjs",
-    "release": "npm run prepack-mcpb && npm run install-bindings && npm run pack-platforms",
-    "pack-skill": "git -C .. archive --format=zip --prefix=iwac-mcp/ -o iwac-mcp-skill.zip HEAD:.claude/skills/iwac-mcp"
+    "release": "npm run prepack-mcpb && npm run install-bindings && npm run pack-platforms && npm run pack-skill",
+    "pack-skill": "git -C .. archive --format=zip --prefix=iwac-mcp/ -o iwac-mcp-skill.zip HEAD:.agents/skills/iwac-mcp"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
@@ -30,7 +30,11 @@
     "@duckdb/node-bindings-win32-arm64": "^1.5.4-r.1",
     "@duckdb/node-bindings-win32-x64": "^1.5.4-r.1"
   },
+  "overrides": {
+    "tmp": "^0.2.7"
+  },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "^2.1.2",
     "@types/node": "^26.0.0",
     "esbuild": "^0.28.1",
     "rimraf": "^6.1.3",

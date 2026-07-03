@@ -35,7 +35,7 @@ one). Claude Desktop has no Linux build, so no Linux bundle is published.
 
 ### 2. The research skill — `iwac-mcp-skill.zip` (strongly recommended)
 
-The [`iwac-mcp` skill](.claude/skills/iwac-mcp/SKILL.md) wraps the raw tools in a
+The [`iwac-mcp` skill](.agents/skills/iwac-mcp/SKILL.md) wraps the raw tools in a
 structured research workflow: a five-phase methodology, francophone search
 strategy, source attribution with confidence grading, and bias/coverage caveats.
 **It makes the server far more efficient to use** — Claude picks the right tool
@@ -62,25 +62,27 @@ Download `iwac-mcp-skill.zip` from the same release, then:
   Expand-Archive iwac-mcp-skill.zip -DestinationPath $HOME\.claude\skills\
   ```
 
-  Both land the skill at `~/.claude/skills/iwac-mcp/`. Unzip into a project's
-  `.claude/skills/` instead to scope it to one repository.
+  Both land the skill at `~/.claude/skills/iwac-mcp/`. The repository source of
+  truth is `.agents/skills/iwac-mcp/`; keep project-local copies there rather
+  than duplicating the same skill under `.claude/`.
 
 ## What it gives Claude
 
-22 read-only tools across six IWAC subsets. **20 work out of the box**; the 2
-`semantic_search_*` tools are optional and require a free Google/Gemini API key
-(disabled by default). All keyword and filter matching is accent- and
+26 possible read-only tools across six IWAC subsets. **24 work out of the box**;
+the 2 `semantic_search_*` tools are optional and require a free Google/Gemini API
+key (disabled by default). All keyword and filter matching is accent- and
 case-insensitive.
 
 | Group        | Tools                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------- |
+| Cross-subset | `search`, `fetch`                                                                           |
 | Articles     | `search_articles`, `get_article`, `semantic_search_articles`                                |
 | Sentiment    | `search_by_sentiment`, `get_sentiment_distribution`                                         |
 | Index        | `search_index`, `get_index_entry`, `list_subjects`, `list_locations`, `list_persons`        |
 | Stats        | `get_collection_stats`, `get_newspaper_stats`, `get_country_comparison`                     |
 | Publications | `search_publications`, `list_periodicals`, `get_publication_fulltext`, `semantic_search_publications` |
 | References   | `search_references`, `get_reference`                                                        |
-| Other        | `search_documents`, `get_document`, `list_audiovisual`                                      |
+| Other        | `search_documents`, `get_document`, `search_audiovisual`, `list_audiovisual`, `get_audiovisual` |
 
 The three full-text tools — `get_article`, `get_document`, and
 `get_publication_fulltext` — optionally take a `keyword` to return ~2000-char

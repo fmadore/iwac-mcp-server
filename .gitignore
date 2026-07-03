@@ -24,3 +24,6 @@ Thumbs.db
 
 # Claude Code local
 .claude/settings.local.json
+
+# Canonical skills live under .agents/skills/
+.claude/skills/

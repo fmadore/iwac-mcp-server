@@ -4,8 +4,9 @@ name: Publish container image to GHCR
 # GitHub-hosted runners and pushes it to GHCR, so the single-CPU IWAC-docker host
 # only ever does a lightweight `docker pull` (no on-host build contention).
 #
-# Triggers on a version tag (v*), or manually. The Claude Desktop / stdio .mcpb
-# path is unaffected — this only packages the same codebase for HTTP deployment.
+# Triggers on a version tag (v*), or manually. Version tags also publish the
+# Claude Desktop / stdio .mcpb bundles and the .agents research skill zip as
+# GitHub release assets.
 
 on:
   push:
@@ -21,7 +22,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Checkout
@@ -58,3 +59,23 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build MCPB and skill release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: mcpb
+        run: |
+          npm ci
+          npm run release
+
+      - name: Upload GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Release $TAG"
+          gh release upload "$TAG" \
+            mcpb/iwac-mcp-server-windows.mcpb \
+            mcpb/iwac-mcp-server-macos.mcpb \
+            iwac-mcp-skill.zip \
+            --clobber

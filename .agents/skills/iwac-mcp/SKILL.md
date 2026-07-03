@@ -14,13 +14,13 @@ description: |
 
 # IWAC MCP Research Workflow
 
-Structured methodology for academic research using the IWAC MCP server's 24 tools (22 core + 2 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.6.0+** — all matching is accent- and case-insensitive, and result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`).
+Structured methodology for academic research using the IWAC MCP server's 26 possible tools (24 core + 2 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.8.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below).
 
 ## Prerequisites
 
 Load reference files **as needed**, not all upfront:
 
-1. **references/tools-by-phase.md** — all 24 tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
+1. **references/tools-by-phase.md** — all 26 possible tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
 2. **references/research-domains.md** — French search terms and transliteration variants by domain. Read when crafting search-term variants (Extended mode, or when a Brief search comes back thin).
 3. **references/biases-and-limitations.md** — collection biases, coverage gaps, sentiment caveats. Read before writing the synthesis.
 4. **references/capabilities-overview.md** — plain-language description of the collection and recommended ways into the data. Read when the user asks what you can do (see "Capability Questions" below).
@@ -29,7 +29,7 @@ For data schema and Omeka S API details, defer to the `iwac-data` skill.
 
 ## Capability Questions
 
-When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 24 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
+When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 26 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
 
 1. One short paragraph on what the collection is and covers.
 2. The main ways into the data (keyword, curated themes, people/organizations, semantic, sentiment, periodicals, scholarship) — described as research moves, not tool names.
@@ -80,11 +80,19 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 
 1. **Keyword search terms must be French for primary-source subsets** — develop keyword terms in French for articles, publications, documents, and index searches. Academic references are multilingual: search titles/abstracts with French and English concept terms when relevant, while keeping metadata/filter values in French. Semantic embedding queries may be in any language.
 2. **Accents no longer matter for matching** (server ≥ 0.6.0 folds accents and case on both sides): `pelerinage` finds `pèlerinage`, `Bénin` finds `Benin`, `These` finds `Thèse de doctorat`. Still write proper French in outputs.
-3. **Country filters take exact names** — `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo` (+ `Nigeria` in references/index/audiovisual only). Partial names ("Burkina") return nothing. Niger no longer over-matches Nigeria.
+3. **Enumerated filters are validated — an invalid value is a hard error, not a silent zero.** `country` (`Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Nigeria`, `Togo`), `polarity`, `centrality`, and `index_type` are checked accent/case-insensitively; an unrecognised value returns `{error, valid_values}` (`isError`) — pick the right value and retry, never read it as a finding. A **valid** value that yields 0 rows (e.g. `country="Nigeria"` on `search_articles`) is a real finding. Partial names ("Burkina") are invalid. Free-text filters (`newspaper`, `subject`, `author`, `reference_type`, `language`) are **not** validated — a typo there still returns 0 silently, so sanity-check them.
 4. **Know each tool's keyword scope.** Articles: title + OCR + AI abstract. Publications: title + subject + OCR. References: title + abstract, **one term per call** (substring match — "pèlerinage Mecque" as one string misses everything). For curated themes, prefer the `subject` parameter over `keyword`.
 5. **Tables of contents now cover part of the publications corpus** (verified June 2026): 325/1,501 issues (~22%) have a TOC + embedding — complete for 17 of the 25 series (the smaller magazines: Le Rendez-Vous, Plume Libre, L'Appel, Alif, La Preuve, An-Nasr Trimestriel, Le CERFIste…), but absent for the three largest (Islam Info 695 issues, An-Nasr Vendredi 318, Islam Hebdo 122). `search_publications` keyword also matches TOCs and returns the matching entries as `matching_toc_entries`; `semantic_search_publications` is genuinely useful for the TOC-covered series. For the big three series, navigate via `list_periodicals`, `subject` (87% tagged), country, and year; use OCR `keyword` for content, and `get_publication_fulltext` (capped keyword excerpts) to read inside one long issue.
 6. **Triage on AI abstracts before reading OCR.** `search_articles(with_description=true, limit≤10)` returns each article's ~500-char `description_ai` — usually enough to pick the 2-3 articles worth a full `get_article` (~1k tokens each).
 7. **Niger and Nigeria are dramatically underrepresented.** Always disclose this in cross-country comparisons (see biases-and-limitations.md §2).
+
+## Reading Results & Errors
+
+- **Pagination envelope.** Every list/search tool returns `count` (rows in this page), `total_matches` (the full count — use it to gauge scale without paging), `offset`, `limit` (the applied limit), `has_more`, and `next_offset`. Read `total_matches` and decide; don't page blindly.
+- **Limits are capped visibly, not silently.** Ask for more than a tool's max and the response still caps the page, but flags it: `limit` shows the applied value and `requested_limit` + `limit_warning` record what you asked for. There's no "limit=500 just in case" — you'll get the max with a warning, never the 500.
+- **Validation errors self-correct.** An invalid `country` / `polarity` / `centrality` / `index_type` returns `{error, valid_values}` with `isError`. Choose from `valid_values` and retry; never report the error as a substantive result, and never read a validation error as "no coverage."
+- **`list_locations` / `list_persons` country semantics.** The `country` filter means *mentioned in records from that country*, not *located there* — so `list_locations(country="Benin")` surfaces foreign places (La Mecque, Côte d'Ivoire) that Beninese sources discuss, and `frequency` is the entry's **collection-wide** total, not a per-country count. The response carries a `note` restating this. Nigeria returns nothing here because index frequency derives from articles/publications/references, which have no Nigerian items.
+- **Cross-collection `search` / `fetch`** (mainly for skill-less clients, but available): `search` tags each hit with its `category` and adds a top-level `ranking` note — substring match, round-robin interleave across categories, frequency/recency tiebreak, **no relevance score**; prefer the granular `search_*` tools when you need filters. When `fetch` truncates long OCR it sets `text_truncated` and names a `recommended_tool` (`get_article` / `get_publication_fulltext` / `get_document`) to call with a `keyword` for focused excerpts.
 
 ## The Five-Phase Workflow
 
@@ -115,8 +123,9 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 7. Use `search_publications` (series/subject/country/year filters; keyword matches title + subject + TOC + OCR, with TOC hits returned as `matching_toc_entries`) for Islamic community media; `semantic_search_publications` (if enabled) works for the 17 TOC-covered series
 8. Use `search_references` for academic literature -- one keyword per call; search title/abstract keywords in French and English when relevant, while using French metadata/filter values; drill into promising hits with `get_reference` (full abstract, 51% have one)
 9. Use `search_documents` when grassroots/association sources could matter (26 items, mostly Burkina Faso)
-10. **Record every search and its result count**, including zero-result searches -- null results constrain interpretation
-11. Use `date_from`/`date_to` for temporal filtering -- articles take `YYYY-MM-DD` or `YYYY` (day precision); publications and references take years
+10. Use `search_audiovisual` / `list_audiovisual` when Nigerian Hausa/Arabic recordings are in scope (45 items; AI descriptions are currently empty)
+11. **Record every search and its result count**, including zero-result searches -- null results constrain interpretation
+12. Use `date_from`/`date_to` for temporal filtering -- articles take `YYYY-MM-DD` or `YYYY` (day precision); publications and references take years
 
 **Constraint:** Substring matching only -- no wildcards, fuzzy, or Boolean operators. Accent/case differences are handled by the server.
 
@@ -128,7 +137,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 1. Use `get_article` for full article detail: metadata, `description_ai`, sentiment, OCR text (capped at 25k chars). Pass a `keyword` to get focused ~2000-char excerpts around matches instead of the whole OCR — useful for long articles.
 2. Use `get_reference` for the full scholarly abstract and host-work details
 3. Use `get_publication_fulltext` with a `keyword` for capped excerpts inside a long issue (`match_count` tells you the total; `excerpts_returned` what you got)
-4. Use `get_index_entry` for authority records, and `get_document` for archival documents — `get_document` also takes a `keyword` (with `context_chars` / `max_excerpts`) for excerpts inside a long document, the same windowing as `get_publication_fulltext`
+4. Use `get_index_entry` for authority records, `get_document` for archival documents, and `get_audiovisual` for full audiovisual metadata — `get_document` also takes a `keyword` (with `context_chars` / `max_excerpts`) for excerpts inside a long document, the same windowing as `get_publication_fulltext`
 5. Cross-reference article subjects and spatial fields with index entries
 6. Note the IWAC URL for each item to enable verification against the original source
 
