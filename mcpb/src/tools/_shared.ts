@@ -31,6 +31,15 @@ export function annotate(title: string) {
   };
 }
 
+/**
+ * Standard registerTool metadata: a top-level `title` (what current clients
+ * display) plus the read-only annotation set (which older clients read the
+ * title from). Spread into every tool's config.
+ */
+export function toolMeta(title: string): { title: string; annotations: ReturnType<typeof annotate> } {
+  return { title, annotations: annotate(title) };
+}
+
 function bigintReplacer(_key: string, value: unknown): unknown {
   if (typeof value === "bigint") return Number(value);
   return value;
@@ -56,10 +65,14 @@ function sanitizeString(s: string): string {
  * Drop null/undefined and empty-string values recursively, and scrub stray
  * control/private-use characters from every string. The parquet encodes missing
  * values as "" rather than NULL, so result rows would otherwise carry dozens of
- * `"author": ""` entries — pure token waste for the model.
+ * `"author": ""` entries — pure token waste for the model. BIGINTs (DuckDB
+ * COUNT/aggregate results) become plain numbers so the compacted value is safe
+ * to ship as `structuredContent` (the transport JSON.stringifies it without a
+ * replacer).
  */
 function compactValue(value: unknown): unknown {
   if (typeof value === "string") return sanitizeString(value);
+  if (typeof value === "bigint") return Number(value);
   if (Array.isArray(value)) return value.map(compactValue);
   if (value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
     const out: Record<string, unknown> = {};
@@ -78,6 +91,26 @@ function compactValue(value: unknown): unknown {
 export function textResult(payload: unknown): { content: { type: "text"; text: string }[] } {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(compactValue(payload), bigintReplacer) }],
+  };
+}
+
+/**
+ * Like `textResult`, but ALSO returns the compacted payload as
+ * `structuredContent` (same value, so the text block mirrors it exactly, per
+ * the MCP back-compat rule). Use ONLY on tools that declare an `outputSchema`:
+ * once declared, the SDK REQUIRES structuredContent on every non-error result.
+ * Kept opt-in rather than folded into textResult because the duplicate JSON
+ * doubles the wire payload — acceptable for small structured envelopes
+ * (search/fetch, stats), waste for 25k-char OCR responses.
+ */
+export function structuredResult(payload: unknown): {
+  content: { type: "text"; text: string }[];
+  structuredContent: Record<string, unknown>;
+} {
+  const compacted = compactValue(payload) as Record<string, unknown>;
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(compacted, bigintReplacer) }],
+    structuredContent: compacted,
   };
 }
 
@@ -123,6 +156,16 @@ export interface ResolvedLimit {
 export function resolveLimit(v: number | undefined, def: number, max: number): ResolvedLimit {
   const value = Math.max(1, Math.min(v ?? def, max));
   return { value, requested: v, capped: v !== undefined && v > max, max };
+}
+
+/** The visible-cap fields (`requested_limit` + `limit_warning`) for a capped
+ * limit, or {} when nothing was capped. Single source of the warning wording. */
+export function limitWarning(limit: ResolvedLimit): Record<string, unknown> {
+  if (!limit.capped) return {};
+  return {
+    requested_limit: limit.requested,
+    limit_warning: `Requested limit ${limit.requested} exceeds the maximum ${limit.max}; applied ${limit.value}.`,
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -213,10 +256,7 @@ export async function paginated<T>(
     results,
   };
   if (hasMore) env.next_offset = offset + limit.value;
-  if (limit.capped) {
-    env.requested_limit = limit.requested;
-    env.limit_warning = `Requested limit ${limit.requested} exceeds the maximum ${limit.max}; applied ${limit.value}.`;
-  }
+  Object.assign(env, limitWarning(limit));
   return env;
 }
 
@@ -246,6 +286,46 @@ export async function runListQuery<T = Row>(opts: {
 // -----------------------------------------------------------------------------
 // WHERE-clause helpers (all matching is accent- and case-insensitive)
 // -----------------------------------------------------------------------------
+
+/**
+ * The free-text columns each subset's keyword search matches against — the ONE
+ * place this knowledge lives. Consumed by the per-subset `keyword` filters, the
+ * unified `search` tool, and get_temporal_distribution, so adding a column to a
+ * subset's searchable surface is a single-line change.
+ */
+export const TEXT_COLS: Record<Subset, string[]> = {
+  articles: ["title", "OCR", "descriptionAI"],
+  publications: ["title", "subject", "tableOfContents", "OCR"],
+  references: ["title", "abstract"],
+  documents: ["title", "OCR", "descriptionAI", "subject"],
+  index: ["Titre", "Titre alternatif", "Description"],
+  audiovisual: ["title", "creator", "publisher", "subject", "spatial", "language", "source", "descriptionAI"],
+};
+
+/**
+ * Append the standard keyword predicate — ONE literal substring, OR-ed across
+ * the subset's text columns (those present in this dataset revision), accent-
+ * and case-insensitive. This is the single-substring semantics documented on
+ * every search_* tool ("one term per call"); the unified `search` tokenizes
+ * instead.
+ */
+export function keywordFilter(
+  schema: Set<string>,
+  where: string[],
+  params: unknown[],
+  cols: readonly string[],
+  keyword: string | undefined,
+): void {
+  if (!keyword) return;
+  const parts: string[] = [];
+  for (const col of cols) {
+    if (schema.has(col)) {
+      parts.push(foldedLike(q(col)));
+      params.push(`%${keyword}%`);
+    }
+  }
+  if (parts.length) where.push(`(${parts.join(" OR ")})`);
+}
 
 /**
  * Accent/case-insensitive substring predicate. ILIKE alone is accent-SENSITIVE:
@@ -643,4 +723,30 @@ export function keywordExcerpts(
       `Use a more specific keyword, or raise max_excerpts (max 25).`;
   }
   return result;
+}
+
+/**
+ * Attach a long OCR body to a detail row: with a keyword, replace the raw text
+ * with keyword-in-context excerpts; without one, cap it and flag truncation.
+ * Shared by get_article and get_document (get_publication_fulltext keeps its
+ * own flow — different response keys: fulltext, char_count, tableOfContents).
+ */
+export function attachOcrOrExcerpts(
+  row: Record<string, unknown>,
+  ocrKey: string,
+  keyword: string | undefined,
+  opts: { contextChars?: number; maxExcerpts?: number } = {},
+): void {
+  const ocr = typeof row[ocrKey] === "string" ? (row[ocrKey] as string) : "";
+  if (keyword && ocr.trim()) {
+    delete row[ocrKey];
+    Object.assign(row, keywordExcerpts(ocr, keyword, opts));
+  } else if (ocr) {
+    const capped = capText(ocr, { suggestKeyword: true });
+    row[ocrKey] = capped.text;
+    if (capped.truncated) {
+      row.truncated = true;
+      row.truncation_message = capped.truncation_message;
+    }
+  }
 }

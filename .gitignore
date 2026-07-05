@@ -9,6 +9,12 @@ mcpb/server/
 mcpb/*.mcpb
 iwac-mcp-skill.zip
 .duckdb-binding-stash/
+# Generated per-release by mcpb/scripts/make-server-json.mjs (embeds artifact
+# hashes) — regenerate, never hand-edit or commit.
+/server.json
+
+# Generated synthetic test fixtures (scripts/make-fixtures.mjs)
+mcpb/test/fixtures/
 
 # Local cache / secrets
 .cache/

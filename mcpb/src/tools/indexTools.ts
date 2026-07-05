@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { ensureView, getById, q, selectList } from "../db.js";
 import {
-  annotate,
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
@@ -15,6 +14,7 @@ import {
   resolveLimit,
   runListQuery,
   textResult,
+  toolMeta,
   validateEnum,
   type Server,
 } from "./_shared.js";
@@ -24,10 +24,10 @@ export function registerIndexTools(server: Server): void {
   server.registerTool(
     "search_index",
     {
+      ...toolMeta("Search authority index"),
       description:
         "Search the IWAC authority index (persons, places, organisations, events, subjects) by name. " +
         "Accent/case-insensitive.",
-      annotations: annotate("Search authority index"),
       inputSchema: {
         keyword: z.string().describe("Search term matched against the entry title"),
         index_type: z
@@ -76,9 +76,9 @@ export function registerIndexTools(server: Server): void {
   server.registerTool(
     "get_index_entry",
     {
+      ...toolMeta("Get index entry details"),
       description:
         "Get full details of an index entry by id (raw dataset columns, French names — Titre, Prénom, Coordonnées…).",
-      annotations: annotate("Get index entry details"),
       inputSchema: { entry_id: z.number().int() },
     },
     async ({ entry_id }) => {
@@ -136,8 +136,8 @@ function registerIndexListTool(
   server.registerTool(
     name,
     {
+      ...toolMeta(`List ${typeLower} from the index`),
       description: `List ${typeLower} from the IWAC index, sorted by frequency (most-referenced first).${countrySemantics}`,
-      annotations: annotate(`List ${typeLower} from the index`),
       inputSchema,
     },
     async (args: Record<string, unknown>) => {

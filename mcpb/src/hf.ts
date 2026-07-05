@@ -72,6 +72,14 @@ export async function ensureSubset(subset: Subset): Promise<string> {
   const localDir = path.join(config.cacheDir, subset);
   await fs.mkdir(localDir, { recursive: true });
 
+  // Offline mode: trust the cache as-is, no metadata refresh, no pruning.
+  if (config.offline) {
+    if (await hasLocalParquet(localDir)) return localDir;
+    throw new Error(
+      `IWAC_OFFLINE is set but there are no cached parquet files for ${subset} in ${localDir}`,
+    );
+  }
+
   let tree: TreeEntry[];
   try {
     tree = await listTree(subset);
@@ -104,6 +112,20 @@ export async function ensureSubset(subset: Subset): Promise<string> {
     }
     console.error(`[iwac] downloading ${entry.path} -> ${dest}`);
     await downloadFile(entry.path, dest);
+  }
+
+  // Prune local files the current revision no longer lists. Without this, a
+  // repartitioned dataset (train-00000-of-00002 -> train-00000-of-00001) leaves
+  // the stale shard behind and the *.parquet view glob silently unions old and
+  // new rows. Also sweeps .partial leftovers from interrupted downloads.
+  const wanted = new Set(parquetFiles.map((e) => path.basename(e.path)));
+  for (const name of await fs.readdir(localDir)) {
+    const stale =
+      (name.endsWith(".parquet") && !wanted.has(name)) || name.endsWith(".partial");
+    if (stale) {
+      console.error(`[iwac] pruning stale cache file ${subset}/${name}`);
+      await fs.rm(path.join(localDir, name), { force: true });
+    }
   }
 
   return localDir;

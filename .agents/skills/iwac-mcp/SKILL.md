@@ -14,13 +14,13 @@ description: |
 
 # IWAC MCP Research Workflow
 
-Structured methodology for academic research using the IWAC MCP server's 26 possible tools (24 core + 2 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.8.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below).
+Structured methodology for academic research using the IWAC MCP server's 27 possible tools (25 core + 2 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.8.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below).
 
 ## Prerequisites
 
 Load reference files **as needed**, not all upfront:
 
-1. **references/tools-by-phase.md** — all 26 possible tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
+1. **references/tools-by-phase.md** — all 27 possible tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
 2. **references/research-domains.md** — French search terms and transliteration variants by domain. Read when crafting search-term variants (Extended mode, or when a Brief search comes back thin).
 3. **references/biases-and-limitations.md** — collection biases, coverage gaps, sentiment caveats. Read before writing the synthesis.
 4. **references/capabilities-overview.md** — plain-language description of the collection and recommended ways into the data. Read when the user asks what you can do (see "Capability Questions" below).
@@ -29,7 +29,7 @@ For data schema and Omeka S API details, defer to the `iwac-data` skill.
 
 ## Capability Questions
 
-When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 26 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
+When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 27 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
 
 1. One short paragraph on what the collection is and covers.
 2. The main ways into the data (keyword, curated themes, people/organizations, semantic, sentiment, periodicals, scholarship) — described as research moves, not tool names.

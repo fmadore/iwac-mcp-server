@@ -1,19 +1,19 @@
 import { z } from "zod";
-import { ensureView, getById, q, selectList } from "../db.js";
+import { ensureView, getById, selectList } from "../db.js";
 import {
-  annotate,
+  attachOcrOrExcerpts,
   capOffset,
-  capText,
   COUNTRIES,
   countryFilterIfExists,
   errorResult,
-  foldedLike,
-  keywordExcerpts,
+  keywordFilter,
   documentSummaryCols,
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  TEXT_COLS,
   textResult,
+  toolMeta,
   validateEnum,
   type Server,
 } from "./_shared.js";
@@ -23,10 +23,10 @@ export function registerDocumentTools(server: Server): void {
   server.registerTool(
     "search_documents",
     {
+      ...toolMeta("Search archival documents"),
       description:
         "Search the small archival-documents subset (~26 items: Islamic association reports, flyers, project " +
         "documents — mostly Burkina Faso). Use French concept keywords regardless of the user's report language. All have OCR text and an AI description. Call with no arguments to list all.",
-      annotations: annotate("Search archival documents"),
       inputSchema: {
         keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR, AI description and subject (accent-insensitive)"),
         country: z
@@ -46,17 +46,7 @@ export function registerDocumentTools(server: Server): void {
       const where: string[] = [];
       const params: unknown[] = [];
 
-      if (args.keyword) {
-        const parts: string[] = [];
-        const kw = `%${args.keyword}%`;
-        for (const col of ["title", "OCR", "descriptionAI", "subject"]) {
-          if (schema.has(col)) {
-            parts.push(foldedLike(q(col)));
-            params.push(kw);
-          }
-        }
-        if (parts.length) where.push(`(${parts.join(" OR ")})`);
-      }
+      keywordFilter(schema, where, params, TEXT_COLS.documents, args.keyword);
       countryFilterIfExists(schema, where, params, "country", country.canonical);
 
       return textResult(
@@ -77,11 +67,11 @@ export function registerDocumentTools(server: Server): void {
   server.registerTool(
     "get_document",
     {
+      ...toolMeta("Get document details"),
       description:
         "Get one archival document (by id): full metadata, AI description, and OCR text. " +
         "Pass a `keyword` to get ~2000-char excerpts around each match instead of the full (capped) OCR — " +
         "useful for long documents.",
-      annotations: annotate("Get document details"),
       inputSchema: {
         document_id: z.number().int(),
         keyword: z
@@ -115,18 +105,7 @@ export function registerDocumentTools(server: Server): void {
       ]);
       const row = await getById("documents", cols, document_id);
       if (!row) return errorResult({ error: `Document ${document_id} not found` });
-      const ocr = typeof row.ocr_text === "string" ? row.ocr_text : "";
-      if (keyword && ocr.trim()) {
-        delete row.ocr_text;
-        Object.assign(row, keywordExcerpts(ocr, keyword, { contextChars: context_chars, maxExcerpts: max_excerpts }));
-      } else if (ocr) {
-        const capped = capText(ocr, { suggestKeyword: true });
-        row.ocr_text = capped.text;
-        if (capped.truncated) {
-          row.truncated = true;
-          row.truncation_message = capped.truncation_message;
-        }
-      }
+      attachOcrOrExcerpts(row, "ocr_text", keyword, { contextChars: context_chars, maxExcerpts: max_excerpts });
       return textResult(row);
     },
   );

@@ -14,6 +14,10 @@ RUN npm run typecheck && npm run build
 
 # ---- runtime ----
 FROM node:26-alpine
+# MCP Registry ownership proof for the OCI package type: the registry verifies
+# this label matches the server name in server.json before accepting a ghcr.io
+# package entry. Harmless otherwise.
+LABEL io.modelcontextprotocol.server.name="io.github.fmadore/iwac-mcp-server"
 WORKDIR /app
 ENV NODE_ENV=production \
     IWAC_CACHE_DIR=/cache \

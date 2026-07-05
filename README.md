@@ -68,10 +68,12 @@ Download `iwac-mcp-skill.zip` from the same release, then:
 
 ## What it gives Claude
 
-26 possible read-only tools across six IWAC subsets. **24 work out of the box**;
+27 possible read-only tools across six IWAC subsets. **25 work out of the box**;
 the 2 `semantic_search_*` tools are optional and require a free Google/Gemini API
 key (disabled by default). All keyword and filter matching is accent- and
-case-insensitive.
+case-insensitive. The unified `search`/`fetch` pair and the stats tools also
+return MCP structured content (`outputSchema` + `structuredContent`), which the
+ChatGPT connector contract requires.
 
 | Group        | Tools                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------- |
@@ -79,7 +81,7 @@ case-insensitive.
 | Articles     | `search_articles`, `get_article`, `semantic_search_articles`                                |
 | Sentiment    | `search_by_sentiment`, `get_sentiment_distribution`                                         |
 | Index        | `search_index`, `get_index_entry`, `list_subjects`, `list_locations`, `list_persons`        |
-| Stats        | `get_collection_stats`, `get_newspaper_stats`, `get_country_comparison`                     |
+| Stats        | `get_collection_stats`, `get_newspaper_stats`, `get_country_comparison`, `get_temporal_distribution` |
 | Publications | `search_publications`, `list_periodicals`, `get_publication_fulltext`, `semantic_search_publications` |
 | References   | `search_references`, `get_reference`                                                        |
 | Other        | `search_documents`, `get_document`, `search_audiovisual`, `list_audiovisual`, `get_audiovisual` |
@@ -115,8 +117,13 @@ npm install
 node scripts/install-duckdb-bindings.mjs
 npm run typecheck   # tsc --noEmit
 npm run build       # esbuild -> single server/index.js
-node smoke-test.mjs
+npm test            # unit tests + offline fixture MCP round-trip (no network)
+npm run test:live   # full smoke test against the real HF dataset (~250 MB)
 ```
+
+CI runs the typecheck, build, unit tests, and the offline fixture test on every
+push; the live smoke test runs weekly (its pinned counts are the dataset-drift
+alarm).
 
 ## Roadmap
 

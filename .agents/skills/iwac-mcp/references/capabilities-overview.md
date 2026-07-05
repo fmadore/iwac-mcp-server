@@ -41,6 +41,7 @@ Because reports are date-stamped and location-specific, the collection also supp
 - **People, organisations, places** — find the canonical name among the 4,700 index records, then pull every article that mentions it.
 - **Conceptual (semantic) search** in any language, when keywords would miss paraphrases — "Islamic education reform" also surfaces madrasa-modernisation pieces.
 - **Tone and framing** — every article carries AI sentiment labels (polarity, centrality, subjectivity); compare how topics, countries or outlets frame Islam.
+- **Trends over time** — chart how coverage of a topic rose and fell year by year (per country or outlet), directly, without leafing through the articles themselves.
 - **By outlet and period** — filter by newspaper, country, date range; contrast state vs. private press, pre- vs. post-1990.
 - **Inside Islamic periodicals** — browse the 25 series, search tables of contents (complete for 17 smaller magazines), or pull keyword excerpts from a full issue. The same keyword-excerpt reading works on long archival documents and articles too.
 - **Scholarship** — connect press findings to the 864 academic references.

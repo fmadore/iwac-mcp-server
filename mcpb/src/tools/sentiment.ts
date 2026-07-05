@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { ensureView, query, queryScalarSingle, selectList } from "../db.js";
+import { ensureView, query, queryScalarSingle, selectList, viewName } from "../db.js";
 import {
-  annotate,
   capOffset,
   CENTRALITY_VALUES,
   COUNTRIES,
@@ -15,19 +14,31 @@ import {
   resolveLimit,
   rowsToMap,
   runListQuery,
+  structuredResult,
   textResult,
+  toolMeta,
   validateEnum,
   type Server,
 } from "./_shared.js";
+
+// Small, stable envelope → worth a structured-output contract. Distributions
+// are optional because the sentiment columns may be absent from a revision.
+const SENTIMENT_DISTRIBUTION_OUTPUT = {
+  model: z.string(),
+  total_articles: z.number(),
+  filters: z.looseObject({}),
+  polarity_distribution: z.record(z.string(), z.number()).optional(),
+  centrality_distribution: z.record(z.string(), z.number()).optional(),
+};
 
 export function registerSentimentTools(server: Server): void {
   // === search_by_sentiment =================================================
   server.registerTool(
     "search_by_sentiment",
     {
+      ...toolMeta("Filter articles by AI sentiment"),
       description:
         "Filter articles by Gemini sentiment labels (accent/case-insensitive exact match).",
-      annotations: annotate("Filter articles by AI sentiment"),
       inputSchema: {
         polarity: z
           .string()
@@ -99,8 +110,8 @@ export function registerSentimentTools(server: Server): void {
   server.registerTool(
     "get_sentiment_distribution",
     {
+      ...toolMeta("Aggregate AI sentiment"),
       description: "Aggregate Gemini polarity and centrality counts across a filter set.",
-      annotations: annotate("Aggregate AI sentiment"),
       inputSchema: {
         country: z
           .string()
@@ -109,6 +120,7 @@ export function registerSentimentTools(server: Server): void {
         newspaper: z.string().optional(),
         subject: z.string().optional(),
       },
+      outputSchema: SENTIMENT_DISTRIBUTION_OUTPUT,
     },
     async (args) => {
       const schema = await ensureView("articles");
@@ -123,7 +135,7 @@ export function registerSentimentTools(server: Server): void {
 
       const total = Number(
         (await queryScalarSingle<number | bigint>(
-          `SELECT COUNT(*) FROM articles ${whereSql}`,
+          `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`,
           params,
         )) ?? 0,
       );
@@ -138,19 +150,19 @@ export function registerSentimentTools(server: Server): void {
       };
       if (schema.has("gemini_polarite")) {
         const rows = await query(
-          `SELECT gemini_polarite AS k, COUNT(*) AS c FROM articles ${whereSql} GROUP BY gemini_polarite`,
+          `SELECT gemini_polarite AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY gemini_polarite`,
           params,
         );
         payload.polarity_distribution = rowsToMap(rows);
       }
       if (schema.has("gemini_centralite_islam_musulmans")) {
         const rows = await query(
-          `SELECT gemini_centralite_islam_musulmans AS k, COUNT(*) AS c FROM articles ${whereSql} GROUP BY gemini_centralite_islam_musulmans`,
+          `SELECT gemini_centralite_islam_musulmans AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY gemini_centralite_islam_musulmans`,
           params,
         );
         payload.centrality_distribution = rowsToMap(rows);
       }
-      return textResult(payload);
+      return structuredResult(payload);
     },
   );
 }

@@ -1,0 +1,84 @@
+name: CI
+
+# Two layers:
+#  - test: hermetic, runs on every push/PR — typecheck, build, unit tests, and
+#    the offline fixture MCP round-trip (synthetic parquet, IWAC_OFFLINE=1).
+#  - live-smoke: weekly (and on demand) — the full smoke test against the real
+#    Hugging Face dataset. Its pinned counts (smoke-test.mjs EXPECTED block) are
+#    the dataset-drift alarm, so a red weekly run usually means the dataset
+#    changed, not the code.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC — weekly live smoke
+  workflow_dispatch:
+
+jobs:
+  test:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcpb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build server bundle
+        run: npm run build
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Fixture MCP round-trip (offline)
+        run: npm run test:fixture
+
+  live-smoke:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcpb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+
+      - name: Restore HF parquet cache (~250 MB)
+        uses: actions/cache@v6
+        with:
+          path: ~/.iwac-mcp/cache
+          key: iwac-hf-parquet-${{ github.run_id }}
+          restore-keys: |
+            iwac-hf-parquet-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build server bundle
+        run: npm run build
+
+      - name: Live smoke test (real dataset)
+        run: node smoke-test.mjs

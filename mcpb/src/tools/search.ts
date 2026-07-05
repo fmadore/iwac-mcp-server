@@ -13,12 +13,14 @@ import { z } from "zod";
 import { ensureView, getById, q, query, selectList, viewName } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
 import {
-  annotate,
   capText,
   errorResult,
   foldedLike,
+  limitWarning,
   resolveLimit,
-  textResult,
+  structuredResult,
+  TEXT_COLS,
+  toolMeta,
   type Server,
 } from "./_shared.js";
 
@@ -32,20 +34,15 @@ const SEARCH_SUBSETS: Subset[] = [
   "audiovisual",
 ];
 
-interface SubsetSpec {
-  /** Column holding the display title (the index subset uses the French "Titre"). */
-  titleCol: string;
-  /** Columns the query tokens are matched against (OR-ed within a token). */
-  textCols: string[];
-}
-
-const SPECS: Record<Subset, SubsetSpec> = {
-  articles: { titleCol: "title", textCols: ["title", "OCR", "descriptionAI"] },
-  publications: { titleCol: "title", textCols: ["title", "subject", "tableOfContents", "OCR"] },
-  references: { titleCol: "title", textCols: ["title", "abstract"] },
-  documents: { titleCol: "title", textCols: ["title", "OCR", "descriptionAI", "subject"] },
-  index: { titleCol: "Titre", textCols: ["Titre", "Titre alternatif", "Description"] },
-  audiovisual: { titleCol: "title", textCols: ["title", "creator", "publisher", "subject", "spatial", "language", "source", "descriptionAI"] },
+/** Column holding the display title (the index subset uses the French "Titre").
+ * The token-matched text columns come from the shared TEXT_COLS map. */
+const TITLE_COL: Record<Subset, string> = {
+  articles: "title",
+  publications: "title",
+  references: "title",
+  documents: "title",
+  index: "Titre",
+  audiovisual: "title",
 };
 
 /**
@@ -55,8 +52,9 @@ const SPECS: Record<Subset, SubsetSpec> = {
  * `keyword` filters: a multi-word query like "pèlerinage Mecque" matches items
  * that contain both words anywhere, rather than the literal phrase (which would
  * silently return nothing). Returns false when no usable column/token remains.
+ * Exported for unit tests (pure: only appends to the passed arrays).
  */
-function tokenizedWhere(
+export function tokenizedWhere(
   schema: Set<string>,
   cols: string[],
   queryStr: string,
@@ -86,12 +84,12 @@ interface Hit {
 
 async function searchSubset(subset: Subset, queryStr: string, limit: number): Promise<Hit[]> {
   const schema = await ensureView(subset);
-  const spec = SPECS[subset];
-  if (!schema.has("o:id") || !schema.has("iwac_url") || !schema.has(spec.titleCol)) return [];
+  const titleCol = TITLE_COL[subset];
+  if (!schema.has("o:id") || !schema.has("iwac_url") || !schema.has(titleCol)) return [];
 
   const where: string[] = [];
   const params: unknown[] = [];
-  if (!tokenizedWhere(schema, spec.textCols, queryStr, where, params)) return [];
+  if (!tokenizedWhere(schema, TEXT_COLS[subset], queryStr, where, params)) return [];
 
   // Rank: most-referenced authority entries first, otherwise newest first.
   const orderBy = schema.has("frequency")
@@ -100,7 +98,7 @@ async function searchSubset(subset: Subset, queryStr: string, limit: number): Pr
       ? "ORDER BY pub_date DESC NULLS LAST"
       : "";
   const rows = await query(
-    `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(spec.titleCol)} AS title, iwac_url AS url ` +
+    `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title, iwac_url AS url ` +
       `FROM ${viewName(subset)} WHERE ${where.join(" AND ")} ${orderBy} LIMIT ${limit}`,
     params,
   );
@@ -112,8 +110,9 @@ async function searchSubset(subset: Subset, queryStr: string, limit: number): Pr
   }));
 }
 
-/** Round-robin interleave so every subset is represented, not just the largest. */
-function interleave(lists: Hit[][], limit: number): Hit[] {
+/** Round-robin interleave so every subset is represented, not just the largest.
+ * Exported for unit tests (pure). */
+export function interleave(lists: Hit[][], limit: number): Hit[] {
   const out: Hit[] = [];
   const max = Math.max(0, ...lists.map((l) => l.length));
   for (let i = 0; i < max && out.length < limit; i++) {
@@ -221,12 +220,47 @@ const FULLTEXT_TOOL: Partial<Record<Subset, { tool: string; idParam: string }>> 
   documents: { tool: "get_document", idParam: "document_id" },
 };
 
+// Output schemas for the ChatGPT (apps / deep research) contract: the result
+// object must be returned BOTH as structuredContent and as the same JSON string
+// in the content block. Row/metadata objects are loose because the visible
+// columns legitimately vary with the dataset revision (selectList drops absent
+// columns) — a strict schema would turn a dataset refresh into a runtime error.
+// `title`/`url` are optional because the result compaction drops empty-string
+// fields — a rare untitled item must not turn into a validation throw.
+const SEARCH_OUTPUT = {
+  results: z.array(
+    z.looseObject({
+      id: z.string(),
+      title: z.string().optional(),
+      url: z.string().optional(),
+      category: z.string(),
+    }),
+  ),
+  count: z.number().int(),
+  limit: z.number().int(),
+  ranking: z.string(),
+  requested_limit: z.number().int().optional(),
+  limit_warning: z.string().optional(),
+};
+
+const FETCH_OUTPUT = {
+  id: z.string(),
+  title: z.string().optional(),
+  text: z.string(),
+  url: z.string().optional(),
+  category: z.string(),
+  metadata: z.looseObject({}),
+  text_truncated: z.boolean().optional(),
+  recommended_tool: z.string().optional(),
+  recommended_usage: z.looseObject({}).optional(),
+};
+
 export function registerSearchTools(server: Server): void {
   // === search (OpenAI Deep Research contract) ==============================
   server.registerTool(
     "search",
     {
-      title: "Search IWAC",
+      ...toolMeta("Search IWAC"),
       description:
         "Search the Islam West Africa Collection across newspaper articles, Islamic publications, archival " +
         "documents, academic references, and the authority index (persons/places/organisations/events/subjects). " +
@@ -237,7 +271,6 @@ export function registerSearchTools(server: Server): void {
         "not 'sharia', Maouloud not 'Mawlid'). Returns {results:[{id,title,url,category}], ranking}; each result's " +
         "`category` names its subset and the `ranking` field documents the ordering. Pass an id to `fetch` to read " +
         "the full text. For filtered queries (by country, date, or newspaper) use the search_* tools instead.",
-      annotations: annotate("Search the IWAC collection"),
       inputSchema: {
         query: z
           .string()
@@ -245,22 +278,19 @@ export function registerSearchTools(server: Server): void {
           .describe("One concept, name, or short phrase; use French concept terms for primary sources, and French/English terms for references"),
         limit: z.number().int().optional().describe("Max results across all categories. Default 20, max 50."),
       },
+      outputSchema: SEARCH_OUTPUT,
     },
     async ({ query: queryStr, limit }) => {
       const cap = resolveLimit(limit, 20, 50);
       const lists = await Promise.all(SEARCH_SUBSETS.map((s) => searchSubset(s, queryStr, cap.value)));
       const results = interleave(lists, cap.value);
-      const payload: Record<string, unknown> = {
+      return structuredResult({
         results,
         count: results.length,
         limit: cap.value,
         ranking: RANKING_NOTE,
-      };
-      if (cap.capped) {
-        payload.requested_limit = cap.requested;
-        payload.limit_warning = `Requested limit ${cap.requested} exceeds the maximum ${cap.max}; applied ${cap.value}.`;
-      }
-      return textResult(payload);
+        ...limitWarning(cap),
+      });
     },
   );
 
@@ -268,17 +298,17 @@ export function registerSearchTools(server: Server): void {
   server.registerTool(
     "fetch",
     {
-      title: "Fetch IWAC item",
+      ...toolMeta("Fetch IWAC item"),
       description:
         "Retrieve the full text and metadata of one IWAC item by an id returned from `search` (format " +
         "'<category>:<number>', e.g. 'articles:28576'). Returns {id, title, text, url, metadata}: `text` is the " +
         "item's OCR / abstract / description, `url` is the canonical islam.zmo.de link to cite, and `metadata` " +
         "holds the remaining fields (author, date, country, newspaper, AI sentiment, …). Categories: " +
         "articles, publications, references, documents, index, audiovisual.",
-      annotations: annotate("Fetch one IWAC item"),
       inputSchema: {
         id: z.string().describe("Item id from search, e.g. 'articles:28576' or 'references:11045'"),
       },
+      outputSchema: FETCH_OUTPUT,
     },
     async ({ id: rawId }) => {
       const m = /^([a-z_]+):(.+)$/i.exec(rawId.trim());
@@ -333,7 +363,7 @@ export function registerSearchTools(server: Server): void {
         }
       }
 
-      return textResult(result);
+      return structuredResult(result);
     },
   );
 }

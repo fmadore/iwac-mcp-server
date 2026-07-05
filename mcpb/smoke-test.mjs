@@ -1,9 +1,20 @@
-// MCP smoke test with assertions: spawns the built server, exercises every tool,
-// and fails (exit 1) on unexpected errors or regressions of known bugs
-// (broken date filters, uncapped keyword excerpts, accent-sensitive matching,
-// empty-string date aggregates).
+// LIVE MCP smoke test with assertions: spawns the built server against the real
+// Hugging Face dataset, exercises every tool, and fails (exit 1) on unexpected
+// errors or regressions of known bugs (broken date filters, uncapped keyword
+// excerpts, accent-sensitive matching, empty-string date aggregates). The
+// offline structural twin is test/fixture-server.test.mjs.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { readFileSync } from "node:fs";
+
+// Pins against the LIVE dataset revision — these are the dataset-drift alarm.
+// After a dataset refresh, update them here (one place) if the checks fire.
+const EXPECTED = {
+  audiovisualTotal: 45,
+  nigerArticles: 1061,
+  toolsCore: 25, // semantic disabled (2 semantic tools are dropped entirely)
+  toolsWithSemantic: 27,
+};
 
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -30,25 +41,28 @@ if (!serverVersion || serverVersion === "0.0.0-dev") fail("server version not in
 // Instructions parity (the ONLY guidance channel a skill-less client gets):
 // must reflect v0.8.x semantics and not the pre-v0.7 single-substring search myth.
 const instructions = client.getInstructions?.() ?? "";
+const semanticOn = ["1", "true", "yes", "on"].includes(
+  (process.env.IWAC_SEMANTIC_SEARCH_ENABLED ?? "").trim().toLowerCase(),
+);
+
 if (!instructions) {
   fail("server handshake carried no instructions");
 } else {
   if (instructions.includes("as one phrase returns little"))
     fail("instructions still describe `search` as single-substring (multi-word now tokenizes/ANDs)");
-  for (const needle of ["valid_values", "mentioned in records from", "requested_limit"]) {
-    if (!instructions.includes(needle)) fail(`instructions missing v0.8 guidance: "${needle}"`);
+  for (const needle of ["valid_values", "mentioned in records from", "requested_limit", "get_temporal_distribution"]) {
+    if (!instructions.includes(needle)) fail(`instructions missing guidance: "${needle}"`);
   }
+  // The semantic guidance must track registration: mentioned iff the tools exist.
+  if (semanticOn !== instructions.includes("semantic_search_articles"))
+    fail(`instructions semantic mention (${instructions.includes("semantic_search_articles")}) does not match registration (${semanticOn})`);
 }
-
-const semanticOn = ["1", "true", "yes", "on"].includes(
-  (process.env.IWAC_SEMANTIC_SEARCH_ENABLED ?? "").trim().toLowerCase(),
-);
 
 const tools = await client.listTools();
 console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
 // The 2 semantic_search_* tools register only when IWAC_SEMANTIC_SEARCH_ENABLED=true;
 // the live HTTP endpoint runs with it off, so they are dropped there entirely.
-const expectedTools = semanticOn ? 26 : 24;
+const expectedTools = semanticOn ? EXPECTED.toolsWithSemantic : EXPECTED.toolsCore;
 if (tools.tools.length !== expectedTools) fail(`expected ${expectedTools} tools, got ${tools.tools.length}`);
 const semanticPresent = ["semantic_search_articles", "semantic_search_publications"].filter((n) =>
   tools.tools.some((t) => t.name === n),
@@ -56,9 +70,24 @@ const semanticPresent = ["semantic_search_articles", "semantic_search_publicatio
 if (semanticOn && semanticPresent.length !== 2) fail(`semantic enabled but only registered: ${semanticPresent.join(", ") || "none"}`);
 if (!semanticOn && semanticPresent.length !== 0) fail(`semantic disabled but still registered: ${semanticPresent.join(", ")}`);
 
+// The manifest's advertised tool list must track what the server registers
+// (the two optional semantic tools are always advertised in the manifest).
+const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
+const manifestNames = new Set(manifest.tools.map((t) => t.name));
+const registered = new Set(tools.tools.map((t) => t.name));
+for (const n of registered) {
+  if (!manifestNames.has(n)) fail(`tool ${n} is registered but missing from manifest.json tools[]`);
+}
+for (const n of manifestNames) {
+  const optional = n.startsWith("semantic_search_");
+  if (!registered.has(n) && !optional) fail(`manifest.json advertises ${n} but the server does not register it`);
+}
+
 /**
  * Call a tool and run assertions. opts:
  *   expectError — the call SHOULD return isError (default false)
+ *   structured — the tool declares an outputSchema, so the result must carry a
+ *     structuredContent that exactly mirrors the text block
  *   check(parsed, body) — runs on success only; return a failure message or falsy
  *   checkBody(body) — runs on the raw text regardless of error state (use to
  *     assert the shape of an expected error, e.g. valid_values / valid_categories)
@@ -81,6 +110,11 @@ async function call(name, args, opts = {}) {
       fail(`${name}: response is not valid JSON`);
       return null;
     }
+    if (opts.structured) {
+      if (!res.structuredContent) fail(`${name}: missing structuredContent (outputSchema declared)`);
+      else if (JSON.stringify(res.structuredContent) !== JSON.stringify(parsed))
+        fail(`${name}: structuredContent does not mirror the text block`);
+    }
   }
   if (opts.check && parsed) {
     const msg = opts.check(parsed, body);
@@ -101,9 +135,10 @@ async function call(name, args, opts = {}) {
 // the bug, racing callers build views on throwaway in-memory DBs, so the later
 // articles query throws (whole call isError) and/or subset_counts go null.
 await call("get_collection_stats", {}, {
+  structured: true,
   check: (p) => {
-    const nullSubset = Object.entries(p.subset_counts ?? {}).find(([, n]) => n === null);
-    if (nullSubset) return `subset_counts.${nullSubset[0]} is null (view built on the wrong connection?)`;
+    if (p.failed_subsets?.length) return `failed_subsets: ${p.failed_subsets} (view built on the wrong connection?)`;
+    if (Object.keys(p.subset_counts ?? {}).length !== 6) return `expected 6 subset counts, got ${JSON.stringify(p.subset_counts)}`;
     if (!(p.date_range?.earliest && p.date_range.earliest >= "1900"))
       return `date_range missing/garbled: ${JSON.stringify(p.date_range)}`;
     return null;
@@ -131,7 +166,7 @@ await call("list_persons", { limit: 3 });
 // so rows legitimately carry no description_ai key.
 await call("list_audiovisual", { limit: 2 }, {
   check: (p) => {
-    if (p.total_matches !== 45) return `expected 45 audiovisual items, got ${p.total_matches}`;
+    if (p.total_matches !== EXPECTED.audiovisualTotal) return `expected ${EXPECTED.audiovisualTotal} audiovisual items, got ${p.total_matches}`;
     if (!p.results?.[0]?.medium) return "list_audiovisual should expose medium";
     if (!p.results?.[0]?.media_url) return "list_audiovisual should expose media_url";
     return null;
@@ -182,6 +217,7 @@ await call("search_references", { subject: "state", limit: 1 }, {
 // --- publications ------------------------------------------------------------
 await call("search_publications", { keyword: "pèlerinage", limit: 2 });
 await call("list_periodicals", {}, {
+  structured: true,
   check: (p) => (p.total_periodicals >= 10 ? null : "expected >= 10 periodicals"),
 });
 // Excerpt cap: a common keyword on a ~1.1M-char issue must stay bounded.
@@ -219,15 +255,33 @@ await call("search_articles", { subject: "Mosquée", limit: 1 }, {
   check: (p) => (p.total_matches > 1000 && p.total_matches < 1500 ? null : `pipe-aware subject filter looks wrong for Mosquée: ${p.total_matches}`),
 });
 await call("get_newspaper_stats", { country: "Niger" }, {
-  check: (p) => (p.total_articles === 1061 ? null : `Niger article count ${p.total_articles}, expected 1061 (Nigeria conflation?)`),
+  structured: true,
+  check: (p) => (p.total_articles === EXPECTED.nigerArticles ? null : `Niger article count ${p.total_articles}, expected ${EXPECTED.nigerArticles} (Nigeria conflation?)`),
 });
 await call("search_by_sentiment", { polarity: "tres positif", limit: 2 }, {
   check: (p) => (p.total_matches > 1000 ? null : `unaccented polarity matched ${p.total_matches}`),
 });
 await call("get_sentiment_distribution", { country: "Benin" }, {
+  structured: true,
   check: (p) => (p.total_articles > 1500 ? null : `Benin distribution looks wrong: ${p.total_articles}`),
 });
-await call("get_country_comparison", {});
+await call("get_country_comparison", {}, { structured: true });
+// get_temporal_distribution (new in v0.9.0): a real trend query must return a
+// sane multi-year distribution whose counts reconcile with total_matches.
+await call("get_temporal_distribution", { keyword: "ramadan", country: "Benin" }, {
+  structured: true,
+  check: (p) => {
+    const years = Object.keys(p.distribution ?? {});
+    if (years.length < 5) return `expected a multi-year ramadan distribution, got ${years.length} buckets`;
+    const sum = Object.values(p.distribution).reduce((a, b) => a + b, 0);
+    if (sum !== p.dated_count) return `distribution sum ${sum} != dated_count ${p.dated_count}`;
+    if (p.total_matches !== p.dated_count + p.undated_count) return "counts do not reconcile";
+    return null;
+  },
+});
+await call("get_temporal_distribution", { subset: "references", keyword: "islam" }, {
+  check: (p) => (Object.keys(p.distribution ?? {}).length > 3 ? null : "reference timeline suspiciously flat"),
+});
 await call("get_article", { article_id: 67613 }, {
   check: (p) => (p.description_ai ? null : "get_article lacks description_ai"),
 });
@@ -247,6 +301,7 @@ if (docId) {
 
 // --- unified search / fetch (OpenAI Deep Research contract) -------------------
 const searchHits = await call("search", { query: "ramadan", limit: 5 }, {
+  structured: true,
   check: (p) => {
     if (!Array.isArray(p.results) || p.results.length === 0) return "search returned no results";
     const bad = p.results.find((r) => !r.id || !/^[a-z_]+:.+/.test(r.id) || !r.url);
@@ -268,6 +323,7 @@ await call("search", { query: "Islam Niger", limit: 5 }, {
 const fetchId = searchHits?.results?.[0]?.id;
 if (fetchId) {
   await call("fetch", { id: fetchId }, {
+    structured: true,
     check: (p) => {
       if (!p.url) return "fetch result missing url";
       if (typeof p.text !== "string" || p.text.length === 0) return "fetch result missing text";

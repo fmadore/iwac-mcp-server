@@ -1,19 +1,20 @@
 import { z } from "zod";
-import { ensureView, getById, q, selectList } from "../db.js";
+import { ensureView, getById, selectList } from "../db.js";
 import {
-  annotate,
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
   errorResult,
-  foldedLike,
+  keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
   referenceSummaryCols,
   resolveLimit,
   runListQuery,
+  TEXT_COLS,
   textResult,
+  toolMeta,
   validateEnum,
   yearRangeFilter,
   type Server,
@@ -24,12 +25,12 @@ export function registerReferenceTools(server: Server): void {
   server.registerTool(
     "search_references",
     {
+      ...toolMeta("Search academic references"),
       description:
         "Search academic references (journal articles, book chapters, theses, books, reports) by keyword and metadata. " +
         "`keyword` is a single substring match over title + abstract, so search ONE term per call " +
         "(combined terms like 'pèlerinage Mecque' miss results). References are multilingual: try French and English title/abstract keywords when relevant; metadata/filter values such as `reference_type` and `language` use French labels. " +
         "Results include a short abstract snippet — use get_reference for the full abstract and bibliographic detail.",
-      annotations: annotate("Search academic references"),
       inputSchema: {
         keyword: z.string().optional().describe("One French or English concept keyword; substring match on title + abstract (one term per call, accent-insensitive)"),
         author: z.string().optional(),
@@ -63,17 +64,7 @@ export function registerReferenceTools(server: Server): void {
       const where: string[] = [];
       const params: unknown[] = [];
 
-      if (args.keyword) {
-        const parts: string[] = [];
-        const kw = `%${args.keyword}%`;
-        for (const col of ["title", "abstract"]) {
-          if (schema.has(col)) {
-            parts.push(foldedLike(q(col)));
-            params.push(kw);
-          }
-        }
-        if (parts.length) where.push(`(${parts.join(" OR ")})`);
-      }
+      keywordFilter(schema, where, params, TEXT_COLS.references, args.keyword);
       likeFilterIfExists(schema, where, params, "author", args.author);
       likeFilterIfExists(schema, where, params, "type", args.reference_type);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
@@ -99,10 +90,10 @@ export function registerReferenceTools(server: Server): void {
   server.registerTool(
     "get_reference",
     {
+      ...toolMeta("Get reference details"),
       description:
         "Full bibliographic record for one academic reference (by id), including the complete abstract " +
         "(present for ~51% of references), subjects, DOI/URL, and host-work details (book, volume, issue, pages).",
-      annotations: annotate("Get reference details"),
       inputSchema: { reference_id: z.number().int() },
     },
     async ({ reference_id }) => {

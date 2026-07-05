@@ -9,6 +9,13 @@
 
 ## Distribution & Roadmap
 
+- [x] **Publish to the official MCP Registry** — automated since v0.9.0: the
+  tag workflow generates `server.json` (`mcpb/scripts/make-server-json.mjs`)
+  and publishes `io.github.fmadore/iwac-mcp-server` (2 `.mcpb` packages + the
+  `islam.zmo.de/mcp` remote) via `mcp-publisher` GitHub OIDC. Versions are
+  immutable — fixing an entry means bumping and re-tagging. The Anthropic
+  directory below is a separate, manual submission.
+
 - [ ] **Submit to the Anthropic extension directory**
   Fill out the interest form:
   <https://docs.google.com/forms/d/e/1FAIpQLScHtjkiCNjpqnWtFLIQStChXlvVcvX8NPXkMfjtYPDPymgang/viewform>
@@ -38,6 +45,16 @@
 
 - [ ] **Add `screenshots/`** showing a research query in Claude Desktop — the
   directory listing surfaces these.
+
+- [ ] **Migrate to MCP TypeScript SDK v2** (after its stable release alongside
+  the 2026-07-28 spec — verified July 2026: `2.0.0-beta.2` current, v1.x is
+  maintenance-only). Breaking for this server: scoped packages
+  (`@modelcontextprotocol/server`), raw Zod shapes replaced by Standard Schema
+  objects (`z.object(...)`), `serveStdio()` / `createMcpHandler()` replacing the
+  v1 stdio + StreamableHTTP transports (stateless core). Start with the official
+  codemod (`npx @modelcontextprotocol/codemod@beta v1-to-v2 .`), then re-run the
+  fixture + live test suites. Re-check the final 2026-07-28 changelog first —
+  details were RC-stage when noted.
 
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 

@@ -15,7 +15,10 @@ const VERSION = typeof __IWAC_VERSION__ === "string" ? __IWAC_VERSION__ : "0.0.0
  * instruction channel a skill-less client (e.g. ChatGPT via a remote connector)
  * receives, so it carries the essential research workflow, language strategy,
  * citation rule, and caveats. Claude Desktop layers the richer `iwac-mcp` skill
- * on top of this floor.
+ * on top of this floor. Built per-server because the semantic-search guidance
+ * must match whether those tools are actually registered (they are dropped
+ * entirely when IWAC_SEMANTIC_SEARCH_ENABLED is off, e.g. on the public HTTP
+ * endpoint — instructions must not advertise tools that do not exist).
  */
 const INSTRUCTIONS =
   "The Islam West Africa Collection (IWAC) archives francophone West African newspaper " +
@@ -31,7 +34,9 @@ const INSTRUCTIONS =
   "texts. Beyond search/fetch, finer tools exist (search_articles, search_publications, " +
   "search_references, search_index, search_documents, plus get_* and list_*) with country, " +
   "newspaper, subject, and date filters — prefer the `subject` filter over keywords for curated " +
-  "themes. All matching is accent- and case-insensitive; country filters take exact names (Benin, " +
+  "themes. For trends over time, call get_temporal_distribution (counts per year or month under " +
+  "the same filters) instead of paging through search results. All matching is accent- and " +
+  "case-insensitive; country filters take exact names (Benin, " +
   "Burkina Faso, Côte d'Ivoire, Niger, Nigeria, Togo).\n\n" +
   "RESULTS & ERRORS: list/search tools return a pagination envelope — read `total_matches` to gauge " +
   "scale without paging, and request a sane `limit` (an over-large one is capped visibly via " +
@@ -50,8 +55,7 @@ const INSTRUCTIONS =
   "user asks in another language (laïcité, confrérie, pèlerinage, enseignement islamique). " +
   "Academic references are multilingual: search title/abstract keywords in French and English when " +
   "relevant, while keeping metadata/filter values such as reference_type and language in French. " +
-  "Semantic embedding queries (`semantic_search_articles`, " +
-  "`semantic_search_publications`) may be in any language. Keep proper names and canonical filter values exact.\n\n" +
+  "{{SEMANTIC_QUERY_LANGUAGE}}Keep proper names and canonical filter values exact.\n\n" +
   "TRANSLITERATION: Arabic-Islamic terms appear in FRENCH transliteration — search the French " +
   "form and try variants: Tabaski or Aïd el-Kébir (not 'Eid al-Adha'); Korité or Aïd el-Fitr; " +
   "Maouloud/Mouloud (not 'Mawlid'); charia (not 'sharia'); confrérie; Wahhabisme.\n\n" +
@@ -63,8 +67,22 @@ const INSTRUCTIONS =
   "francophone, reflecting Western-educated Muslim voices more than Arabic-trained (arabisant) " +
   "leaders. Never present results as exhaustive — absence of evidence is not evidence of absence. " +
   "Polarity/sentiment fields are AI-derived, not editorial ground truth; press coverage reflects " +
-  "what was published, not necessarily what happened. Semantic search tools require " +
-  "IWAC_SEMANTIC_SEARCH_ENABLED=true and a Google API key (disabled on the public HTTP endpoint).";
+  "what was published, not necessarily what happened.{{SEMANTIC_CAVEAT}}";
+
+/** Resolve the semantic-search placeholders against the actual tool registration. */
+function buildInstructions(): string {
+  return INSTRUCTIONS.replace(
+    "{{SEMANTIC_QUERY_LANGUAGE}}",
+    config.semanticSearchEnabled
+      ? "Semantic embedding queries (`semantic_search_articles`, `semantic_search_publications`) may be in any language. "
+      : "",
+  ).replace(
+    "{{SEMANTIC_CAVEAT}}",
+    config.semanticSearchEnabled
+      ? " The semantic_search_* tools call the Gemini embedding API at query time."
+      : "",
+  );
+}
 
 /**
  * Build a fully-configured MCP server. Called once for stdio, and once per
@@ -73,7 +91,7 @@ const INSTRUCTIONS =
 export function createServer(): McpServer {
   const server = new McpServer(
     { name: "iwac-mcp-server", version: VERSION },
-    { instructions: INSTRUCTIONS },
+    { instructions: buildInstructions() },
   );
   registerTools(server);
   return server;

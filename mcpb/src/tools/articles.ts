@@ -1,55 +1,37 @@
 import { z } from "zod";
-import { ensureView, getById, getManyByIds, q, query, selectList, viewName } from "../db.js";
-import { semanticSearch } from "../embeddings.js";
+import { ensureView, getById, q, selectList } from "../db.js";
 import { config } from "../config.js";
+import { runSemanticSearchTool } from "./_semantic.js";
 import {
-  annotate,
   articleSummaryCols,
+  attachOcrOrExcerpts,
   capOffset,
-  capText,
   COUNTRIES,
   countryFilterIfExists,
   dateRangeFilter,
   errorResult,
-  foldedLike,
-  keywordExcerpts,
+  keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  TEXT_COLS,
   textResult,
+  toolMeta,
   validateEnum,
   type Server,
 } from "./_shared.js";
-
-/** keyword OR-clause over title + OCR + AI abstract, accent/case-insensitive. */
-function articleKeywordFilter(
-  schema: Set<string>,
-  where: string[],
-  params: unknown[],
-  keyword: string | undefined,
-): void {
-  if (!keyword) return;
-  const parts: string[] = [];
-  for (const col of ["title", "OCR", "descriptionAI"]) {
-    if (schema.has(col)) {
-      parts.push(foldedLike(q(col)));
-      params.push(`%${keyword}%`);
-    }
-  }
-  if (parts.length) where.push(`(${parts.join(" OR ")})`);
-}
 
 export function registerArticleTools(server: Server): void {
   // === search_articles =====================================================
   server.registerTool(
     "search_articles",
     {
+      ...toolMeta("Search newspaper articles"),
       description:
         "Search IWAC newspaper articles by keyword (title + OCR + AI abstract), country, newspaper, subject, " +
         "and date range. Use French concept keywords regardless of the user's report language. Matching is accent- and case-insensitive.",
-      annotations: annotate("Search newspaper articles"),
       inputSchema: {
         keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR text, and AI abstract"),
         country: z
@@ -80,7 +62,7 @@ export function registerArticleTools(server: Server): void {
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
-      articleKeywordFilter(schema, where, params, args.keyword);
+      keywordFilter(schema, where, params, TEXT_COLS.articles, args.keyword);
       dateRangeFilter(schema, where, params, args.date_from, args.date_to);
 
       let cols = articleSummaryCols(schema);
@@ -105,10 +87,10 @@ export function registerArticleTools(server: Server): void {
   server.registerTool(
     "get_article",
     {
+      ...toolMeta("Get article details"),
       description:
         "Get one article (by id): full metadata, the AI abstract (description_ai), Gemini sentiment, and OCR text. " +
         "Pass a `keyword` to get ~2000-char excerpts around each match instead of the full (capped) OCR.",
-      annotations: annotate("Get article details"),
       inputSchema: {
         article_id: z.number().int(),
         keyword: z
@@ -145,18 +127,7 @@ export function registerArticleTools(server: Server): void {
       ]);
       const row = await getById("articles", cols, article_id);
       if (!row) return errorResult({ error: `Article ${article_id} not found` });
-      const ocr = typeof row.ocr_text === "string" ? row.ocr_text : "";
-      if (keyword && ocr.trim()) {
-        delete row.ocr_text;
-        Object.assign(row, keywordExcerpts(ocr, keyword, { contextChars: context_chars, maxExcerpts: max_excerpts }));
-      } else if (ocr) {
-        const capped = capText(ocr, { suggestKeyword: true });
-        row.ocr_text = capped.text;
-        if (capped.truncated) {
-          row.truncated = true;
-          row.truncation_message = capped.truncation_message;
-        }
-      }
+      attachOcrOrExcerpts(row, "ocr_text", keyword, { contextChars: context_chars, maxExcerpts: max_excerpts });
       return textResult(row);
     },
   );
@@ -169,9 +140,9 @@ export function registerArticleTools(server: Server): void {
   server.registerTool(
     "semantic_search_articles",
     {
+      ...toolMeta("Semantic search for articles"),
       description:
         "Semantic similarity search over article OCR using Gemini embeddings. The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
-      annotations: annotate("Semantic search for articles"),
       inputSchema: {
         query: z.string().describe("Natural-language query, any language"),
         country: z
@@ -187,64 +158,24 @@ export function registerArticleTools(server: Server): void {
     async (args) => {
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
-      const limit = resolveLimit(args.limit, 10, 50);
-      try {
-        const schema = await ensureView("articles");
-        const cols = articleSummaryCols(schema);
-
-        const candidateWhere: string[] = [];
-        const candidateParams: unknown[] = [];
-        countryFilterIfExists(schema, candidateWhere, candidateParams, "country", country.canonical);
-        likeFilterIfExists(schema, candidateWhere, candidateParams, "newspaper", args.newspaper);
-        dateRangeFilter(schema, candidateWhere, candidateParams, args.date_from, args.date_to);
-        const candidateRows = candidateWhere.length
-          ? await query(
-              `SELECT CAST("o:id" AS VARCHAR) AS id FROM ${viewName("articles")} WHERE ${candidateWhere.join(" AND ")}`,
-              candidateParams,
-            )
-          : null;
-        const candidateIds = candidateRows?.map((r) => String(r.id));
-
-        const hits = await semanticSearch({
-          subset: "articles",
-          embeddingColumn: "embedding_OCR",
-          query: args.query,
-          limit: limit.value,
-          candidateIds,
-        });
-
-        const rows = await getManyByIds(
-          "articles",
-          cols,
-          hits.map((h) => h.id),
-        );
-        const byId = new Map(rows.map((r) => [String(r.id), r]));
-
-        // Walk hits in similarity order, keeping those that survived the filters.
-        const results: Record<string, unknown>[] = [];
-        for (const h of hits) {
-          const row = byId.get(h.id);
-          if (!row) continue;
-          results.push({ ...row, similarity_score: Number(h.score.toFixed(4)) });
-          if (results.length >= limit.value) break;
-        }
-        return textResult({
-          query: args.query,
-          count: results.length,
-          limit: limit.value,
-          ...(limit.capped ? { requested_limit: limit.requested } : {}),
-          filters: {
-            country: country.canonical ?? null,
-            newspaper: args.newspaper ?? null,
-            date_from: args.date_from ?? null,
-            date_to: args.date_to ?? null,
-          },
-          ...(candidateIds ? { candidate_count: candidateIds.length } : {}),
-          results,
-        });
-      } catch (err) {
-        return errorResult({ error: String((err as Error).message ?? err) });
-      }
+      return runSemanticSearchTool({
+        subset: "articles",
+        embeddingColumn: "embedding_OCR",
+        query: args.query,
+        limit: resolveLimit(args.limit, 10, 50),
+        summaryCols: articleSummaryCols,
+        buildCandidateFilters: (schema, where, params) => {
+          countryFilterIfExists(schema, where, params, "country", country.canonical);
+          likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
+          dateRangeFilter(schema, where, params, args.date_from, args.date_to);
+        },
+        filtersEcho: {
+          country: country.canonical ?? null,
+          newspaper: args.newspaper ?? null,
+          date_from: args.date_from ?? null,
+          date_to: args.date_to ?? null,
+        },
+      });
     },
   );
 }

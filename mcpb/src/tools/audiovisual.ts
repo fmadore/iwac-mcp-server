@@ -1,18 +1,19 @@
 import { z } from "zod";
 import { ensureView, getById, q, selectList } from "../db.js";
 import {
-  annotate,
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
   errorResult,
   foldedEquals,
-  foldedLike,
+  keywordFilter,
   pipeValueFilterIfExists,
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  TEXT_COLS,
   textResult,
+  toolMeta,
   validateEnum,
   type Server,
 } from "./_shared.js";
@@ -35,31 +36,14 @@ function audiovisualSummaryCols(schema: Set<string>): string {
   ]);
 }
 
-function audiovisualKeywordFilter(
-  schema: Set<string>,
-  where: string[],
-  params: unknown[],
-  keyword: string | undefined,
-): void {
-  if (!keyword) return;
-  const parts: string[] = [];
-  for (const col of ["title", "creator", "publisher", "subject", "spatial", "language", "source", "descriptionAI"]) {
-    if (schema.has(col)) {
-      parts.push(foldedLike(q(col)));
-      params.push(`%${keyword}%`);
-    }
-  }
-  if (parts.length) where.push(`(${parts.join(" OR ")})`);
-}
-
 export function registerAudiovisualTools(server: Server): void {
   // === search_audiovisual ==================================================
   server.registerTool(
     "search_audiovisual",
     {
+      ...toolMeta("Search audiovisual materials"),
       description:
         "Search audiovisual materials by keyword and metadata. Keyword matches title, creator, publisher, subject, spatial, language, source, and AI description where present.",
-      annotations: annotate("Search audiovisual materials"),
       inputSchema: {
         keyword: z.string().optional().describe("Substring match across audiovisual title/metadata fields"),
         country: z.string().optional().describe("Exact country name (the subset is currently all Nigeria)"),
@@ -79,7 +63,7 @@ export function registerAudiovisualTools(server: Server): void {
       const where: string[] = [];
       const params: unknown[] = [];
 
-      audiovisualKeywordFilter(schema, where, params, args.keyword);
+      keywordFilter(schema, where, params, TEXT_COLS.audiovisual, args.keyword);
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "language", args.language);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
@@ -106,9 +90,9 @@ export function registerAudiovisualTools(server: Server): void {
   server.registerTool(
     "list_audiovisual",
     {
+      ...toolMeta("List audiovisual materials"),
       description:
         "List audiovisual materials (currently 45 Nigerian recordings, incl. Hausa/Arabic content).",
-      annotations: annotate("List audiovisual materials"),
       inputSchema: {
         country: z.string().optional().describe("Exact country name (the subset is currently all Nigeria)"),
         limit: z.number().int().optional().describe("Default 20, max 50"),
@@ -143,9 +127,9 @@ export function registerAudiovisualTools(server: Server): void {
   server.registerTool(
     "get_audiovisual",
     {
+      ...toolMeta("Get audiovisual details"),
       description:
         "Get one audiovisual record by id, including creator/publisher, media URL, duration, medium, subjects, places, language, source, and IWAC URL.",
-      annotations: annotate("Get audiovisual details"),
       inputSchema: { audiovisual_id: z.number().int() },
     },
     async ({ audiovisual_id }) => {

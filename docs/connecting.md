@@ -64,9 +64,9 @@ Download `iwac-mcp-skill.zip` from the same release, then in Claude Desktop open
 
 ### Optional: semantic search
 
-Twenty tools work out of the box. Two extra tools find articles and publications
-by *meaning* rather than keywords; they need a free Google/Gemini API key and are
-**off by default**. To enable them, turn on **Enable semantic search** in the
+Twenty-five tools work out of the box. Two extra tools find articles and
+publications by *meaning* rather than keywords; they need a free Google/Gemini
+API key and are **off by default**. To enable them, turn on **Enable semantic search** in the
 extension's settings and paste a key from
 [Google AI Studio](https://aistudio.google.com/apikey). Most users don't need this.
 

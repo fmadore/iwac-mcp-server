@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "iwac-mcp-server",
   "display_name": "Islam West Africa Collection (IWAC)",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
-  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual materials, archival documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality) and per-article AI abstracts. All matching is accent- and case-insensitive.\n\n**No API key is required for the 24 core tools** (cross-subset search/fetch, keyword search, filtering, statistics, item details). Two optional semantic-search tools use Gemini embeddings — covering all articles and the publication series with tables of contents — and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
+  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual materials, archival documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality), per-article AI abstracts, and per-year coverage timelines. All matching is accent- and case-insensitive.\n\n**No API key is required for the 25 core tools** (cross-subset search/fetch, keyword search, filtering, statistics, timelines, item details). Two optional semantic-search tools use Gemini embeddings — covering all articles and the publication series with tables of contents — and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
   "author": {
     "name": "Frédérick Madore",
     "email": "frederick.madore@uni-bayreuth.de",
@@ -62,6 +62,7 @@
     { "name": "get_collection_stats", "description": "Overall stats for all six IWAC subsets." },
     { "name": "get_newspaper_stats", "description": "Per-newspaper article counts and date ranges." },
     { "name": "get_country_comparison", "description": "Compare article counts and sentiment across countries." },
+    { "name": "get_temporal_distribution", "description": "Coverage over time: counts of matching items per year or month, with the standard filters and optional grouping by country or newspaper." },
     { "name": "search_publications", "description": "Search Islamic publications (periodical issues, books) by French keyword (title, subject, table of contents, OCR), series, subject, country, and year." },
     { "name": "list_periodicals", "description": "List the periodical/series titles in the publications subset, with issue counts and year ranges." },
     { "name": "get_publication_fulltext", "description": "Retrieve full OCR text of a publication, optionally with capped keyword excerpts." },
@@ -92,7 +93,7 @@
     "semantic_search_enabled": {
       "type": "boolean",
       "title": "Enable semantic search (optional)",
-      "description": "Most users can leave this off. Enables two extra tools that find articles/publications by meaning rather than keywords. Requires a free Google/Gemini API key and uses network calls at query time. The other 24 tools work without this.",
+      "description": "Most users can leave this off. Enables two extra tools that find articles/publications by meaning rather than keywords. Requires a free Google/Gemini API key and uses network calls at query time. The other 25 tools work without this.",
       "default": false
     },
     "google_api_key": {

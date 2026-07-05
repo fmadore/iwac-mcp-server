@@ -6,7 +6,8 @@ name: Publish container image to GHCR
 #
 # Triggers on a version tag (v*), or manually. Version tags also publish the
 # Claude Desktop / stdio .mcpb bundles and the .agents research skill zip as
-# GitHub release assets.
+# GitHub release assets, then publish the server to the official MCP Registry
+# (registry.modelcontextprotocol.io) as io.github.fmadore/iwac-mcp-server.
 
 on:
   push:
@@ -24,6 +25,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write # MCP Registry publish via GitHub OIDC (no secret needed)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -79,3 +81,26 @@ jobs:
             mcpb/iwac-mcp-server-macos.mcpb \
             iwac-mcp-skill.zip \
             --clobber
+
+      # MCP Registry publish. server.json is generated HERE, in the same job
+      # that packed and uploaded the .mcpb assets, so the embedded fileSha256
+      # hashes always match the exact uploaded bytes. Registry versions are
+      # immutable: re-running this workflow for an already-published tag fails
+      # at this step by design (re-packed zips hash differently) — bump the
+      # version instead of re-publishing.
+      - name: Generate server.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node mcpb/scripts/make-server-json.mjs "$TAG"
+
+      - name: Install mcp-publisher
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Publish to MCP Registry
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

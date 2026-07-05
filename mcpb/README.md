@@ -23,8 +23,8 @@ On first use the server downloads ~250 MB of parquet data from Hugging Face
 into `~/.iwac-mcp/cache/` (override via the extension settings). Subsequent
 queries are served locally through DuckDB.
 
-- **24 core tools** work without any API key (keyword search, filtering,
-  statistics, item details).
+- **25 core tools** work without any API key (keyword search, filtering,
+  statistics, coverage timelines, item details).
 - **2 optional semantic-search tools** require a free Google/Gemini API key and
   are disabled by default. Enable them in the extension settings.
 
@@ -36,8 +36,16 @@ npm install
 npm run install-bindings                    # fetch the 4 macOS/Windows binaries
 npm run typecheck                           # tsc --noEmit (type safety)
 npm run build                               # esbuild -> server/index.js (single file)
-node smoke-test.mjs                         # spawn server, call each tool
+npm test                                    # unit tests + offline fixture MCP round-trip
+npm run test:live                           # full smoke test against the real dataset
 ```
+
+`npm test` is hermetic: `test/unit.test.ts` covers the pure helpers, and
+`test/fixture-server.test.mjs` spawns the built server against synthetic parquet
+fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1` — no network, runs
+in seconds. `npm run test:live` (smoke-test.mjs) exercises every tool against
+the real Hugging Face dataset; its pinned counts double as a dataset-drift
+alarm and run weekly in CI.
 
 Pack the per-OS server bundles (one `.mcpb` per OS, each with only that OS's
 DuckDB binaries):
@@ -62,6 +70,28 @@ npm run pack-skill                         # -> ../iwac-mcp-skill.zip (repo root
 Upload **all three** assets to the release: `iwac-mcp-server-windows.mcpb`,
 `iwac-mcp-server-macos.mcpb`, and `iwac-mcp-skill.zip`.
 
+## Publish to the official MCP Registry
+
+Pushing a version tag does this automatically: the release workflow packs the
+bundles, uploads them as release assets, generates `server.json`
+(`scripts/make-server-json.mjs` — embeds each artifact's `fileSha256`, so it
+must run in the same job that packed them), then publishes
+**`io.github.fmadore/iwac-mcp-server`** to
+[registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io)
+via GitHub OIDC (no secret needed). The entry lists the two `.mcpb` packages
+plus the public remote at `https://islam.zmo.de/mcp/`.
+
+Registry versions are **immutable** — to fix a published entry, bump the
+version and tag again; re-running the workflow for the same tag fails at the
+publish step by design.
+
+Manual fallback from the repo root (after `npm run release`):
+
+```bash
+mcp-publisher login github   # interactive; OIDC is CI-only
+mcp-publisher publish        # reads ./server.json
+```
+
 ## Layout
 
 | Path                         | Purpose                                         |
@@ -74,7 +104,9 @@ Upload **all three** assets to the release: `iwac-mcp-server-windows.mcpb`,
 | `scripts/duckdb-bindings.mjs`| Shared helper: fetch/extract platform bindings  |
 | `scripts/install-duckdb-bindings.mjs` | Fetch the 4 macOS/Windows bindings     |
 | `scripts/pack-platforms.mjs` | Build one `.mcpb` per OS (Windows, macOS)       |
-| `smoke-test.mjs`             | Local MCP round-trip test                       |
+| `scripts/make-fixtures.mjs`  | Generate synthetic parquet test fixtures        |
+| `test/`                      | Unit tests + offline fixture MCP test           |
+| `smoke-test.mjs`             | Live MCP round-trip test (real dataset)         |
 | `.mcpbignore`                | Files excluded from the `.mcpb` archive         |
 
 ## How the server works

@@ -1,6 +1,6 @@
 {
   "name": "iwac-mcp-server-bundle",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "description": "Node MCP server for the Islam West Africa Collection, packaged as a Claude Desktop extension (.mcpb).",
   "private": true,
   "type": "module",
@@ -11,12 +11,17 @@
     "start": "node server/index.js",
     "start:http": "node server/index.js --http",
     "clean": "rimraf server",
+    "test": "npm run test:unit && npm run test:fixture",
+    "test:unit": "tsx --test test/unit.test.ts",
+    "test:fixture": "node scripts/make-fixtures.mjs && node test/fixture-server.test.mjs",
+    "test:live": "node smoke-test.mjs",
     "prepack-mcpb": "npm run clean && npm run typecheck && npm run build",
     "install-bindings": "node scripts/install-duckdb-bindings.mjs",
     "pack-mcpb": "mcpb pack . iwac-mcp-server.mcpb",
     "pack-platforms": "node scripts/pack-platforms.mjs",
-    "release": "npm run prepack-mcpb && npm run install-bindings && npm run pack-platforms && npm run pack-skill",
-    "pack-skill": "git -C .. archive --format=zip --prefix=iwac-mcp/ -o iwac-mcp-skill.zip HEAD:.agents/skills/iwac-mcp"
+    "release": "npm run prepack-mcpb && npm run install-bindings && npm run pack-platforms && npm run pack-skill && npm run make-server-json",
+    "pack-skill": "git -C .. archive --format=zip --prefix=iwac-mcp/ -o iwac-mcp-skill.zip HEAD:.agents/skills/iwac-mcp",
+    "make-server-json": "node scripts/make-server-json.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
@@ -38,6 +43,7 @@
     "@types/node": "^26.0.0",
     "esbuild": "^0.28.1",
     "rimraf": "^6.1.3",
+    "tsx": "^4.23.0",
     "typescript": "^6.0.3"
   }
 }

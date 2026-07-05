@@ -10,6 +10,7 @@
 // TLS termination, rate limiting, and the public `/mcp` path mount are handled
 // upstream by nginx — see docs/iwac-mcp-roadmap.md in the IWAC-docker repo.
 import http from "node:http";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { config } from "./config.js";
@@ -55,7 +56,12 @@ export function startHttpServer(createServer: () => McpServer): void {
     );
     process.exit(1);
   }
-  const expected = `Bearer ${token}`;
+  // Compare SHA-256 digests so the check is constant-time regardless of how
+  // much of the token an attacker guessed (timingSafeEqual needs equal lengths).
+  const expectedDigest = createHash("sha256").update(`Bearer ${token}`).digest();
+  const authorized = (header: string | undefined): boolean =>
+    typeof header === "string" &&
+    timingSafeEqual(createHash("sha256").update(header).digest(), expectedDigest);
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const path = (req.url ?? "/").split("?")[0];
@@ -72,7 +78,7 @@ export function startHttpServer(createServer: () => McpServer): void {
       return;
     }
 
-    if (req.headers.authorization !== expected) {
+    if (!authorized(req.headers.authorization)) {
       sendJson(res, 401, rpcError(-32001, "Unauthorized"), { "WWW-Authenticate": "Bearer" });
       return;
     }

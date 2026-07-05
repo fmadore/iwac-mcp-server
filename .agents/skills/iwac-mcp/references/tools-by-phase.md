@@ -1,6 +1,6 @@
 # IWAC MCP Tools by Research Phase
 
-26 possible tools (24 core + 2 optional semantic) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result.
+27 possible tools (25 core + 2 optional semantic) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Server **v0.9.0+** adds `get_temporal_distribution` (counts per year/month — use it for any "how did coverage evolve" question instead of paging through searches).
 
 ## Cross-Collection Entry Points
 
@@ -172,6 +172,16 @@ Detailed index entry. **Raw dataset columns, French names** (Titre, Titre altern
 
 ## Phase 4: Triangulation Tools
 
+### get_temporal_distribution *(v0.9.0+)*
+Counts of matching items per year (or month) — one call replaces paging through search results for any trend question. Also useful in Phase 1 to scope a topic's timeline before searching.
+- `subset` (optional, validated): articles (default) | publications | references | documents | audiovisual
+- `granularity` (optional, validated): year (default) | month — items dated only to a year keep a bare-year key even at month granularity
+- `keyword` (optional): ONE substring over the subset's text fields (same semantics as the subset's search tool)
+- `country` / `newspaper` / `subject` / `date_from` / `date_to` (optional): same semantics as the subset's search tool
+- `group_by` (optional, validated): country | newspaper — returns `distribution_by_group` (one map per group) instead of `distribution`
+- Returns `total_matches`, `dated_count`, `undated_count` (undated items are counted, never silently dropped), and the `distribution` map sorted by year
+- **Tip:** `get_temporal_distribution(keyword="hadj", group_by="country")` charts six decades of hajj coverage per country in a single ~1k-token call.
+
 ### get_sentiment_distribution
 Aggregated Gemini sentiment counts.
 - `country` (optional, exact name), `newspaper` (optional), `subject` (optional)
@@ -213,5 +223,6 @@ See `search_references` above (12 values, with counts).
 - Triage with `with_description=true` (limit ≤ 10) instead of calling `get_article` on everything; read full OCR only for the 2-3 finalists (Brief) / 6-8 (Extended)
 - A `search_articles` page of 20 ≈ 2.5k tokens; `get_article` ≈ 1-7k tokens; capped `get_publication_fulltext` ≤ ~7k tokens (+ ~1.6k when the issue has a TOC)
 - Use stats/distribution tools for overviews before fetching individual items; when `total_matches` exceeds ~50, analyze metadata rather than reading items
+- For "how did coverage evolve" questions, one `get_temporal_distribution` call (~1k tokens) replaces paging through result envelopes year by year
 - Combine filters (country + subject/keyword + date range) to narrow before reading
 - For temporal filtering: articles take `YYYY-MM-DD` or `YYYY`; publications/references take years
