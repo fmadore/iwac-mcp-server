@@ -1,12 +1,14 @@
 // Cross-cutting helpers shared by every tool module: input capping, JSON result
 // formatting, the pagination envelope, the generic list-query runner, reusable
 // SELECT/ORDER-BY fragments, accent-insensitive matching, and text capping.
+import { z } from "zod";
 import {
   q,
   query,
   queryScalarSingle,
   selectList,
   viewName,
+  type Bindable,
   type Row,
 } from "../db.js";
 import type { Subset } from "../config.js";
@@ -55,6 +57,7 @@ function bigintReplacer(_key: string, value: unknown): unknown {
  * trusting every future dataset revision or upstream pipeline step.
  */
 const STRIP_CHARS =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is this regex's entire purpose (see doc comment above)
   /[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
 
 function sanitizeString(s: string): string {
@@ -184,6 +187,28 @@ export function limitWarning(limit: ResolvedLimit): Record<string, unknown> {
 /** Canonical country names (HF storage form). Accents/case optional on input. */
 export const COUNTRIES = ["Benin", "Burkina Faso", "Côte d'Ivoire", "Niger", "Nigeria", "Togo"] as const;
 
+/** Audiovisual `medium` values (closed vocabulary in the dataset). */
+export const MEDIUM_VALUES = ["audio", "video"] as const;
+
+/**
+ * The standard `country` filter parameter, built once so the ~12 tools that take
+ * it share ONE wording instead of copy-paste drift. `nigeria: false` (the
+ * default for article-backed tools) omits Nigeria from the enumerated values —
+ * Nigeria has no press articles, so advertising it there invites dead-end
+ * queries; validateEnum still accepts it (a valid country with 0 rows is a real
+ * absence, not an error). `note` appends tool-specific context.
+ */
+export function countryParam(opts: { nigeria?: boolean; note?: string } = {}) {
+  const values = ["Benin", "Burkina Faso", "Côte d'Ivoire", "Niger"]
+    .concat(opts.nigeria ? ["Nigeria"] : [])
+    .concat(["Togo"])
+    .join(" | ");
+  return z
+    .string()
+    .optional()
+    .describe(`Exact country name: ${values} (accents optional)${opts.note ? `. ${opts.note}` : ""}`);
+}
+
 /** Gemini polarity labels (articles). */
 export const POLARITY_VALUES = ["Très positif", "Positif", "Neutre", "Négatif", "Très négatif", "Non applicable"] as const;
 
@@ -232,15 +257,16 @@ export interface PaginationEnvelope<T> {
   next_offset?: number;
   requested_limit?: number;
   limit_warning?: string;
+  /** Optional semantics note a tool can attach (e.g. list_locations' mentioned-in caveat). */
+  note?: string;
   results: T[];
-  [key: string]: unknown;
 }
 
 export async function paginated<T>(
   countSql: string,
-  countParams: unknown[],
+  countParams: Bindable[],
   pageSql: string,
-  pageParams: unknown[],
+  pageParams: Bindable[],
   offset: number,
   limit: ResolvedLimit,
 ): Promise<PaginationEnvelope<T>> {
@@ -269,7 +295,7 @@ export async function paginated<T>(
 export async function runListQuery<T = Row>(opts: {
   subset: Subset;
   where: string[];
-  params: unknown[];
+  params: Bindable[];
   cols: string;
   orderBy: string;
   limit: ResolvedLimit;
@@ -312,7 +338,7 @@ export const TEXT_COLS: Record<Subset, string[]> = {
 export function keywordFilter(
   schema: Set<string>,
   where: string[],
-  params: unknown[],
+  params: Bindable[],
   cols: readonly string[],
   keyword: string | undefined,
 ): void {
@@ -321,10 +347,21 @@ export function keywordFilter(
   for (const col of cols) {
     if (schema.has(col)) {
       parts.push(foldedLike(q(col)));
-      params.push(`%${keyword}%`);
+      params.push(`%${escapeLike(keyword)}%`);
     }
   }
   if (parts.length) where.push(`(${parts.join(" OR ")})`);
+}
+
+/**
+ * Escape LIKE metacharacters in a user-supplied substring so `%`, `_`, and `\`
+ * match literally inside the `%...%` pattern. Without this, `keyword="100%"`
+ * matches "100" followed by anything and a stray `_` matches any character —
+ * silently distorted match counts, which matter when counts feed historical
+ * claims. Pairs with the `ESCAPE '\'` clause in foldedLike.
+ */
+export function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 /**
@@ -332,9 +369,10 @@ export function keywordFilter(
  * `pelerinage` matches 27 articles while `pèlerinage` matches 1,816, and the
  * dataset mixes conventions ("Benin" unaccented vs "Côte d'Ivoire" accented).
  * Folding both sides through strip_accents(lower()) removes that trap class.
+ * Patterns bound to this predicate must go through escapeLike().
  */
 export function foldedLike(colExpr: string): string {
-  return `strip_accents(lower(${colExpr})) LIKE strip_accents(lower(?))`;
+  return `strip_accents(lower(${colExpr})) LIKE strip_accents(lower(?)) ESCAPE '\\'`;
 }
 
 /** Accent/case-insensitive equality predicate (whole-value match). */
@@ -346,13 +384,13 @@ export function foldedEquals(colExpr: string): string {
 export function likeFilterIfExists(
   schema: Set<string>,
   where: string[],
-  params: unknown[],
+  params: Bindable[],
   column: string,
   value: string | undefined,
 ): void {
   if (!value || !schema.has(column)) return;
   where.push(foldedLike(q(column)));
-  params.push(`%${value}%`);
+  params.push(`%${escapeLike(value)}%`);
 }
 
 /**
@@ -360,21 +398,18 @@ export function likeFilterIfExists(
  * A substring filter would conflate Niger with Nigeria (references store
  * "Niger|Nigeria"; audiovisual is 100% Nigeria), so each `|`-separated value is
  * compared whole. Works identically for single-valued columns like
- * `articles.country`.
+ * `articles.country` — which makes it the same predicate as any other
+ * pipe-separated field, so it simply delegates (kept as a named alias because
+ * "country" is the one filter every subset shares).
  */
 export function countryFilterIfExists(
   schema: Set<string>,
   where: string[],
-  params: unknown[],
+  params: Bindable[],
   column: string,
   value: string | undefined,
 ): void {
-  if (!value || !schema.has(column)) return;
-  where.push(
-    `list_contains(list_transform(str_split(coalesce(${q(column)}, ''), '|'), ` +
-      `x -> strip_accents(lower(trim(x)))), strip_accents(lower(trim(?))))`,
-  );
-  params.push(value);
+  pipeValueFilterIfExists(schema, where, params, column, value);
 }
 
 /**
@@ -388,7 +423,7 @@ export function countryFilterIfExists(
 export function pipeValueFilterIfExists(
   schema: Set<string>,
   where: string[],
-  params: unknown[],
+  params: Bindable[],
   column: string,
   value: string | undefined,
 ): void {
@@ -420,7 +455,7 @@ function parseYear(v: string | undefined): number | undefined {
 export function yearRangeFilter(
   schema: Set<string>,
   where: string[],
-  params: unknown[],
+  params: Bindable[],
   dateFrom: string | undefined,
   dateTo: string | undefined,
   column = "pub_date",
@@ -461,7 +496,7 @@ function normalizeDateBound(v: string | undefined, kind: "from" | "to"): string 
 export function dateRangeFilter(
   schema: Set<string>,
   where: string[],
-  params: unknown[],
+  params: Bindable[],
   dateFrom: string | undefined,
   dateTo: string | undefined,
   column = "pub_date",
@@ -588,6 +623,170 @@ export function documentSummaryCols(schema: Set<string>): string {
 }
 
 // -----------------------------------------------------------------------------
+// Detail projections — the ONE place per subset that maps dataset columns to
+// stable output keys for item-detail views. Consumed by both the get_* tools
+// (full view) and the cross-subset `fetch` (lean view), which previously kept
+// hand-maintained duplicate lists that had already drifted apart. A dataset
+// column rename is now a single-line change.
+// -----------------------------------------------------------------------------
+
+interface DetailField {
+  /** SQL expression — a bare column name, or a pre-quoted/complex expression. */
+  expr: string;
+  /** Output alias; bare columns without one keep their own name. */
+  alias?: string;
+  /** Columns that must exist in the live schema (defaults to the bare column). */
+  requires?: string[];
+  /**
+   * Include in the lean cross-subset `fetch` projection? (default true).
+   * `fetch` deliberately omits verbose/lexical fields to keep deep-research
+   * payloads lean; the get_* tools return everything.
+   */
+  inFetch?: boolean;
+  /** The subset's main text body; `fetch` re-aliases it to the contract key `text`. */
+  body?: boolean;
+}
+
+const ID_URL: DetailField[] = [
+  { expr: '"o:id"', alias: "id", requires: ["o:id"] },
+  { expr: "iwac_url", alias: "url", requires: ["iwac_url"] },
+];
+
+const DETAIL_FIELDS: Record<Subset, DetailField[]> = {
+  articles: [
+    ...ID_URL,
+    { expr: "identifier", inFetch: false },
+    { expr: "title" },
+    { expr: "author" },
+    { expr: "newspaper" },
+    { expr: "country" },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
+    { expr: "subject" },
+    { expr: "spatial" },
+    { expr: "language" },
+    { expr: "nb_pages", inFetch: false },
+    { expr: '"descriptionAI"', alias: "description_ai", requires: ["descriptionAI"] },
+    { expr: "gemini_polarite", alias: "polarity", requires: ["gemini_polarite"] },
+    { expr: "gemini_centralite_islam_musulmans", alias: "centrality", requires: ["gemini_centralite_islam_musulmans"] },
+    { expr: "gemini_subjectivite_score", alias: "subjectivity", requires: ["gemini_subjectivite_score"], inFetch: false },
+    { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], inFetch: false },
+    { expr: '"Richesse_Lexicale_OCR"', alias: "lexical_richness", requires: ["Richesse_Lexicale_OCR"], inFetch: false },
+    { expr: '"Lisibilite_OCR"', alias: "readability", requires: ["Lisibilite_OCR"], inFetch: false },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], body: true },
+  ],
+  publications: [
+    ...ID_URL,
+    { expr: "title" },
+    { expr: "newspaper" },
+    { expr: "country" },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
+    { expr: "subject" },
+    { expr: "language" },
+    { expr: '"tableOfContents"', alias: "table_of_contents", requires: ["tableOfContents"] },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], body: true },
+  ],
+  references: [
+    ...ID_URL,
+    { expr: "identifier", inFetch: false },
+    { expr: "title" },
+    { expr: "author" },
+    { expr: "editor" },
+    { expr: "type" },
+    { expr: '"o:resource_class"', alias: "resource_class", requires: ["o:resource_class"], inFetch: false },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
+    { expr: "publisher" },
+    { expr: "book_title" },
+    { expr: "chapter", inFetch: false },
+    { expr: "volume" },
+    { expr: "issue" },
+    { expr: "page_start" },
+    { expr: "page_end" },
+    { expr: "nb_pages", inFetch: false },
+    { expr: "edition", inFetch: false },
+    { expr: "extent", inFetch: false },
+    { expr: "subject", inFetch: false },
+    { expr: "spatial", inFetch: false },
+    { expr: "language" },
+    { expr: "country" },
+    { expr: "doi" },
+    { expr: '"URL"', alias: "external_url", requires: ["URL"], inFetch: false },
+    { expr: "is_part_of", inFetch: false },
+    { expr: "review_of", inFetch: false },
+    { expr: "provenance", inFetch: false },
+    { expr: "abstract", alias: "abstract", requires: ["abstract"], body: true },
+  ],
+  documents: [
+    ...ID_URL,
+    { expr: "identifier", inFetch: false },
+    { expr: "title" },
+    { expr: "author" },
+    { expr: "country" },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
+    { expr: "type" },
+    { expr: "subject" },
+    { expr: "spatial", inFetch: false },
+    { expr: "language" },
+    { expr: "nb_pages", inFetch: false },
+    { expr: "source", inFetch: false },
+    { expr: "rights", inFetch: false },
+    { expr: '"descriptionAI"', alias: "description_ai", requires: ["descriptionAI"] },
+    { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], inFetch: false },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], body: true },
+  ],
+  index: [
+    ...ID_URL,
+    { expr: '"Titre"', alias: "title", requires: ["Titre"] },
+    { expr: '"Type"', alias: "type", requires: ["Type"] },
+    { expr: "frequency" },
+    { expr: "first_occurrence" },
+    { expr: "last_occurrence" },
+    { expr: "countries" },
+    { expr: '"Description"', alias: "description", requires: ["Description"], body: true },
+  ],
+  audiovisual: [
+    ...ID_URL,
+    { expr: "identifier", inFetch: false },
+    { expr: "added_date", inFetch: false },
+    { expr: "iiif_manifest" },
+    { expr: "PDF", alias: "media_url", requires: ["PDF"] },
+    { expr: "thumbnail" },
+    { expr: "title" },
+    { expr: "creator" },
+    { expr: "publisher" },
+    { expr: "country" },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
+    { expr: "volume" },
+    { expr: "issue" },
+    { expr: "is_part_of" },
+    { expr: "extent" },
+    { expr: "medium" },
+    { expr: "subject" },
+    { expr: "spatial" },
+    { expr: "language" },
+    { expr: "source" },
+    { expr: '"descriptionAI"', alias: "description_ai", requires: ["descriptionAI"], body: true },
+  ],
+};
+
+/**
+ * Build a subset's detail SELECT list. `view: "get"` returns every field with
+ * its stable key (the get_* tools); `view: "fetch"` returns the lean projection
+ * with the body column aliased to `text` (the OpenAI Deep Research contract).
+ * Fields whose required columns are missing from the live schema are dropped by
+ * selectList, so a dataset revision degrades gracefully rather than throwing.
+ */
+export function detailColsFor(subset: Subset, schema: Set<string>, view: "get" | "fetch"): string {
+  const items: Array<string | [string, string, string[]?]> = [];
+  for (const field of DETAIL_FIELDS[subset]) {
+    if (view === "fetch" && field.inFetch === false) continue;
+    const alias = view === "fetch" && field.body ? "text" : field.alias;
+    if (alias === undefined) items.push(field.expr);
+    else items.push([field.expr, alias, field.requires ?? [field.expr]]);
+  }
+  return selectList(schema, items);
+}
+
+// -----------------------------------------------------------------------------
 // Aggregation / text helpers
 // -----------------------------------------------------------------------------
 
@@ -628,13 +827,22 @@ export function capText(
 }
 
 /**
- * Accent/case-fold a string for in-JS matching, index-stable (each UTF-16 unit
- * maps to exactly one unit, so offsets into the folded string remain valid in
- * the original). Mirrors the SQL-side strip_accents(lower()) so keyword-excerpt
- * extraction agrees with what the SQL search matched.
+ * Accent/case-fold a string for in-JS matching. Mirrors the SQL-side
+ * strip_accents(lower()) so keyword-excerpt extraction agrees with what the SQL
+ * search matched. Input is NFC-normalised first: SQL strip_accents also folds
+ * DECOMPOSED accents (e + U+0301), but the per-char regex below only sees
+ * precomposed ones — without the normalize, an NFD OCR blob that search_articles
+ * matched would report "keyword not found" on the excerpt path.
+ *
+ * Index-stability: for NFC input the fold maps each UTF-16 unit to exactly one
+ * unit, so offsets into the folded string remain valid in the (NFC) original —
+ * keywordExcerpts relies on this and normalises its haystack before slicing.
  */
 export function foldText(s: string): string {
-  return s.toLowerCase().replace(/[À-ɏ]/g, (c) => c.normalize("NFD")[0] ?? c);
+  return s
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[À-ɏ]/g, (c) => c.normalize("NFD")[0] ?? c);
 }
 
 /** TOC entries (paragraph-separated) that contain `keyword`, accent-insensitively. */
@@ -661,9 +869,10 @@ export interface ExcerptResult {
  * passages of a long document/issue instead of the whole (capped) OCR. Shared by
  * get_publication_fulltext, get_document, and get_article.
  *
- * Accent/case-folding is index-stable (foldText maps each UTF-16 unit to exactly
- * one unit), so match offsets stay valid in the original text and excerpt
- * extraction agrees with the accent-insensitive SQL search that found the item.
+ * Accent/case-folding is index-stable for NFC text (foldText maps each UTF-16
+ * unit to exactly one unit), so the OCR is NFC-normalised up front and sliced in
+ * that form — match offsets stay valid and excerpt extraction agrees with the
+ * accent-insensitive SQL search that found the item.
  */
 export function keywordExcerpts(
   ocr: string,
@@ -673,6 +882,7 @@ export function keywordExcerpts(
   const contextChars = Math.max(200, Math.min(opts.contextChars ?? 2000, 5000));
   const maxExcerpts = capLimit(opts.maxExcerpts, 10, 25);
   const half = Math.floor(contextChars / 2);
+  ocr = ocr.normalize("NFC"); // keep fold offsets valid in the sliced text
   const haystack = foldText(ocr);
   const needle = foldText(keyword);
 
@@ -704,7 +914,7 @@ export function keywordExcerpts(
     const start = Math.max(0, idx - half);
     const end = Math.min(ocr.length, idx + needle.length + half);
     let ex = ocr.slice(start, end);
-    if (start > 0) ex = "..." + ex;
+    if (start > 0) ex = `...${ex}`;
     if (end < ocr.length) ex += "...";
     excerpts.push(ex);
     totalChars += ex.length;

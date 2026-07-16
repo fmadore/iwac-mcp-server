@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { ensureView, getById, selectList } from "../db.js";
+import { ensureView, getById, type Bindable } from "../db.js";
 import {
   attachOcrOrExcerpts,
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
+  countryParam,
+  detailColsFor,
   errorResult,
   keywordFilter,
   documentSummaryCols,
@@ -29,10 +31,7 @@ export function registerDocumentTools(server: Server): void {
         "documents — mostly Burkina Faso). Use French concept keywords regardless of the user's report language. All have OCR text and an AI description. Call with no arguments to list all.",
       inputSchema: {
         keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR, AI description and subject (accent-insensitive)"),
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional; corpus is mostly Burkina Faso/Togo/Benin)"),
+        country: countryParam({ nigeria: true, note: "Corpus is mostly Burkina Faso/Togo/Benin" }),
         limit: z.number().int().optional().describe("Default 15, max 50"),
         offset: z.number().int().optional(),
       },
@@ -44,7 +43,7 @@ export function registerDocumentTools(server: Server): void {
       const limit = resolveLimit(args.limit, 15, 50);
       const offset = capOffset(args.offset);
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
 
       keywordFilter(schema, where, params, TEXT_COLS.documents, args.keyword);
       countryFilterIfExists(schema, where, params, "country", country.canonical);
@@ -84,26 +83,7 @@ export function registerDocumentTools(server: Server): void {
     },
     async ({ document_id, keyword, context_chars, max_excerpts }) => {
       const schema = await ensureView("documents");
-      const cols = selectList(schema, [
-        ['"o:id"', "id", ["o:id"]],
-        "identifier",
-        "title",
-        "author",
-        "country",
-        ["pub_date", "date", ["pub_date"]],
-        "type",
-        "subject",
-        "spatial",
-        "language",
-        "nb_pages",
-        "source",
-        "rights",
-        ["iwac_url", "url", ["iwac_url"]],
-        ['"descriptionAI"', "description_ai", ["descriptionAI"]],
-        ["nb_mots", "word_count", ["nb_mots"]],
-        ['"OCR"', "ocr_text", ["OCR"]],
-      ]);
-      const row = await getById("documents", cols, document_id);
+      const row = await getById("documents", detailColsFor("documents", schema, "get"), document_id);
       if (!row) return errorResult({ error: `Document ${document_id} not found` });
       attachOcrOrExcerpts(row, "ocr_text", keyword, { contextChars: context_chars, maxExcerpts: max_excerpts });
       return textResult(row);

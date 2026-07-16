@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ensureView, getById, q, selectList } from "../db.js";
+import { ensureView, getById, q, type Bindable } from "../db.js";
 import { config } from "../config.js";
 import { runSemanticSearchTool } from "./_semantic.js";
 import {
@@ -8,7 +8,9 @@ import {
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
+  countryParam,
   dateRangeFilter,
+  detailColsFor,
   errorResult,
   keywordFilter,
   likeFilterIfExists,
@@ -34,10 +36,7 @@ export function registerArticleTools(server: Server): void {
         "and date range. Use French concept keywords regardless of the user's report language. Matching is accent- and case-insensitive.",
       inputSchema: {
         keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR text, and AI abstract"),
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        country: countryParam(),
         newspaper: z.string().optional(),
         subject: z.string().optional(),
         date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
@@ -57,7 +56,7 @@ export function registerArticleTools(server: Server): void {
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
 
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
@@ -103,29 +102,7 @@ export function registerArticleTools(server: Server): void {
     },
     async ({ article_id, keyword, context_chars, max_excerpts }) => {
       const schema = await ensureView("articles");
-      const cols = selectList(schema, [
-        ['"o:id"', "id", ["o:id"]],
-        "identifier",
-        "title",
-        "author",
-        "newspaper",
-        "country",
-        ["pub_date", "date", ["pub_date"]],
-        "subject",
-        "spatial",
-        "language",
-        "nb_pages",
-        ["iwac_url", "url", ["iwac_url"]],
-        ['"descriptionAI"', "description_ai", ["descriptionAI"]],
-        ["gemini_polarite", "polarity", ["gemini_polarite"]],
-        ["gemini_centralite_islam_musulmans", "centrality", ["gemini_centralite_islam_musulmans"]],
-        ["gemini_subjectivite_score", "subjectivity", ["gemini_subjectivite_score"]],
-        ["nb_mots", "word_count", ["nb_mots"]],
-        ['"Richesse_Lexicale_OCR"', "lexical_richness", ["Richesse_Lexicale_OCR"]],
-        ['"Lisibilite_OCR"', "readability", ["Lisibilite_OCR"]],
-        ['"OCR"', "ocr_text", ["OCR"]],
-      ]);
-      const row = await getById("articles", cols, article_id);
+      const row = await getById("articles", detailColsFor("articles", schema, "get"), article_id);
       if (!row) return errorResult({ error: `Article ${article_id} not found` });
       attachOcrOrExcerpts(row, "ocr_text", keyword, { contextChars: context_chars, maxExcerpts: max_excerpts });
       return textResult(row);
@@ -145,10 +122,7 @@ export function registerArticleTools(server: Server): void {
         "Semantic similarity search over article OCR using Gemini embeddings. The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
       inputSchema: {
         query: z.string().describe("Natural-language query, any language"),
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        country: countryParam(),
         newspaper: z.string().optional(),
         date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),

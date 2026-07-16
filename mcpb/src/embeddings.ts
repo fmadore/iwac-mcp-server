@@ -1,5 +1,5 @@
 import { config, type Subset } from "./config.js";
-import { ensureView, query, viewName } from "./db.js";
+import { ensureView, q, query, viewName } from "./db.js";
 
 interface EmbeddingIndex {
   ids: string[];
@@ -7,8 +7,16 @@ interface EmbeddingIndex {
   dim: number;
 }
 
-const _indexCache: Map<string, EmbeddingIndex> = new Map();
+// In-flight PROMISES are memoized (not just resolved indexes) so two concurrent
+// first semantic searches share one index build instead of both running the
+// full SELECT + matrix normalisation — the same race class getConn()/ensureView()
+// in db.ts document and solve the same way. A failed build is evicted for retry.
+const _indexCache: Map<string, Promise<EmbeddingIndex>> = new Map();
 let _genaiClient: import("@google/genai").GoogleGenAI | null = null;
+
+/** Cap on a single Gemini embedContent call — the one network dependency at
+ * query time; without it a hung API call blocks the semantic tool forever. */
+const EMBED_TIMEOUT_MS = 30_000;
 
 function requireApiKey(): string {
   if (!config.googleApiKey) {
@@ -31,35 +39,54 @@ async function getClient(): Promise<import("@google/genai").GoogleGenAI> {
   if (_genaiClient) return _genaiClient;
   const apiKey = requireApiKey();
   const { GoogleGenAI } = await import("@google/genai");
-  _genaiClient = new GoogleGenAI({ apiKey });
+  _genaiClient = new GoogleGenAI({ apiKey, httpOptions: { timeout: EMBED_TIMEOUT_MS } });
   return _genaiClient;
 }
 
-async function loadIndex(subset: Subset, embeddingColumn: string): Promise<EmbeddingIndex> {
+function loadIndex(subset: Subset, embeddingColumn: string): Promise<EmbeddingIndex> {
   const cacheKey = `${subset}:${embeddingColumn}`;
-  const cached = _indexCache.get(cacheKey);
-  if (cached) return cached;
+  let p = _indexCache.get(cacheKey);
+  if (!p) {
+    p = buildIndex(subset, embeddingColumn);
+    p.catch(() => _indexCache.delete(cacheKey)); // allow retry after a failed build
+    _indexCache.set(cacheKey, p);
+  }
+  return p;
+}
 
+async function buildIndex(subset: Subset, embeddingColumn: string): Promise<EmbeddingIndex> {
   await ensureView(subset);
   console.error(`[iwac] loading ${embeddingColumn} from ${subset}...`);
   const rows = await query(
-    `SELECT CAST("o:id" AS VARCHAR) AS id, "${embeddingColumn}" AS emb FROM ${viewName(subset)} WHERE "${embeddingColumn}" IS NOT NULL`,
+    `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(embeddingColumn)} AS emb FROM ${viewName(subset)} WHERE ${q(embeddingColumn)} IS NOT NULL`,
   );
 
+  // dim comes from the first kept vector; a ragged row (wrong length) is
+  // skipped rather than written — one bad row would otherwise fill its matrix
+  // slice with NaN and make every sort against it unspecified.
   const ids: string[] = [];
   const vectors: number[][] = [];
+  let dim = 0;
+  let skipped = 0;
   for (const r of rows) {
     const emb = r.emb as unknown;
     if (!Array.isArray(emb) || emb.length === 0) continue;
     const arr = emb as number[];
+    if (dim === 0) dim = arr.length;
+    if (arr.length !== dim) {
+      skipped++;
+      continue;
+    }
     ids.push(String(r.id));
     vectors.push(arr);
+  }
+  if (skipped > 0) {
+    console.error(`[iwac] skipped ${skipped} ${subset} embeddings with dim != ${dim}`);
   }
   if (ids.length === 0) {
     throw new Error(`No embeddings found in column ${embeddingColumn} of subset ${subset}`);
   }
 
-  const dim = vectors[0].length;
   const matrix = new Float32Array(ids.length * dim);
   for (let i = 0; i < ids.length; i++) {
     const v = vectors[i];
@@ -71,9 +98,7 @@ async function loadIndex(subset: Subset, embeddingColumn: string): Promise<Embed
   }
 
   console.error(`[iwac] semantic index built: ${ids.length} items, dim=${dim}`);
-  const idx: EmbeddingIndex = { ids, matrix, dim };
-  _indexCache.set(cacheKey, idx);
-  return idx;
+  return { ids, matrix, dim };
 }
 
 async function embedQuery(text: string): Promise<Float32Array> {

@@ -70,5 +70,5 @@ const serverJson = {
 };
 
 const dest = join(repoRoot, "server.json");
-writeFileSync(dest, JSON.stringify(serverJson, null, 2) + "\n");
+writeFileSync(dest, `${JSON.stringify(serverJson, null, 2)}\n`);
 console.log(`server.json written to ${dest} (version ${version})`);

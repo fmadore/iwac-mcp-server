@@ -15,7 +15,9 @@ const VERSION = typeof __IWAC_VERSION__ === "string" ? __IWAC_VERSION__ : "0.0.0
  * instruction channel a skill-less client (e.g. ChatGPT via a remote connector)
  * receives, so it carries the essential research workflow, language strategy,
  * citation rule, and caveats. Claude Desktop layers the richer `iwac-mcp` skill
- * on top of this floor. Built per-server because the semantic-search guidance
+ * on top of this floor — this block and .agents/skills/iwac-mcp/SKILL.md
+ * deliberately mirror each other, so update both together.
+ * Built per-server because the semantic-search guidance
  * must match whether those tools are actually registered (they are dropped
  * entirely when IWAC_SEMANTIC_SEARCH_ENABLED is off, e.g. on the public HTTP
  * endpoint — instructions must not advertise tools that do not exist).

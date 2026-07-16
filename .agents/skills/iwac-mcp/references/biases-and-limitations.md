@@ -105,9 +105,9 @@ The 4,697 index entries (persons, organizations, places, events, subjects) repre
 ## 8. Search Limitations
 
 - **Substring matching only** — no wildcards, fuzzy matching, or Boolean operators. One term per call; run variants as separate searches.
-- **Keyword scope varies by tool:** articles = title + OCR + AI abstract; publications = title + subject + OCR; references = title + abstract. Keyword does NOT search the spatial field — use `subject` for curated tags.
+- **Keyword scope varies by tool:** articles = title + OCR + AI abstract; publications = title + subject + table of contents + OCR; references = title + abstract. Keyword does NOT search the spatial field — use `subject` for curated tags.
 - **Accents and case are folded** (server ≥ 0.6.0): `pelerinage`, `Bénin`, `These` all match. Spelling differences still matter.
-- **Country filters take exact names** (Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo; Nigeria only in references/index/audiovisual). Partial names return nothing.
+- **Country filters take exact names** (Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo; Nigeria only in references/index/audiovisual). Partial names ("Burkina") are invalid and return an `{error, valid_values}` response — pick a valid value and retry; never read the error as a finding.
 - **Keyword search terms must be French for primary-source subsets** — formulate keyword terms in French for press, publications, documents, and index searches. Academic references are multilingual: search titles/abstracts with French and English concept terms when relevant, while keeping metadata/filter values in French. Semantic embedding queries may be in any language.
 
 ## Disclosure Template

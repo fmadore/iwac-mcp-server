@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../db.js";
+import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
 import {
   COUNTRIES,
   countryFilterIfExists,
+  countryParam,
   dateRangeFilter,
   errorResult,
   keywordFilter,
@@ -82,17 +83,20 @@ export function registerStatsTools(server: Server): void {
     async () => {
       // Count every subset in parallel; a subset that fails to load is listed
       // in failed_subsets (a null count would be stripped by the result
-      // compaction and read as silence) rather than swallowed.
+      // compaction and read as silence) rather than swallowed. The articles
+      // schema is captured from the same fan-out — re-awaiting ensureView after
+      // a failure would retry the download OUTSIDE this error handling and
+      // throw away the graceful envelope the fan-out just built.
       const entries = await Promise.all(
         ALL_SUBSETS.map(async (s) => {
           try {
-            await ensureView(s);
+            const schema = await ensureView(s);
             const n = Number(
               (await queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName(s)}`)) ?? 0,
             );
-            return [s, n] as const;
+            return [s, n, schema] as const;
           } catch {
-            return [s, null] as const;
+            return [s, null, null] as const;
           }
         }),
       );
@@ -103,7 +107,9 @@ export function registerStatsTools(server: Server): void {
         else counts[s] = n;
       }
 
-      const schema = await ensureView("articles");
+      // Empty set when articles failed to load: the article-specific extras
+      // below are skipped and the subset-count envelope still goes out.
+      const schema = entries.find(([s]) => s === "articles")?.[2] ?? new Set<string>();
       const payload: Record<string, unknown> = {
         collection_name: "Islam West Africa Collection (IWAC)",
         dataset_url: "https://huggingface.co/datasets/fmadore/islam-west-africa-collection",
@@ -128,7 +134,7 @@ export function registerStatsTools(server: Server): void {
         const dateRow = await queryOne(
           `SELECT MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest FROM ${viewName("articles")}`,
         );
-        if (dateRow && dateRow.earliest) {
+        if (dateRow?.earliest) {
           payload.date_range = {
             earliest: String(dateRow.earliest).slice(0, 10),
             latest: String(dateRow.latest).slice(0, 10),
@@ -146,10 +152,7 @@ export function registerStatsTools(server: Server): void {
       ...toolMeta("Newspaper statistics"),
       description: "Per-newspaper article counts and date ranges.",
       inputSchema: {
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        country: countryParam(),
       },
       outputSchema: NEWSPAPER_STATS_OUTPUT,
     },
@@ -157,17 +160,25 @@ export function registerStatsTools(server: Server): void {
       const schema = await ensureView("articles");
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
+      if (!schema.has("newspaper")) {
+        return structuredResult({ country_filter: country.canonical ?? null, total_newspapers: 0, total_articles: 0, newspapers: [] });
+      }
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      // The parquet stores missing newspapers as "" — exclude them from the
+      // per-newspaper grouping so a phantom empty-name row doesn't inflate
+      // total_newspapers (get_collection_stats already counts distinct
+      // non-empty names; the two tools must agree).
+      const groupWhereSql = `WHERE ${[...where, `NULLIF(trim(newspaper), '') IS NOT NULL`].join(" AND ")}`;
       const hasDate = schema.has("pub_date");
       const dateCols = hasDate
         ? `, MIN(${DATE_EXPR}) AS earliest_date, MAX(${DATE_EXPR}) AS latest_date`
         : "";
       const rows = await query(
         `SELECT newspaper, country, COUNT(*) AS article_count${dateCols}
-         FROM ${viewName("articles")} ${whereSql}
+         FROM ${viewName("articles")} ${groupWhereSql}
          GROUP BY newspaper, country
          ORDER BY article_count DESC`,
         params,
@@ -205,7 +216,7 @@ export function registerStatsTools(server: Server): void {
         ? `, MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest`
         : "";
       const newsSel = schema.has("newspaper")
-        ? ", COUNT(DISTINCT newspaper) AS newspaper_count"
+        ? ", COUNT(DISTINCT NULLIF(trim(newspaper), '')) AS newspaper_count"
         : "";
       const summary = await query(`
         SELECT country, COUNT(*) AS article_count${newsSel}${dateSel}
@@ -274,10 +285,7 @@ export function registerStatsTools(server: Server): void {
           .string()
           .optional()
           .describe("ONE French concept keyword (French/English for references); substring over the subset's text fields"),
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional)"),
+        country: countryParam({ nigeria: true }),
         newspaper: z.string().optional().describe("Newspaper (articles) or periodical/series title (publications)"),
         subject: z.string().optional().describe("Exact subject tag (pipe-aware)"),
         date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
@@ -310,8 +318,28 @@ export function registerStatsTools(server: Server): void {
         });
       }
 
+      // This is the one tool where the subset varies, so a supplied filter whose
+      // column the subset lacks must be an error, not a silent no-op: the
+      // *IfExists helpers would drop it and the distribution would cover the
+      // WHOLE subset while the echoed `filters` claimed it was filtered — an
+      // unfiltered aggregate presented as filtered, the inverse of the
+      // silent-zero trap validateEnum exists to prevent.
+      const inapplicable: string[] = [];
+      if (args.keyword && !TEXT_COLS[subset].some((c) => schema.has(c))) inapplicable.push("keyword");
+      if (country.canonical && !schema.has("country")) inapplicable.push("country");
+      if (args.newspaper && !schema.has("newspaper")) inapplicable.push("newspaper");
+      if (args.subject && !schema.has("subject")) inapplicable.push("subject");
+      if (inapplicable.length) {
+        return errorResult({
+          error:
+            `Filter${inapplicable.length > 1 ? "s" : ""} not available for subset '${subset}': ` +
+            `${inapplicable.join(", ")}. Drop ${inapplicable.length > 1 ? "them" : "it"} or pick a subset that has ` +
+            `the column${inapplicable.length > 1 ? "s" : ""}.`,
+        });
+      }
+
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
       keywordFilter(schema, where, params, TEXT_COLS[subset], args.keyword);
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
@@ -351,7 +379,8 @@ export function registerStatsTools(server: Server): void {
         if (groupBy) {
           const g = r.grp == null || String(r.grp).trim() === "" ? "(none)" : String(r.grp);
           if (g.includes("|")) pipeGroups = true;
-          (grouped[g] ??= {})[bucket] = (grouped[g][bucket] ?? 0) + n;
+          grouped[g] ??= {};
+          grouped[g][bucket] = (grouped[g][bucket] ?? 0) + n;
         } else {
           flat[bucket] = (flat[bucket] ?? 0) + n;
         }

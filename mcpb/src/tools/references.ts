@@ -1,9 +1,11 @@
 import { z } from "zod";
-import { ensureView, getById, selectList } from "../db.js";
+import { ensureView, getById, type Bindable } from "../db.js";
 import {
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
+  countryParam,
+  detailColsFor,
   errorResult,
   keywordFilter,
   likeFilterIfExists,
@@ -44,10 +46,7 @@ export function registerReferenceTools(server: Server): void {
               "'Livre' alone also matches 'Chapitre de livre' and 'Compte rendu de livre'.",
           ),
         subject: z.string().optional().describe("Subject tag (sparse: ~27% of references are tagged)"),
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional)"),
+        country: countryParam({ nigeria: true }),
         language: z.string().optional().describe("e.g. Français | Anglais"),
         date_from: z.string().optional().describe("Earliest year, YYYY"),
         date_to: z.string().optional().describe("Latest year, YYYY"),
@@ -62,7 +61,7 @@ export function registerReferenceTools(server: Server): void {
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
 
       keywordFilter(schema, where, params, TEXT_COLS.references, args.keyword);
       likeFilterIfExists(schema, where, params, "author", args.author);
@@ -98,38 +97,7 @@ export function registerReferenceTools(server: Server): void {
     },
     async ({ reference_id }) => {
       const schema = await ensureView("references");
-      const cols = selectList(schema, [
-        ['"o:id"', "id", ["o:id"]],
-        "identifier",
-        "title",
-        "author",
-        "editor",
-        "type",
-        ['"o:resource_class"', "resource_class", ["o:resource_class"]],
-        ["pub_date", "date", ["pub_date"]],
-        "publisher",
-        "book_title",
-        "chapter",
-        "volume",
-        "issue",
-        "page_start",
-        "page_end",
-        "nb_pages",
-        "edition",
-        "extent",
-        "abstract",
-        "subject",
-        "spatial",
-        "language",
-        "country",
-        "doi",
-        ['"URL"', "external_url", ["URL"]],
-        "is_part_of",
-        "review_of",
-        "provenance",
-        ["iwac_url", "url", ["iwac_url"]],
-      ]);
-      const row = await getById("references", cols, reference_id);
+      const row = await getById("references", detailColsFor("references", schema, "get"), reference_id);
       if (!row) return errorResult({ error: `Reference ${reference_id} not found` });
       return textResult(row);
     },

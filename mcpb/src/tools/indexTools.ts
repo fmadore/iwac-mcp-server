@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { ensureView, getById, q, selectList } from "../db.js";
+import { ensureView, getById, q, selectList, type Bindable } from "../db.js";
 import {
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
+  countryParam,
   errorResult,
+  escapeLike,
   foldedEquals,
   foldedLike,
   INDEX_TYPES,
@@ -47,11 +49,22 @@ export function registerIndexTools(server: Server): void {
       if (indexType.err) return errorResult(indexType.err);
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
-      const namePredicates = [foldedLike(q("Titre"))];
-      const params: unknown[] = [`%${args.keyword}%`];
+      // Asymmetric on purpose: the canonical title matches as a substring
+      // ("Dahomey" finds "Bénin (Dahomey)"-style entries), while alternate
+      // titles are a pipe-separated controlled list matched whole so a partial
+      // alias never drags in unrelated entries.
+      const namePredicates: string[] = [];
+      const params: Bindable[] = [];
+      if (schema.has("Titre")) {
+        namePredicates.push(foldedLike(q("Titre")));
+        params.push(`%${escapeLike(args.keyword)}%`);
+      }
       if (schema.has("Titre alternatif")) {
         namePredicates.push(pipeValueEquals(q("Titre alternatif")));
         params.push(args.keyword);
+      }
+      if (namePredicates.length === 0) {
+        return errorResult({ error: "The index subset has no title columns in this dataset revision" });
       }
       const where: string[] = [`(${namePredicates.join(" OR ")})`];
       if (indexType.canonical && schema.has("Type")) {
@@ -99,6 +112,12 @@ export function registerIndexTools(server: Server): void {
 // Generic "list one index Type, ranked by frequency" tool
 // -----------------------------------------------------------------------------
 
+interface IndexListArgs {
+  country?: string;
+  limit?: number;
+  offset?: number;
+}
+
 function registerIndexListTool(
   server: Server,
   name: "list_subjects" | "list_locations" | "list_persons",
@@ -108,19 +127,6 @@ function registerIndexListTool(
   maxLimit: number,
 ): void {
   const typeLower = indexType.toLowerCase();
-  const inputSchema: Record<string, z.ZodTypeAny> = {
-    limit: z.number().int().optional().describe(`Default ${defaultLimit}, max ${maxLimit}`),
-    offset: z.number().int().optional(),
-  };
-  if (withCountry) {
-    inputSchema.country = z
-      .string()
-      .optional()
-      .describe(
-        "Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Nigeria | Togo (accents optional). " +
-          `Selects ${typeLower} MENTIONED IN records from that country, not entities located there.`,
-      );
-  }
 
   // For the country-filtered lists, spell out the semantics that surprised testers:
   // the filter is "appears in records from country X", not "located in X", and the
@@ -133,47 +139,72 @@ function registerIndexListTool(
       `articles + publications + references, which have no Nigerian items — Nigeria is audiovisual only).`
     : "";
 
-  server.registerTool(
-    name,
-    {
-      ...toolMeta(`List ${typeLower} from the index`),
-      description: `List ${typeLower} from the IWAC index, sorted by frequency (most-referenced first).${countrySemantics}`,
-      inputSchema,
-    },
-    async (args: Record<string, unknown>) => {
-      const schema = await ensureView("index");
-      const country = validateEnum(args.country as string | undefined, COUNTRIES, "country");
-      if (country.err) return errorResult(country.err);
-      const limit = resolveLimit(args.limit as number | undefined, defaultLimit, maxLimit);
-      const offset = capOffset(args.offset as number | undefined);
-      const where: string[] = [`${q("Type")} = ?`];
-      const params: unknown[] = [indexType];
-      if (withCountry) {
-        countryFilterIfExists(schema, where, params, "countries", country.canonical);
-      }
-      const cols = selectList(schema, [
-        ['"o:id"', "id", ["o:id"]],
-        [q("Titre"), "title", ["Titre"]],
-        [q("Description"), "description", ["Description"]],
-        "frequency",
-        ...(withCountry ? (["countries"] as const) : []),
-        ["iwac_url", "url", ["iwac_url"]],
-      ]);
-      const env = await runListQuery({
-        subset: "index",
-        where,
-        params,
-        cols,
-        orderBy: indexFreqOrder(schema),
-        limit,
-        offset,
-      });
-      if (withCountry && country.canonical) {
-        env.note =
-          `country filters to ${typeLower} that appear in records from ${country.canonical} ` +
-          `(mentioned-in, not located-in); 'frequency' is each entry's collection-wide total, not a count within ${country.canonical}.`;
-      }
-      return textResult(env);
-    },
-  );
+  const meta = {
+    ...toolMeta(`List ${typeLower} from the index`),
+    description: `List ${typeLower} from the IWAC index, sorted by frequency (most-referenced first).${countrySemantics}`,
+  };
+  const commonSchema = {
+    limit: z.number().int().optional().describe(`Default ${defaultLimit}, max ${maxLimit}`),
+    offset: z.number().int().optional(),
+  };
+
+  const handler = async (args: IndexListArgs) => {
+    const schema = await ensureView("index");
+    const country = validateEnum(args.country, COUNTRIES, "country");
+    if (country.err) return errorResult(country.err);
+    const limit = resolveLimit(args.limit, defaultLimit, maxLimit);
+    const offset = capOffset(args.offset);
+    if (!schema.has("Type")) {
+      return errorResult({ error: "The index subset has no Type column in this dataset revision" });
+    }
+    const where: string[] = [`${q("Type")} = ?`];
+    const params: Bindable[] = [indexType];
+    if (withCountry) {
+      countryFilterIfExists(schema, where, params, "countries", country.canonical);
+    }
+    const cols = selectList(schema, [
+      ['"o:id"', "id", ["o:id"]],
+      [q("Titre"), "title", ["Titre"]],
+      [q("Description"), "description", ["Description"]],
+      "frequency",
+      ...(withCountry ? (["countries"] as const) : []),
+      ["iwac_url", "url", ["iwac_url"]],
+    ]);
+    const env = await runListQuery({
+      subset: "index",
+      where,
+      params,
+      cols,
+      orderBy: indexFreqOrder(schema),
+      limit,
+      offset,
+    });
+    if (withCountry && country.canonical) {
+      env.note =
+        `country filters to ${typeLower} that appear in records from ${country.canonical} ` +
+        `(mentioned-in, not located-in); 'frequency' is each entry's collection-wide total, not a count within ${country.canonical}.`;
+    }
+    return textResult(env);
+  };
+
+  // Two literal registrations (instead of one Record<string, ZodTypeAny> schema)
+  // so zod inference survives and the handler args stay typed without casts.
+  if (withCountry) {
+    server.registerTool(
+      name,
+      {
+        ...meta,
+        inputSchema: {
+          ...commonSchema,
+          country: countryParam({
+            nigeria: true,
+            note: `Selects ${typeLower} MENTIONED IN records from that country, not entities located there`,
+          }),
+        },
+      },
+      handler,
+    );
+  } else {
+    server.registerTool(name, { ...meta, inputSchema: commonSchema }, handler);
+  }
 }

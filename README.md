@@ -5,6 +5,9 @@ A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server fo
 Ships as a one-click [Desktop Extension](https://github.com/modelcontextprotocol/mcpb)
 (`.mcpb`) for Claude Desktop, backed by the
 [IWAC Hugging Face dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection).
+Also available as a **hosted endpoint** at `https://islam.zmo.de/mcp/` for ChatGPT
+and other MCP clients — see [docs/connecting.md](docs/connecting.md) for the
+full connection walkthrough (Claude Desktop and ChatGPT).
 
 ## Install
 
@@ -71,9 +74,10 @@ Download `iwac-mcp-skill.zip` from the same release, then:
 27 possible read-only tools across six IWAC subsets. **25 work out of the box**;
 the 2 `semantic_search_*` tools are optional and require a free Google/Gemini API
 key (disabled by default). All keyword and filter matching is accent- and
-case-insensitive. The unified `search`/`fetch` pair and the stats tools also
-return MCP structured content (`outputSchema` + `structuredContent`), which the
-ChatGPT connector contract requires.
+case-insensitive. The unified `search`/`fetch` pair, the stats tools,
+`list_periodicals`, and `get_sentiment_distribution` also return MCP structured
+content (`outputSchema` + `structuredContent`), which the ChatGPT connector
+contract requires.
 
 | Group        | Tools                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------- |
@@ -106,6 +110,22 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
 - **860+ academic references**, half with abstracts
 - Archival documents and Nigerian audiovisual materials
 
+## Architecture
+
+- **Data**: parquet files from the
+  [IWAC Hugging Face dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection)
+  are lazily downloaded per subset (articles, publications, documents,
+  audiovisual, index, references) into a local cache and queried through DuckDB
+  views. All SQL is parameterised; matching is accent/case-insensitive.
+- **Transports**: stdio (the default — what the Claude Desktop `.mcpb` uses),
+  and a stateless Streamable-HTTP mode (`node server/index.js --http`) behind a
+  bearer token, which the Docker image runs for the hosted
+  `https://islam.zmo.de/mcp/` endpoint.
+- **Docker**: every release publishes `ghcr.io/fmadore/iwac-mcp-server` for
+  self-hosting the HTTP endpoint — see
+  [`mcpb/README.md`](mcpb/README.md#remote-http--docker-deployment) for the
+  required env vars and token setup.
+
 ## Develop
 
 The bundle lives under [`mcpb/`](mcpb/). See [`mcpb/README.md`](mcpb/README.md)
@@ -114,16 +134,20 @@ for the build / pack workflow.
 ```bash
 cd mcpb
 npm install
-node scripts/install-duckdb-bindings.mjs
+npm run install-bindings   # fetch the 4 macOS/Windows DuckDB binaries
 npm run typecheck   # tsc --noEmit
+npm run lint        # biome (linter only)
 npm run build       # esbuild -> single server/index.js
-npm test            # unit tests + offline fixture MCP round-trip (no network)
+npm test            # unit tests + offline fixture & HTTP MCP round-trips (no network)
 npm run test:live   # full smoke test against the real HF dataset (~250 MB)
 ```
 
-CI runs the typecheck, build, unit tests, and the offline fixture test on every
-push; the live smoke test runs weekly (its pinned counts are the dataset-drift
-alarm).
+CI runs the version check, typecheck, lint, build, unit tests, and the offline
+fixture + HTTP round-trip tests on every push to `main` and every pull request;
+the live smoke test runs weekly (its pinned counts are the dataset-drift alarm).
+Releases: push a `v*` tag — the release workflow re-runs the full test suite,
+packs the per-OS `.mcpb` bundles and skill zip, smoke-tests and pushes the
+Docker image, uploads the release assets, and publishes to the MCP Registry.
 
 ## Roadmap
 

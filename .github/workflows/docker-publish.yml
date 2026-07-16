@@ -8,6 +8,13 @@ name: Publish container image to GHCR
 # Claude Desktop / stdio .mcpb bundles and the .agents research skill zip as
 # GitHub release assets, then publish the server to the official MCP Registry
 # (registry.modelcontextprotocol.io) as io.github.fmadore/iwac-mcp-server.
+#
+# Ordering is deliberate: typecheck + lint + the full hermetic test suite run
+# FIRST, then the release assets are packed, then the image is smoke-tested in a
+# container, and only THEN is anything pushed. A red test or a broken pack
+# script can no longer ship an image (previously the image — including
+# `latest` — was pushed before any verification ran, and no tests ran on the
+# tag path at all).
 
 on:
   push:
@@ -18,6 +25,14 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }} # fmadore/iwac-mcp-server
+  # Single source of truth for the Node major used to build and test releases.
+  # Keep in step with ci.yml and mcpb/Dockerfile.
+  NODE_VERSION: 24
+  # Pin a specific mcp-publisher release (e.g. "v1.4.0") for reproducible,
+  # supply-chain-safer publishes; "latest" keeps the old auto-tracking
+  # behaviour. TODO: set a concrete version after checking
+  # https://github.com/modelcontextprotocol/registry/releases.
+  MCP_PUBLISHER_VERSION: latest
 
 jobs:
   build-and-push:
@@ -28,7 +43,50 @@ jobs:
       id-token: write # MCP Registry publish via GitHub OIDC (no secret needed)
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mcpb
+        run: npm ci
+
+      # Release gate: the same hermetic suite ci.yml runs on PRs. Nothing below
+      # (image push, release assets, registry publish) happens if this fails.
+      - name: Typecheck, lint, build, and test
+        working-directory: mcpb
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run build
+          npm test
+
+      - name: Check tag matches package.json/manifest.json versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const tag = process.env.TAG.replace(/^v/, "");
+            const pkg = JSON.parse(fs.readFileSync("mcpb/package.json", "utf8")).version;
+            const man = JSON.parse(fs.readFileSync("mcpb/manifest.json", "utf8")).version;
+            if (tag !== pkg || tag !== man) {
+              console.error(`version mismatch: tag ${tag}, package.json ${pkg}, manifest.json ${man}`);
+              process.exit(1);
+            }
+            console.log(`versions consistent: ${tag}`);
+          '
+
+      - name: Build MCPB and skill release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: mcpb
+        run: npm run release
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -45,12 +103,46 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # `latest` only moves on version tags — a manual workflow_dispatch
+          # from a branch must not repoint it.
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,format=short
 
-      - name: Build and push (linux/amd64)
+      - name: Build image (local, for smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: mcpb
+          file: mcpb/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: iwac-mcp-smoke:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The Dockerfile's own comment says "a missing binding is a runtime crash,
+      # not a build error" — so actually boot the container before pushing:
+      # /health must come up, and /mcp must enforce the bearer token.
+      - name: Container smoke test
+        run: |
+          docker run -d --rm --name iwac-smoke \
+            -e IWAC_MCP_BEARER_TOKEN=ci-smoke -p 8000:8000 iwac-mcp-smoke:ci
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "container never became healthy"; docker logs iwac-smoke || true; exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8000/mcp)
+          if [ "$code" != "401" ]; then
+            echo "expected 401 without bearer token, got $code"; exit 1
+          fi
+          docker stop iwac-smoke
+
+      - name: Push image (linux/amd64)
         uses: docker/build-push-action@v6
         with:
           context: mcpb
@@ -61,13 +153,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build MCPB and skill release assets
-        if: startsWith(github.ref, 'refs/tags/v')
-        working-directory: mcpb
-        run: |
-          npm ci
-          npm run release
 
       - name: Upload GitHub release assets
         if: startsWith(github.ref, 'refs/tags/v')
@@ -97,7 +182,14 @@ jobs:
       - name: Install mcp-publisher
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+          if [ "$MCP_PUBLISHER_VERSION" = "latest" ]; then
+            url="https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz"
+          else
+            url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_${os}_${arch}.tar.gz"
+          fi
+          curl -fL "$url" | tar xz mcp-publisher
 
       - name: Publish to MCP Registry
         if: startsWith(github.ref, 'refs/tags/v')

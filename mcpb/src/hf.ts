@@ -21,16 +21,17 @@ async function downloadFile(remotePath: string, destPath: string): Promise<void>
   const url = `https://huggingface.co/datasets/${config.datasetRepo}/resolve/${config.datasetRevision}/${remotePath}`;
   // Generous timeout: the largest subset is ~185 MB and may run on slow links.
   const res = await fetch(url, { signal: AbortSignal.timeout(15 * 60_000) });
-  if (!res.ok || !res.body) {
+  const body = res.body;
+  if (!res.ok || !body) {
     throw new Error(`Failed to download ${remotePath}: HTTP ${res.status}`);
   }
   await fs.mkdir(path.dirname(destPath), { recursive: true });
-  const tmp = destPath + ".partial";
+  const tmp = `${destPath}.partial`;
   const fh = await fs.open(tmp, "w");
   try {
     const writer = fh.createWriteStream();
     await new Promise<void>((resolve, reject) => {
-      const reader = res.body!.getReader();
+      const reader = body.getReader();
       const pump = async () => {
         try {
           while (true) {

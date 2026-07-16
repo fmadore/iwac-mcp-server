@@ -18,15 +18,26 @@ import { config } from "./config.js";
 /** Cap on request body size — MCP JSON-RPC payloads are tiny; larger is abuse. */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
+/** Tagged error so the catch-all can answer 413 instead of a generic parse error. */
+class BodyTooLargeError extends Error {
+  constructor() {
+    super("Request body too large");
+  }
+}
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    req.on("data", (chunk: Buffer) => {
+    req.on("data", function onData(chunk: Buffer) {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        reject(new Error("Request body too large"));
-        req.destroy();
+        // Stop consuming (backpressure bounds memory) but do NOT destroy the
+        // socket here — the response side still has to deliver the 413; the
+        // `Connection: close` on that response tears the connection down.
+        req.removeListener("data", onData);
+        req.pause();
+        reject(new BodyTooLargeError());
         return;
       }
       chunks.push(chunk);
@@ -105,7 +116,13 @@ export function startHttpServer(createServer: () => McpServer): void {
 
   const server = http.createServer((req, res) => {
     handle(req, res).catch((err) => {
-      if (!res.headersSent) {
+      if (res.headersSent) {
+        // Mid-write failure: nothing coherent can be sent — close the socket
+        // instead of leaving the client hanging until its own timeout.
+        res.destroy();
+      } else if (err instanceof BodyTooLargeError) {
+        sendJson(res, 413, rpcError(-32600, "Request body too large"), { Connection: "close" });
+      } else {
         sendJson(res, 400, rpcError(-32700, `Parse error: ${(err as Error).message}`));
       }
     });

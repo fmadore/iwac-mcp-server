@@ -37,8 +37,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check version consistency (package.json vs manifest.json)
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+            const man = JSON.parse(fs.readFileSync("manifest.json", "utf8")).version;
+            if (pkg !== man) {
+              console.error(`version mismatch: package.json ${pkg} vs manifest.json ${man}`);
+              process.exit(1);
+            }
+          '
+
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build server bundle
         run: npm run build
@@ -48,6 +63,9 @@ jobs:
 
       - name: Fixture MCP round-trip (offline)
         run: npm run test:fixture
+
+      - name: HTTP transport round-trip (offline)
+        run: npm run test:http
 
   live-smoke:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -66,11 +84,19 @@ jobs:
           cache: npm
           cache-dependency-path: mcpb/package-lock.json
 
+      # Keyed by month: a per-run key (the old scheme) could never hit exactly,
+      # so every weekly run uploaded a fresh ~250 MB cache entry. A monthly key
+      # re-uses one entry per month (the server refreshes stale parquet at
+      # runtime anyway) and old months age out of the cache quota naturally.
+      - name: Compute cache month
+        id: month
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
       - name: Restore HF parquet cache (~250 MB)
         uses: actions/cache@v6
         with:
           path: ~/.iwac-mcp/cache
-          key: iwac-hf-parquet-${{ github.run_id }}
+          key: iwac-hf-parquet-${{ steps.month.outputs.month }}
           restore-keys: |
             iwac-hf-parquet-
 

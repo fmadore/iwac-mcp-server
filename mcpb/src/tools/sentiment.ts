@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { ensureView, query, queryScalarSingle, selectList, viewName } from "../db.js";
+import { ensureView, query, queryScalarSingle, selectList, viewName, type Bindable } from "../db.js";
 import {
   capOffset,
   CENTRALITY_VALUES,
   COUNTRIES,
   countryFilterIfExists,
+  countryParam,
   errorResult,
   foldedEquals,
   likeFilterIfExists,
@@ -48,10 +49,7 @@ export function registerSentimentTools(server: Server): void {
           .string()
           .optional()
           .describe("Très central | Central | Secondaire | Marginal | Non abordé"),
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        country: countryParam(),
         subject: z.string().optional(),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
@@ -68,7 +66,7 @@ export function registerSentimentTools(server: Server): void {
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
 
       if (polarity.canonical && schema.has("gemini_polarite")) {
         where.push(foldedEquals("gemini_polarite"));
@@ -113,10 +111,7 @@ export function registerSentimentTools(server: Server): void {
       ...toolMeta("Aggregate AI sentiment"),
       description: "Aggregate Gemini polarity and centrality counts across a filter set.",
       inputSchema: {
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        country: countryParam(),
         newspaper: z.string().optional(),
         subject: z.string().optional(),
       },
@@ -127,7 +122,7 @@ export function registerSentimentTools(server: Server): void {
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);

@@ -8,7 +8,9 @@ import assert from "node:assert/strict";
 import {
   capText,
   COUNTRIES,
+  countryParam,
   dateRangeFilter,
+  escapeLike,
   extractMatchingTocEntries,
   foldText,
   keywordExcerpts,
@@ -31,10 +33,34 @@ describe("foldText", () => {
     assert.equal(foldText("Côte d'Ivoire"), "cote d'ivoire");
     assert.equal(foldText("Événements"), "evenements");
   });
-  it("is index-stable (one UTF-16 unit per unit)", () => {
+  it("is index-stable for NFC input (one UTF-16 unit per unit)", () => {
     for (const s of ["Pèlerinage à Ouagadougou", "Événements — côte ø æ", "laïcité"]) {
       assert.equal(foldText(s).length, s.length, `length changed for ${s}`);
     }
+  });
+  it("folds decomposed (NFD) accents like SQL strip_accents does", () => {
+    const nfd = "pe\u0300lerinage"; // e + combining grave accent (decomposed \u00e8)
+    assert.equal(foldText(nfd), "pelerinage");
+    assert.equal(foldText(nfd), foldText("p\u00e8lerinage"));
+  });
+});
+
+describe("escapeLike", () => {
+  it("escapes %, _ and backslash", () => {
+    assert.equal(escapeLike("100%"), "100\\%");
+    assert.equal(escapeLike("al_islam"), "al\\_islam");
+    assert.equal(escapeLike("a\\b"), "a\\\\b");
+    assert.equal(escapeLike("plain"), "plain");
+  });
+});
+
+describe("countryParam", () => {
+  it("omits Nigeria by default and includes it on demand, with an optional note", () => {
+    const plain = countryParam().description ?? "";
+    assert.ok(!plain.includes("Nigeria"));
+    const withNigeria = countryParam({ nigeria: true, note: "test note" }).description ?? "";
+    assert.ok(withNigeria.includes("Nigeria"));
+    assert.ok(withNigeria.includes("test note"));
   });
 });
 
@@ -96,7 +122,7 @@ describe("keywordExcerpts", () => {
   });
   it("caps the number of excerpts but reports the true match count", () => {
     // 50 matches spaced far enough apart that no excerpt window covers two.
-    const ocr = Array.from({ length: 50 }, (_, i) => `ramadan${" x".repeat(1500)}`).join("");
+    const ocr = Array.from({ length: 50 }, () => `ramadan${" x".repeat(1500)}`).join("");
     const res = keywordExcerpts(ocr, "ramadan");
     assert.equal(res.match_count, 50);
     assert.ok(res.excerpts_returned <= 10, `expected <=10 excerpts, got ${res.excerpts_returned}`);
@@ -154,11 +180,18 @@ describe("keywordFilter", () => {
   it("ORs across the present text columns only", () => {
     const schema = new Set(["title", "OCR"]);
     const where: string[] = [];
-    const params: unknown[] = [];
+    const params: (string | number | boolean | null)[] = [];
     keywordFilter(schema, where, params, TEXT_COLS.articles, "charia");
     assert.equal(where.length, 1);
     assert.match(where[0], /OR/);
     assert.deepEqual(params, ["%charia%", "%charia%"]); // descriptionAI absent
+  });
+  it("escapes LIKE metacharacters in the keyword", () => {
+    const where: string[] = [];
+    const params: (string | number | boolean | null)[] = [];
+    keywordFilter(new Set(["title"]), where, params, TEXT_COLS.articles, "100%_x");
+    assert.deepEqual(params, ["%100\\%\\_x%"]);
+    assert.match(where[0], /ESCAPE/);
   });
   it("does nothing without a keyword", () => {
     const where: string[] = [];

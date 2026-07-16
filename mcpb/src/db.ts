@@ -1,4 +1,4 @@
-import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
+import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
 import { ensureSubset, subsetGlob } from "./hf.js";
 import type { Subset } from "./config.js";
 
@@ -69,10 +69,6 @@ async function buildView(subset: Subset): Promise<Set<string>> {
   return new Set<string>(reader.getRowsJS().map((r) => String(r[0])));
 }
 
-export async function schemaFor(subset: Subset): Promise<Set<string>> {
-  return ensureView(subset);
-}
-
 /** Quote an identifier for SQL. */
 export function q(id: string): string {
   return `"${id.replace(/"/g, '""')}"`;
@@ -103,19 +99,27 @@ export function selectList(
 export type Row = Record<string, unknown>;
 
 /**
+ * The only value types this server ever binds as SQL parameters. Typing the
+ * boundary this narrowly (instead of `unknown[]` + a cast) makes accidentally
+ * pushing a non-primitive (e.g. a ResolvedLimit object) a compile error at the
+ * push site rather than a runtime DuckDB error.
+ */
+export type Bindable = string | number | boolean | null;
+
+/**
  * Run a SQL query with positional parameters and return plain JS objects.
  * DuckDB's `runAndReadAll` accepts a DuckDBValue[] for bindings; primitive
  * JS values (string, number, boolean, null) are accepted directly.
  */
-export async function query(sql: string, params: unknown[] = []): Promise<Row[]> {
+export async function query(sql: string, params: Bindable[] = []): Promise<Row[]> {
   const conn = await getConn();
-  const reader = await conn.runAndReadAll(sql, params as any);
+  const reader = await conn.runAndReadAll(sql, params as DuckDBValue[]);
   return reader.getRowObjectsJS() as Row[];
 }
 
 export async function queryOne(
   sql: string,
-  params: unknown[] = [],
+  params: Bindable[] = [],
 ): Promise<Row | null> {
   const rows = await query(sql, params);
   return rows[0] ?? null;
@@ -126,17 +130,17 @@ export async function queryOne(
  */
 export async function queryScalar<T = unknown>(
   sql: string,
-  params: unknown[] = [],
+  params: Bindable[] = [],
 ): Promise<T[]> {
   const conn = await getConn();
-  const reader = await conn.runAndReadAll(sql, params as any);
+  const reader = await conn.runAndReadAll(sql, params as DuckDBValue[]);
   const rows = reader.getRowsJS() as unknown[][];
   return rows.map((r) => r[0] as T);
 }
 
 export async function queryScalarSingle<T = unknown>(
   sql: string,
-  params: unknown[] = [],
+  params: Bindable[] = [],
 ): Promise<T | null> {
   const values = await queryScalar<T>(sql, params);
   return values[0] ?? null;
@@ -169,7 +173,7 @@ export async function getManyByIds(
   cols: string,
   ids: Array<string | number>,
   extraWhere: string[] = [],
-  extraParams: unknown[] = [],
+  extraParams: Bindable[] = [],
 ): Promise<Row[]> {
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => "?").join(", ");
@@ -178,11 +182,4 @@ export async function getManyByIds(
     `SELECT ${cols} FROM ${viewName(subset)} WHERE ${where.join(" AND ")}`,
     [...ids.map((v) => String(v)), ...extraParams],
   );
-}
-
-/**
- * Escape a single-quoted SQL string literal (doubles single quotes).
- */
-export function sqlStr(s: string): string {
-  return `'${s.replace(/'/g, "''")}'`;
 }

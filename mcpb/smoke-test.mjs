@@ -6,6 +6,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readFileSync } from "node:fs";
+import { checkManifestParity, createHarness } from "./test/_harness.mjs";
 
 // Pins against the LIVE dataset revision — these are the dataset-drift alarm.
 // After a dataset refresh, update them here (one place) if the checks fire.
@@ -28,11 +29,7 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "smoke", version: "0.0.0" });
 await client.connect(transport);
 
-let failures = 0;
-function fail(msg) {
-  failures++;
-  console.error(`  FAIL: ${msg}`);
-}
+const { call, fail, failures } = createHarness(client, { verbose: true, timeoutMs: 5 * 60_000 });
 
 const serverVersion = client.getServerVersion()?.version;
 console.log(`server version: ${serverVersion}`);
@@ -73,59 +70,7 @@ if (!semanticOn && semanticPresent.length !== 0) fail(`semantic disabled but sti
 // The manifest's advertised tool list must track what the server registers
 // (the two optional semantic tools are always advertised in the manifest).
 const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
-const manifestNames = new Set(manifest.tools.map((t) => t.name));
-const registered = new Set(tools.tools.map((t) => t.name));
-for (const n of registered) {
-  if (!manifestNames.has(n)) fail(`tool ${n} is registered but missing from manifest.json tools[]`);
-}
-for (const n of manifestNames) {
-  const optional = n.startsWith("semantic_search_");
-  if (!registered.has(n) && !optional) fail(`manifest.json advertises ${n} but the server does not register it`);
-}
-
-/**
- * Call a tool and run assertions. opts:
- *   expectError — the call SHOULD return isError (default false)
- *   structured — the tool declares an outputSchema, so the result must carry a
- *     structuredContent that exactly mirrors the text block
- *   check(parsed, body) — runs on success only; return a failure message or falsy
- *   checkBody(body) — runs on the raw text regardless of error state (use to
- *     assert the shape of an expected error, e.g. valid_values / valid_categories)
- */
-async function call(name, args, opts = {}) {
-  const res = await client.callTool({ name, arguments: args }, undefined, { timeout: 5 * 60_000 });
-  const body = res.content?.[0]?.text ?? "";
-  const isErr = res.isError === true;
-  const preview = body.slice(0, 220).replace(/\s+/g, " ");
-  console.log(`\n[${name}] ${isErr ? "ERROR " : ""}${body.length} chars | ${preview}${body.length > 220 ? "..." : ""}`);
-  if (isErr !== (opts.expectError ?? false)) {
-    fail(`${name}: isError=${isErr}, expected ${opts.expectError ?? false} — ${body.slice(0, 200)}`);
-    return null;
-  }
-  let parsed = null;
-  if (!isErr) {
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      fail(`${name}: response is not valid JSON`);
-      return null;
-    }
-    if (opts.structured) {
-      if (!res.structuredContent) fail(`${name}: missing structuredContent (outputSchema declared)`);
-      else if (JSON.stringify(res.structuredContent) !== JSON.stringify(parsed))
-        fail(`${name}: structuredContent does not mirror the text block`);
-    }
-  }
-  if (opts.check && parsed) {
-    const msg = opts.check(parsed, body);
-    if (msg) fail(`${name}: ${msg}`);
-  }
-  if (opts.checkBody) {
-    const msg = opts.checkBody(body);
-    if (msg) fail(`${name}: ${msg}`);
-  }
-  return parsed;
-}
+checkManifestParity(fail, manifest, new Set(tools.tools.map((t) => t.name)));
 
 // --- cold-start fan-out (regression guard) ---------------------------------
 // MUST be the first tool call: get_collection_stats fans ensureView() across
@@ -395,5 +340,5 @@ await call("get_article", { article_id: 1 }, { expectError: true });
 await client.close();
 await transport.close();
 
-console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
-process.exitCode = failures === 0 ? 0 : 1;
+console.log(`\n${failures() === 0 ? "ALL CHECKS PASSED" : `${failures()} CHECK(S) FAILED`}`);
+process.exitCode = failures() === 0 ? 0 : 1;
