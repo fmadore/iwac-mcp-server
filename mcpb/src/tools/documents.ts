@@ -28,7 +28,7 @@ export function registerDocumentTools(server: Server): void {
       ...toolMeta("Search archival documents"),
       description:
         "Search the small archival-documents subset (~26 items: Islamic association reports, flyers, project " +
-        "documents — mostly Burkina Faso). Use French concept keywords regardless of the user's report language. All have OCR text and an AI description. Call with no arguments to list all.",
+        "documents — mostly Burkina Faso). Use French concept keywords regardless of the user's report language. Most have OCR text and an AI description. Call with no arguments to list all.",
       inputSchema: {
         keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR, AI description and subject (accent-insensitive)"),
         country: countryParam({ nigeria: true, note: "Corpus is mostly Burkina Faso/Togo/Benin" }),

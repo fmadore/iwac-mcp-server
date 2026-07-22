@@ -11,7 +11,7 @@ import { checkManifestParity, createHarness } from "./test/_harness.mjs";
 // Pins against the LIVE dataset revision — these are the dataset-drift alarm.
 // After a dataset refresh, update them here (one place) if the checks fire.
 const EXPECTED = {
-  audiovisualTotal: 45,
+  audiovisualTotal: 47, // 45 -> 47 in the July 2026 dataset refresh
   nigerArticles: 1061,
   toolsCore: 25, // semantic disabled (2 semantic tools are dropped entirely)
   toolsWithSemantic: 27,
@@ -232,16 +232,28 @@ await call("get_article", { article_id: 67613 }, {
 });
 
 // --- documents ----------------------------------------------------------------
+// Individual documents may legitimately lack OCR (the July 2026 refresh added
+// one that sorts first), so drill through the first few results until one
+// yields OCR text instead of pinning results[0] — the check guards OCR
+// *retrieval*, not any single item's contents.
 const docs = await call("search_documents", {}, {
   check: (p) => (p.total_matches >= 20 ? null : `expected ~26 documents, got ${p.total_matches}`),
 });
-const docId = docs?.results?.[0]?.id;
-if (docId) {
-  await call("get_document", { document_id: Number(docId) }, {
-    check: (p) => (p.ocr_text ? null : "get_document returned no OCR"),
-  });
-} else {
+const docIds = (docs?.results ?? []).map((r) => r.id).filter(Boolean).slice(0, 5);
+if (docIds.length === 0) {
   fail("search_documents returned no id to drill into");
+} else {
+  let sawOcr = false;
+  for (const id of docIds) {
+    const doc = await call("get_document", { document_id: Number(id) }, {
+      check: (p) => (p.id ? null : "get_document returned no row"),
+    });
+    if (doc?.ocr_text) {
+      sawOcr = true;
+      break;
+    }
+  }
+  if (!sawOcr) fail(`none of the first ${docIds.length} documents returned OCR text (retrieval regressed?)`);
 }
 
 // --- unified search / fetch (OpenAI Deep Research contract) -------------------

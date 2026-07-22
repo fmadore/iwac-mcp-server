@@ -22,7 +22,7 @@ The collection has **deep coverage** for some countries and **very thin coverage
 | Benin | 2,003 | Moderate: mixed secular and Islamic press |
 | Togo | 1,570 | Moderate: several newspapers across decades |
 | Niger | 1,061 | Thin: a **single outlet** (Le Sahel), **2018–2024 only**, inconsistent subject tagging |
-| Nigeria | 0 | No press articles at all — 45 audiovisual items only |
+| Nigeria | 0 | No press articles at all — 47 audiovisual items only (July 2026) |
 
 **IMPORTANT:** Niger and Nigeria are dramatically underrepresented compared to Benin, Burkina Faso, Côte d'Ivoire, and Togo. Niger coverage is one state newspaper over seven recent years — no historical depth, and many articles lack subject tagging (e.g., 0 articles tagged with "Hadj" despite Niger being a major hajj departure country). Nigeria has no press articles in the collection. Any cross-country comparison involving Niger or Nigeria must prominently disclose this gap. Patterns found in Niger data may reflect tagging gaps or the single-outlet/short-window bias rather than genuine differences.
 

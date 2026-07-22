@@ -118,7 +118,7 @@ Search the 26 archival documents (Islamic association reports, flyers, project d
 - Call with no arguments to list all 26.
 
 ### list_audiovisual
-The 45 audiovisual items — all Nigeria, incl. Hausa/Arabic recordings. (AI descriptions not yet populated in the dataset.)
+The ~47 audiovisual items (July 2026) — all Nigeria, incl. Hausa/Arabic recordings. (AI descriptions not yet populated in the dataset.)
 - `country` (optional), `limit` (default 20, max 50), `offset`
 - Returns: id, title, creator, publisher, country, date, medium, extent, subject, spatial, language, media_url, url
 

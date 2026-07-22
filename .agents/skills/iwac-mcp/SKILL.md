@@ -124,7 +124,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 7. Use `search_publications` (series/subject/country/year filters; keyword matches title + subject + TOC + OCR, with TOC hits returned as `matching_toc_entries`) for Islamic community media; `semantic_search_publications` (if enabled) works for the 17 TOC-covered series
 8. Use `search_references` for academic literature -- one keyword per call; search title/abstract keywords in French and English when relevant, while using French metadata/filter values; drill into promising hits with `get_reference` (full abstract, 51% have one)
 9. Use `search_documents` when grassroots/association sources could matter (26 items, mostly Burkina Faso)
-10. Use `search_audiovisual` / `list_audiovisual` when Nigerian Hausa/Arabic recordings are in scope (45 items; AI descriptions are currently empty)
+10. Use `search_audiovisual` / `list_audiovisual` when Nigerian Hausa/Arabic recordings are in scope (~47 items; AI descriptions are currently empty)
 11. **Record every search and its result count**, including zero-result searches -- null results constrain interpretation
 12. Use `date_from`/`date_to` for temporal filtering -- articles take `YYYY-MM-DD` or `YYYY` (day precision); publications and references take years
 

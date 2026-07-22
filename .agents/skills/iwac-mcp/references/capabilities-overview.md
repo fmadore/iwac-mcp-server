@@ -12,7 +12,7 @@ Six kinds of material:
 - **~1,500 Islamic publications** — 25 periodicals produced by associations, mosques and schools (Islam Info, An-Nasr Vendredi, Plume Libre, ASSALAM, Le CERFIste…): the community's own voice, with concerns and theological positions often absent from the mainstream press.
 - **~4,700 index records** — curated authority entries for persons, organizations, places, events and subjects, linked to the articles that mention them.
 - **864 academic references** — scholarship on Islam in the region, mostly in French and English, with some other languages.
-- **26 association documents** (reports, flyers — mostly Burkina Faso) and **45 audiovisual recordings** (Nigeria, incl. Hausa/Arabic).
+- **26 association documents** (reports, flyers — mostly Burkina Faso) and **~47 audiovisual recordings** (Nigeria, incl. Hausa/Arabic).
 
 ## Why the press matters (talking points)
 

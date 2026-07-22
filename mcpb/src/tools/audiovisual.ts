@@ -99,7 +99,7 @@ export function registerAudiovisualTools(server: Server): void {
     {
       ...toolMeta("List audiovisual materials"),
       description:
-        "List audiovisual materials (currently 45 Nigerian recordings, incl. Hausa/Arabic content).",
+        "List audiovisual materials (Nigerian recordings, incl. Hausa/Arabic content).",
       inputSchema: {
         country: countryParam({ nigeria: true, note: "The subset is currently all Nigeria" }),
         limit: z.number().int().optional().describe("Default 20, max 50"),
