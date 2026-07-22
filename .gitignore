@@ -9,6 +9,8 @@ mcpb/server/
 mcpb/*.mcpb
 iwac-mcp-skill.zip
 .duckdb-binding-stash/
+# Crash-recovery manifest copy written by mcpb/scripts/pack-platforms.mjs
+mcpb/manifest.json.orig
 # Generated per-release by mcpb/scripts/make-server-json.mjs (embeds artifact
 # hashes) — regenerate, never hand-edit or commit.
 /server.json

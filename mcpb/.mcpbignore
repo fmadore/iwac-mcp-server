@@ -13,6 +13,20 @@ test/
 
 # Built bundles (never pack a bundle inside another bundle)
 *.mcpb
+manifest.json.orig
+
+# Dev-only node_modules trees: the packed bundle needs ONLY @duckdb/* and
+# @google/genai (the two externals of the esbuild bundle). `mcpb clean` also
+# prunes dev packages, but listing the toolchain here makes the exclusion
+# structural rather than tool-dependent.
+node_modules/.bin/
+node_modules/@anthropic-ai/
+node_modules/@types/
+node_modules/@esbuild/
+node_modules/esbuild/
+node_modules/typescript/
+node_modules/tsx/
+node_modules/rimraf/
 
 # Dev metadata
 .gitignore

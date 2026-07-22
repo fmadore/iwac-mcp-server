@@ -4,7 +4,7 @@
 // each tool supplies only its subset specifics. A future
 // semantic_search_references (pending the embedding_abstract column) plugs in
 // the same way.
-import { ensureView, getManyByIds, query, viewName } from "../db.js";
+import { ensureView, getManyByIds, query, viewName, type Bindable } from "../db.js";
 import { semanticSearch } from "../embeddings.js";
 import type { Subset } from "../config.js";
 import {
@@ -22,7 +22,7 @@ export async function runSemanticSearchTool(opts: {
   /** SELECT list for the summary rows, given the live schema. */
   summaryCols: (schema: Set<string>) => string;
   /** Append subset-specific SQL prefilters (country, newspaper, dates…). */
-  buildCandidateFilters?: (schema: Set<string>, where: string[], params: unknown[]) => void;
+  buildCandidateFilters?: (schema: Set<string>, where: string[], params: Bindable[]) => void;
   /** Echoed back as `filters` so the model sees which filters applied. */
   filtersEcho: Record<string, unknown>;
 }): Promise<ReturnType<typeof textResult> | ReturnType<typeof errorResult>> {
@@ -34,7 +34,7 @@ export async function runSemanticSearchTool(opts: {
     // Optional SQL prefilter: semantic ranking then runs only over the
     // candidate ids, so metadata filters compose with similarity search.
     const candidateWhere: string[] = [];
-    const candidateParams: unknown[] = [];
+    const candidateParams: Bindable[] = [];
     opts.buildCandidateFilters?.(schema, candidateWhere, candidateParams);
     const candidateRows = candidateWhere.length
       ? await query(

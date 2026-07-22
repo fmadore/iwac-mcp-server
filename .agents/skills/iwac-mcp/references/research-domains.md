@@ -169,7 +169,7 @@ Server matching is **accent- and case-insensitive** (v0.6.0+), so `pelerinage` a
 
 - **Keyword search terms must be French for primary-source subsets** — develop keyword terms in French ("pèlerinage", "éducation", "terrorisme"), not English, even when the user asks in another language. Academic references are multilingual: search titles/abstracts with French and English concept terms when relevant, while keeping metadata/filter values in French. Semantic embedding queries may be in any language.
 - **Accents and case don't affect matching** (server ≥ 0.6.0). Spelling still does: try transliteration variants (madrasa/médersa, Maouloud/Mouloud/Mawlid).
-- **Country filters take exact names:** Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo (+ Nigeria for references/index/audiovisual). Partial names return nothing.
+- **Country filters take exact names:** Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo (+ Nigeria for references/index/audiovisual). Partial names ("Burkina") are invalid and return an error listing the valid values.
 - **Start broad, then narrow:** begin with a general term (e.g., "madrasa"), then add country or date filters.
 - **Check the index first:** use `search_index` to find the canonical form of a person/organization name, then search articles with that exact form.
 - **Prefer `subject` over `keyword`** for known thematic categories: `keyword` searches title + OCR + AI abstract; `subject` searches the curated tags (which may use different terminology than the OCR text). Discover tags via `list_subjects`.

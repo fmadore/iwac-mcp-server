@@ -16,6 +16,10 @@ There are two ways to connect, depending on which assistant you use:
 - **[ChatGPT](#chatgpt)** — connect to the hosted endpoint as a custom
   connector. Requires a paid ChatGPT plan.
 
+Other MCP clients (Claude Code, IDE integrations, custom agents) can use the
+same hosted Streamable-HTTP endpoint, `https://islam.zmo.de/mcp/`, with no
+authentication.
+
 Both connections are **read-only**. They never change the collection — they only
 search and read it. All matching is accent- and case-insensitive, and every
 result links back to the canonical record on `islam.zmo.de`.

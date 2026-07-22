@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ensureView, getById, q, query, selectList, viewName } from "../db.js";
+import { ensureView, getById, q, query, selectList, viewName, type Bindable } from "../db.js";
 import { config } from "../config.js";
 import { runSemanticSearchTool } from "./_semantic.js";
 import {
@@ -7,6 +7,7 @@ import {
   capText,
   COUNTRIES,
   countryFilterIfExists,
+  countryParam,
   errorResult,
   extractMatchingTocEntries,
   keywordExcerpts,
@@ -41,17 +42,15 @@ export function registerPublicationTools(server: Server): void {
     {
       ...toolMeta("Search publications"),
       description:
-        "Search Islamic publications (periodical issues, books). `keyword` matches title, subject and full OCR text; " +
-        "use French concept keywords regardless of the user's report language. Filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
+        "Search Islamic publications (periodical issues, books). `keyword` matches title, subject, table of contents, and full OCR text " +
+        "(TOC hits come back as matching_toc_entries); use French concept keywords regardless of the user's report language. " +
+        "Filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
         "get_publication_fulltext for keyword excerpts from a single issue.",
       inputSchema: {
-        keyword: z.string().optional().describe("French concept keyword; substring match on title + subject + OCR (accent-insensitive)"),
+        keyword: z.string().optional().describe("French concept keyword; substring match on title + subject + table of contents + OCR (accent-insensitive)"),
         newspaper: z.string().optional().describe("Periodical/series title (see list_periodicals)"),
         subject: z.string().optional().describe("Subject tag (~87% of issues are tagged)"),
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        country: countryParam(),
         date_from: z.string().optional().describe("Earliest year, YYYY"),
         date_to: z.string().optional().describe("Latest year, YYYY"),
         limit: z.number().int().optional().describe("Default 20, max 100"),
@@ -66,7 +65,7 @@ export function registerPublicationTools(server: Server): void {
       const offset = capOffset(args.offset);
 
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
       keywordFilter(schema, where, params, TEXT_COLS.publications, args.keyword);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
@@ -107,10 +106,7 @@ export function registerPublicationTools(server: Server): void {
         "List the Islamic periodical/series titles in the publications subset, with issue counts and year ranges. " +
         "Use the returned newspaper value as the `newspaper` filter on search_publications.",
       inputSchema: {
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        country: countryParam(),
       },
       outputSchema: PERIODICALS_OUTPUT,
     },
@@ -120,7 +116,7 @@ export function registerPublicationTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       if (!schema.has("newspaper")) return structuredResult({ total_periodicals: 0, periodicals: [] });
       const where: string[] = [`NULLIF(trim(newspaper), '') IS NOT NULL`];
-      const params: unknown[] = [];
+      const params: Bindable[] = [];
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       const dateCols = schema.has("pub_date")
         ? `, MIN(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS earliest_year,` +
@@ -220,10 +216,7 @@ export function registerPublicationTools(server: Server): void {
         "The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
       inputSchema: {
         query: z.string().describe("Natural-language query, any language"),
-        country: z
-          .string()
-          .optional()
-          .describe("Exact country name: Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo (accents optional)"),
+        country: countryParam(),
         limit: z.number().int().optional().describe("Default 10, max 50"),
       },
     },

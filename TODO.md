@@ -119,14 +119,15 @@
   [#6](https://github.com/fmadore/iwac-mcp-server/issues/6).
 
 - [ ] **Enrich `research-domains.md` with actual IWAC frequency data**
-  Use `list_subjects` (200 subjects), `list_persons`, and `list_locations` to
+  Use `list_subjects` (214 subjects), `list_persons`, and `list_locations` to
   replace manually curated search terms with data-grounded suggestions
   including actual frequencies.
 
-- [ ] **Publish the `iwac-mcp` research skill** separately (Claude Skills
-  repository or as part of the bundle once skill packaging is supported).
-  Currently lives under `.claude/skills/iwac-mcp/`. Related but distinct from
+- [ ] **Publish the `iwac-mcp` research skill to the Claude Skills repository**
+  (it already ships as a standalone `iwac-mcp-skill.zip` release asset on every
+  tag — this item is about the Skills library specifically). Source of truth is
+  `.agents/skills/iwac-mcp/`. Related but distinct from
   [#4](https://github.com/fmadore/iwac-mcp-server/issues/4) (adapting the skill
   for non-Claude models). NB: the copy in the claude.ai Skills library
   (`anthropic-skills:iwac-mcp`) predates v0.5 — replace it with
-  `.claude/skills/iwac-mcp/` or delete it.
+  `.agents/skills/iwac-mcp/` or delete it.

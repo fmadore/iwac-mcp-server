@@ -6,11 +6,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readFileSync } from "node:fs";
+import { checkManifestParity, createHarness } from "./test/_harness.mjs";
 
 // Pins against the LIVE dataset revision — these are the dataset-drift alarm.
 // After a dataset refresh, update them here (one place) if the checks fire.
 const EXPECTED = {
-  audiovisualTotal: 45,
+  audiovisualTotal: 47, // 45 -> 47 in the July 2026 dataset refresh
   nigerArticles: 1061,
   toolsCore: 25, // semantic disabled (2 semantic tools are dropped entirely)
   toolsWithSemantic: 27,
@@ -28,11 +29,7 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "smoke", version: "0.0.0" });
 await client.connect(transport);
 
-let failures = 0;
-function fail(msg) {
-  failures++;
-  console.error(`  FAIL: ${msg}`);
-}
+const { call, fail, failures } = createHarness(client, { verbose: true, timeoutMs: 5 * 60_000 });
 
 const serverVersion = client.getServerVersion()?.version;
 console.log(`server version: ${serverVersion}`);
@@ -73,59 +70,7 @@ if (!semanticOn && semanticPresent.length !== 0) fail(`semantic disabled but sti
 // The manifest's advertised tool list must track what the server registers
 // (the two optional semantic tools are always advertised in the manifest).
 const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
-const manifestNames = new Set(manifest.tools.map((t) => t.name));
-const registered = new Set(tools.tools.map((t) => t.name));
-for (const n of registered) {
-  if (!manifestNames.has(n)) fail(`tool ${n} is registered but missing from manifest.json tools[]`);
-}
-for (const n of manifestNames) {
-  const optional = n.startsWith("semantic_search_");
-  if (!registered.has(n) && !optional) fail(`manifest.json advertises ${n} but the server does not register it`);
-}
-
-/**
- * Call a tool and run assertions. opts:
- *   expectError — the call SHOULD return isError (default false)
- *   structured — the tool declares an outputSchema, so the result must carry a
- *     structuredContent that exactly mirrors the text block
- *   check(parsed, body) — runs on success only; return a failure message or falsy
- *   checkBody(body) — runs on the raw text regardless of error state (use to
- *     assert the shape of an expected error, e.g. valid_values / valid_categories)
- */
-async function call(name, args, opts = {}) {
-  const res = await client.callTool({ name, arguments: args }, undefined, { timeout: 5 * 60_000 });
-  const body = res.content?.[0]?.text ?? "";
-  const isErr = res.isError === true;
-  const preview = body.slice(0, 220).replace(/\s+/g, " ");
-  console.log(`\n[${name}] ${isErr ? "ERROR " : ""}${body.length} chars | ${preview}${body.length > 220 ? "..." : ""}`);
-  if (isErr !== (opts.expectError ?? false)) {
-    fail(`${name}: isError=${isErr}, expected ${opts.expectError ?? false} — ${body.slice(0, 200)}`);
-    return null;
-  }
-  let parsed = null;
-  if (!isErr) {
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      fail(`${name}: response is not valid JSON`);
-      return null;
-    }
-    if (opts.structured) {
-      if (!res.structuredContent) fail(`${name}: missing structuredContent (outputSchema declared)`);
-      else if (JSON.stringify(res.structuredContent) !== JSON.stringify(parsed))
-        fail(`${name}: structuredContent does not mirror the text block`);
-    }
-  }
-  if (opts.check && parsed) {
-    const msg = opts.check(parsed, body);
-    if (msg) fail(`${name}: ${msg}`);
-  }
-  if (opts.checkBody) {
-    const msg = opts.checkBody(body);
-    if (msg) fail(`${name}: ${msg}`);
-  }
-  return parsed;
-}
+checkManifestParity(fail, manifest, new Set(tools.tools.map((t) => t.name)));
 
 // --- cold-start fan-out (regression guard) ---------------------------------
 // MUST be the first tool call: get_collection_stats fans ensureView() across
@@ -287,16 +232,28 @@ await call("get_article", { article_id: 67613 }, {
 });
 
 // --- documents ----------------------------------------------------------------
+// Individual documents may legitimately lack OCR (the July 2026 refresh added
+// one that sorts first), so drill through the first few results until one
+// yields OCR text instead of pinning results[0] — the check guards OCR
+// *retrieval*, not any single item's contents.
 const docs = await call("search_documents", {}, {
   check: (p) => (p.total_matches >= 20 ? null : `expected ~26 documents, got ${p.total_matches}`),
 });
-const docId = docs?.results?.[0]?.id;
-if (docId) {
-  await call("get_document", { document_id: Number(docId) }, {
-    check: (p) => (p.ocr_text ? null : "get_document returned no OCR"),
-  });
-} else {
+const docIds = (docs?.results ?? []).map((r) => r.id).filter(Boolean).slice(0, 5);
+if (docIds.length === 0) {
   fail("search_documents returned no id to drill into");
+} else {
+  let sawOcr = false;
+  for (const id of docIds) {
+    const doc = await call("get_document", { document_id: Number(id) }, {
+      check: (p) => (p.id ? null : "get_document returned no row"),
+    });
+    if (doc?.ocr_text) {
+      sawOcr = true;
+      break;
+    }
+  }
+  if (!sawOcr) fail(`none of the first ${docIds.length} documents returned OCR text (retrieval regressed?)`);
 }
 
 // --- unified search / fetch (OpenAI Deep Research contract) -------------------
@@ -395,5 +352,5 @@ await call("get_article", { article_id: 1 }, { expectError: true });
 await client.close();
 await transport.close();
 
-console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
-process.exitCode = failures === 0 ? 0 : 1;
+console.log(`\n${failures() === 0 ? "ALL CHECKS PASSED" : `${failures()} CHECK(S) FAILED`}`);
+process.exitCode = failures() === 0 ? 0 : 1;

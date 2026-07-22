@@ -14,7 +14,7 @@ description: |
 
 # IWAC MCP Research Workflow
 
-Structured methodology for academic research using the IWAC MCP server's 27 possible tools (25 core + 2 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.8.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below).
+Structured methodology for academic research using the IWAC MCP server's 27 possible tools (25 core + 2 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.9.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below). The essentials of this guidance are mirrored in the server's MCP `instructions` string (`mcpb/src/index.ts`) for skill-less clients — when updating one, update the other.
 
 ## Prerequisites
 
@@ -81,7 +81,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 1. **Keyword search terms must be French for primary-source subsets** — develop keyword terms in French for articles, publications, documents, and index searches. Academic references are multilingual: search titles/abstracts with French and English concept terms when relevant, while keeping metadata/filter values in French. Semantic embedding queries may be in any language.
 2. **Accents no longer matter for matching** (server ≥ 0.6.0 folds accents and case on both sides): `pelerinage` finds `pèlerinage`, `Bénin` finds `Benin`, `These` finds `Thèse de doctorat`. Still write proper French in outputs.
 3. **Enumerated filters are validated — an invalid value is a hard error, not a silent zero.** `country` (`Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Nigeria`, `Togo`), `polarity`, `centrality`, and `index_type` are checked accent/case-insensitively; an unrecognised value returns `{error, valid_values}` (`isError`) — pick the right value and retry, never read it as a finding. A **valid** value that yields 0 rows (e.g. `country="Nigeria"` on `search_articles`) is a real finding. Partial names ("Burkina") are invalid. Free-text filters (`newspaper`, `subject`, `author`, `reference_type`, `language`) are **not** validated — a typo there still returns 0 silently, so sanity-check them.
-4. **Know each tool's keyword scope.** Articles: title + OCR + AI abstract. Publications: title + subject + OCR. References: title + abstract, **one term per call** (substring match — "pèlerinage Mecque" as one string misses everything). For curated themes, prefer the `subject` parameter over `keyword`.
+4. **Know each tool's keyword scope.** Articles: title + OCR + AI abstract. Publications: title + subject + table of contents + OCR (TOC hits come back as `matching_toc_entries` — see rule 5). References: title + abstract, **one term per call** (substring match — "pèlerinage Mecque" as one string misses everything). For curated themes, prefer the `subject` parameter over `keyword`.
 5. **Tables of contents now cover part of the publications corpus** (verified June 2026): 325/1,501 issues (~22%) have a TOC + embedding — complete for 17 of the 25 series (the smaller magazines: Le Rendez-Vous, Plume Libre, L'Appel, Alif, La Preuve, An-Nasr Trimestriel, Le CERFIste…), but absent for the three largest (Islam Info 695 issues, An-Nasr Vendredi 318, Islam Hebdo 122). `search_publications` keyword also matches TOCs and returns the matching entries as `matching_toc_entries`; `semantic_search_publications` is genuinely useful for the TOC-covered series. For the big three series, navigate via `list_periodicals`, `subject` (87% tagged), country, and year; use OCR `keyword` for content, and `get_publication_fulltext` (capped keyword excerpts) to read inside one long issue.
 6. **Triage on AI abstracts before reading OCR.** `search_articles(with_description=true, limit≤10)` returns each article's ~500-char `description_ai` — usually enough to pick the 2-3 articles worth a full `get_article` (~1k tokens each).
 7. **Niger and Nigeria are dramatically underrepresented.** Always disclose this in cross-country comparisons (see biases-and-limitations.md §2).
@@ -105,7 +105,8 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 2. Use `get_country_comparison` to assess geographic coverage relevant to the question
 3. Use `get_newspaper_stats` with country filter to identify which newspapers cover the topic
 4. Use `list_subjects` to discover relevant subject terms; `list_periodicals` if Islamic publications are in scope
-5. Identify which subsets are relevant: articles (press), publications (Islamic media), references (scholarship), documents (association papers), index (authority records)
+5. Use `get_temporal_distribution` (keyword/country/subject filters; per-year or per-month counts) to see WHEN coverage exists before searching — one call replaces paging through results to gauge a trend
+6. Identify which subsets are relevant: articles (press), publications (Islamic media), references (scholarship), documents (association papers), index (authority records)
 
 **Constraint:** Keep `limit` low (5-10) during scoping to save tokens. Use brief queries first, then drill down.
 
@@ -123,7 +124,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 7. Use `search_publications` (series/subject/country/year filters; keyword matches title + subject + TOC + OCR, with TOC hits returned as `matching_toc_entries`) for Islamic community media; `semantic_search_publications` (if enabled) works for the 17 TOC-covered series
 8. Use `search_references` for academic literature -- one keyword per call; search title/abstract keywords in French and English when relevant, while using French metadata/filter values; drill into promising hits with `get_reference` (full abstract, 51% have one)
 9. Use `search_documents` when grassroots/association sources could matter (26 items, mostly Burkina Faso)
-10. Use `search_audiovisual` / `list_audiovisual` when Nigerian Hausa/Arabic recordings are in scope (45 items; AI descriptions are currently empty)
+10. Use `search_audiovisual` / `list_audiovisual` when Nigerian Hausa/Arabic recordings are in scope (~47 items; AI descriptions are currently empty)
 11. **Record every search and its result count**, including zero-result searches -- null results constrain interpretation
 12. Use `date_from`/`date_to` for temporal filtering -- articles take `YYYY-MM-DD` or `YYYY` (day precision); publications and references take years
 
@@ -151,7 +152,8 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 1. Cross-reference MCP findings across subsets (articles vs. publications vs. references vs. documents vs. index)
 2. Use `get_sentiment_distribution` with `subject` filter to compare topic-specific sentiment against the collection baseline (e.g., `subject="Laïcité", country="Burkina Faso"` vs. the whole BF corpus)
 3. Use `search_articles` results (which include sentiment inline) to build topic-specific sentiment tables without extra calls
-4. Flag coverage gaps: which countries, time periods, or languages are underrepresented for this question?
+4. Use `get_temporal_distribution` (optionally `group_by=country|newspaper`) to verify a claimed trend over time and compare trajectories across countries or outlets without paging
+5. Flag coverage gaps: which countries, time periods, or languages are underrepresented for this question?
 
 ### Phase 5 -- Synthesis
 
@@ -176,7 +178,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 
 ## Documentation Conventions
 
-**For MCP article citations:** Item ID, title, newspaper, date, country, IWAC URL. Example: `#5736, "La communauté musulmane célèbre le Maouloud", Togo-Presse, 2005-04-23, Togo, https://islam.zmo.de/s/westafrica/item/5736`
+**For MCP article citations:** Item ID, title, newspaper, date, country, IWAC URL — use each result's `url` field verbatim. Example: `#5736, "La communauté musulmane célèbre le Maouloud", Togo-Presse, 2005-04-23, Togo, https://islam.zmo.de/s/afrique_ouest/item/5736`
 
 **For MCP index citations:** Entry ID, title, type, frequency. Example: `Index #1234, "CERFI", Organisation, frequency: 45`
 

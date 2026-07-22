@@ -19,8 +19,19 @@ import { ROOT, ensureBindings, supportedBindings } from "./duckdb-bindings.mjs";
 
 const DUCKDB_DIR = path.join(ROOT, "node_modules", "@duckdb");
 const MANIFEST = path.join(ROOT, "manifest.json");
+// Crash-recovery copy of the pristine manifest: written before the first
+// in-place mutation, deleted after the finally-restore. If a previous run was
+// SIGKILLed mid-pack (finally never ran), the single-platform manifest it left
+// behind is restored from this file on the next run instead of being packed —
+// or worse, committed.
+const MANIFEST_BACKUP = path.join(ROOT, "manifest.json.orig");
 // Stash lives one level above the pack dir (mcpb/) so it is never swept into a bundle.
 const STASH = path.join(ROOT, "..", ".duckdb-binding-stash");
+
+// The mcpb CLI from our own devDependencies, invoked by path so the script
+// works under plain `node scripts/pack-platforms.mjs`, not only via npm run
+// (which is what put node_modules/.bin on PATH before).
+const MCPB_BIN = path.join(ROOT, "node_modules", ".bin", process.platform === "win32" ? "mcpb.cmd" : "mcpb");
 
 const TARGETS = [
   {
@@ -47,8 +58,29 @@ const bindingDirNames = () =>
     ? fs.readdirSync(DUCKDB_DIR).filter((d) => /^node-bindings-(darwin|win32|linux)-/.test(d))
     : [];
 
+// Recover from a previous hard-killed run before reading the manifest.
+if (fs.existsSync(MANIFEST_BACKUP)) {
+  console.error("recovering pristine manifest.json from manifest.json.orig (previous run was interrupted)");
+  fs.copyFileSync(MANIFEST_BACKUP, MANIFEST);
+  fs.rmSync(MANIFEST_BACKUP);
+}
+// Same for stashed bindings a killed run left outside node_modules.
+if (fs.existsSync(STASH)) {
+  for (const d of fs.readdirSync(STASH)) {
+    const dest = path.join(DUCKDB_DIR, d);
+    if (!fs.existsSync(dest)) fs.renameSync(path.join(STASH, d), dest);
+  }
+  fs.rmSync(STASH, { recursive: true, force: true });
+}
+
+if (!fs.existsSync(MCPB_BIN)) {
+  console.error(`mcpb CLI not found at ${MCPB_BIN} — run: npm install`);
+  process.exit(1);
+}
+
 const originalManifest = fs.readFileSync(MANIFEST, "utf8");
 const manifest = JSON.parse(originalManifest);
+fs.writeFileSync(MANIFEST_BACKUP, originalManifest);
 
 try {
   for (const target of TARGETS) {
@@ -68,12 +100,12 @@ try {
     // Per-bundle manifest declares only this OS, so Claude Desktop refuses a
     // wrong-OS install instead of shipping a binary that can't load.
     manifest.compatibility.platforms = [target.os];
-    fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + "\n");
+    fs.writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
 
     try {
       fs.rmSync(path.join(ROOT, target.outfile), { force: true });
-      execSync(`mcpb pack . ${target.outfile}`, { cwd: ROOT, stdio: "inherit" });
-      execSync(`mcpb clean ${target.outfile}`, { cwd: ROOT, stdio: "inherit" });
+      execSync(`"${MCPB_BIN}" pack . ${target.outfile}`, { cwd: ROOT, stdio: "inherit" });
+      execSync(`"${MCPB_BIN}" clean ${target.outfile}`, { cwd: ROOT, stdio: "inherit" });
       const mb = (fs.statSync(path.join(ROOT, target.outfile)).size / 1048576).toFixed(1);
       console.error(`-> ${target.outfile}: ${mb} MB  (bindings: ${[...keep].join(", ")})`);
     } finally {
@@ -83,6 +115,7 @@ try {
   }
 } finally {
   fs.writeFileSync(MANIFEST, originalManifest);
+  fs.rmSync(MANIFEST_BACKUP, { force: true });
 }
 
 console.error("\nDone. Upload both per-OS .mcpb files to the GitHub release.");

@@ -4,8 +4,10 @@
 # reverse proxy + compose service — is documented in docs/iwac-mcp-roadmap.md in
 # the IWAC-docker repo. The Claude Desktop / stdio path is unaffected by this image.
 
+# Node major kept in step with ci.yml and docker-publish.yml (NODE_VERSION):
+# the image runs the same runtime the tests ran on.
 # ---- build ----
-FROM node:26-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -13,7 +15,7 @@ COPY . .
 RUN npm run typecheck && npm run build
 
 # ---- runtime ----
-FROM node:26-alpine
+FROM node:24-alpine
 # MCP Registry ownership proof for the OCI package type: the registry verifies
 # this label matches the server name in server.json before accepting a ghcr.io
 # package entry. Harmless otherwise.
@@ -26,7 +28,8 @@ ENV NODE_ENV=production \
 # Production deps only. The esbuild bundle inlines the MCP SDK + zod but keeps
 # @duckdb/* (native) and @google/genai external, so they must be installed here.
 # On linux this also resolves @duckdb/node-bindings-linux-x64 via @duckdb/node-api;
-# a missing binding is a runtime crash, not a build error — the smoke check covers it.
+# a missing binding is a runtime crash, not a build error — the container smoke
+# test in .github/workflows/docker-publish.yml boots the image to catch it.
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/server ./server

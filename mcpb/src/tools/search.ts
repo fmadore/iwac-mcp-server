@@ -10,11 +10,13 @@
 // cross-subset shortcut for everyone else; the richer search_*/get_* tools
 // remain available for filtered queries.
 import { z } from "zod";
-import { ensureView, getById, q, query, selectList, viewName } from "../db.js";
+import { ensureView, getById, q, query, viewName, type Bindable } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
 import {
   capText,
+  detailColsFor,
   errorResult,
+  escapeLike,
   foldedLike,
   limitWarning,
   resolveLimit,
@@ -59,7 +61,7 @@ export function tokenizedWhere(
   cols: string[],
   queryStr: string,
   where: string[],
-  params: unknown[],
+  params: Bindable[],
 ): boolean {
   const present = cols.filter((c) => schema.has(c));
   if (!present.length) return false;
@@ -70,7 +72,7 @@ export function tokenizedWhere(
   if (!tokens.length) return false;
   for (const token of tokens) {
     where.push(`(${present.map((c) => foldedLike(q(c))).join(" OR ")})`);
-    for (let i = 0; i < present.length; i++) params.push(`%${token}%`);
+    for (let i = 0; i < present.length; i++) params.push(`%${escapeLike(token)}%`);
   }
   return true;
 }
@@ -88,7 +90,7 @@ async function searchSubset(subset: Subset, queryStr: string, limit: number): Pr
   if (!schema.has("o:id") || !schema.has("iwac_url") || !schema.has(titleCol)) return [];
 
   const where: string[] = [];
-  const params: unknown[] = [];
+  const params: Bindable[] = [];
   if (!tokenizedWhere(schema, TEXT_COLS[subset], queryStr, where, params)) return [];
 
   // Rank: most-referenced authority entries first, otherwise newest first.
@@ -126,77 +128,9 @@ export function interleave(lists: Hit[][], limit: number): Hit[] {
   return out;
 }
 
-/**
- * Per-subset detail projection for `fetch`: aliases the title, canonical url,
- * and main text body to stable keys (`title`, `url`, `text`); every other
- * selected column becomes part of `metadata`. Deliberately excludes embedding
- * vectors and lexical-metric columns to keep responses lean.
- */
-function detailCols(subset: Subset, schema: Set<string>): string {
-  const common: Array<string | [string, string, string[]?]> = [
-    ['"o:id"', "id", ["o:id"]],
-    ["iwac_url", "url", ["iwac_url"]],
-  ];
-  switch (subset) {
-    case "articles":
-      return selectList(schema, [
-        ...common,
-        "title", "author", "newspaper", "country",
-        ["pub_date", "date", ["pub_date"]],
-        "subject", "spatial", "language",
-        ["gemini_polarite", "polarity", ["gemini_polarite"]],
-        ["gemini_centralite_islam_musulmans", "centrality", ["gemini_centralite_islam_musulmans"]],
-        ['"descriptionAI"', "description_ai", ["descriptionAI"]],
-        ['"OCR"', "text", ["OCR"]],
-      ]);
-    case "publications":
-      return selectList(schema, [
-        ...common,
-        "title", "newspaper", "country",
-        ["pub_date", "date", ["pub_date"]],
-        "subject", "language",
-        ['"tableOfContents"', "table_of_contents", ["tableOfContents"]],
-        ['"OCR"', "text", ["OCR"]],
-      ]);
-    case "references":
-      return selectList(schema, [
-        ...common,
-        "title", "author", "editor", "type",
-        ["pub_date", "date", ["pub_date"]],
-        "publisher", "book_title", "volume", "issue", "page_start", "page_end",
-        "language", "country", "doi",
-        ["abstract", "text", ["abstract"]],
-      ]);
-    case "documents":
-      return selectList(schema, [
-        ...common,
-        "title", "author", "country",
-        ["pub_date", "date", ["pub_date"]],
-        "type", "subject", "language",
-        ['"descriptionAI"', "description_ai", ["descriptionAI"]],
-        ['"OCR"', "text", ["OCR"]],
-      ]);
-    case "index":
-      return selectList(schema, [
-        ...common,
-        [q("Titre"), "title", ["Titre"]],
-        [q("Type"), "type", ["Type"]],
-        [q("Description"), "text", ["Description"]],
-        "frequency", "first_occurrence", "last_occurrence", "countries",
-      ]);
-    case "audiovisual":
-      return selectList(schema, [
-        ...common,
-        "title", "creator", "publisher", "country",
-        ["pub_date", "date", ["pub_date"]],
-        "volume", "issue", "is_part_of", "extent", "medium", "subject", "spatial", "language", "source",
-        ["PDF", "media_url", ["PDF"]],
-        "iiif_manifest", "thumbnail",
-        ['"descriptionAI"', "text", ["descriptionAI"]],
-      ]);
-  }
-  // Unreachable (switch is exhaustive over Subset); satisfies the compiler.
-  return selectList(schema, common);
+/** Type guard justifying the string → Subset narrowing in `fetch`. */
+function isSubset(s: string): s is Subset {
+  return (ALL_SUBSETS as string[]).includes(s);
 }
 
 /**
@@ -318,14 +252,14 @@ export function registerSearchTools(server: Server): void {
           valid_categories: ALL_SUBSETS,
         });
       }
-      const subset = m[1].toLowerCase() as Subset;
+      const subset = m[1].toLowerCase();
       const localId = m[2].trim();
-      if (!ALL_SUBSETS.includes(subset)) {
+      if (!isSubset(subset)) {
         return errorResult({ error: `Unknown category '${subset}'.`, valid_categories: ALL_SUBSETS });
       }
 
       const schema = await ensureView(subset);
-      const row = await getById(subset, detailCols(subset, schema), localId);
+      const row = await getById(subset, detailColsFor(subset, schema, "fetch"), localId);
       if (!row) {
         return errorResult({
           error: `No ${subset} item with id '${localId}'.`,

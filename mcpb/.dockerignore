@@ -7,3 +7,12 @@ server
 .DS_Store
 *.log
 npm-debug.log*
+# Not needed to build/run the image; keeps test edits and locally generated
+# fixtures from invalidating the COPY layer or bloating the build context.
+test
+smoke-test.mjs
+manifest.json
+manifest.json.orig
+.mcpbignore
+icon.png
+README.md

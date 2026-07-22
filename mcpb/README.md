@@ -35,23 +35,26 @@ cd mcpb
 npm install
 npm run install-bindings                    # fetch the 4 macOS/Windows binaries
 npm run typecheck                           # tsc --noEmit (type safety)
+npm run lint                                # biome (linter only, no formatting)
 npm run build                               # esbuild -> server/index.js (single file)
-npm test                                    # unit tests + offline fixture MCP round-trip
+npm test                                    # unit + offline fixture + HTTP round-trips
 npm run test:live                           # full smoke test against the real dataset
 ```
 
-`npm test` is hermetic: `test/unit.test.ts` covers the pure helpers, and
-`test/fixture-server.test.mjs` spawns the built server against synthetic parquet
-fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1` — no network, runs
-in seconds. `npm run test:live` (smoke-test.mjs) exercises every tool against
-the real Hugging Face dataset; its pinned counts double as a dataset-drift
-alarm and run weekly in CI.
+`npm test` is hermetic: `test/unit.test.ts` covers the pure helpers,
+`test/fixture-server.test.mjs` spawns the built server over stdio against
+synthetic parquet fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1`,
+and `test/http-server.test.mjs` does the same over the `--http` transport
+(bearer auth, /health, body cap, a real Streamable-HTTP MCP call) — no network,
+runs in seconds. `npm run test:live` (smoke-test.mjs) exercises every tool
+against the real Hugging Face dataset; its pinned counts double as a
+dataset-drift alarm and run weekly in CI.
 
 Pack the per-OS server bundles (one `.mcpb` per OS, each with only that OS's
 DuckDB binaries):
 
 ```bash
-npm run release        # prepack-mcpb + install-bindings + pack-platforms
+npm run release        # prepack-mcpb + install-bindings + pack-platforms + pack-skill + make-server-json
 # or just repackage without rebuilding server/index.js:
 npm run pack-platforms # -> iwac-mcp-server-windows.mcpb + iwac-mcp-server-macos.mcpb
 ```
@@ -92,20 +95,55 @@ mcp-publisher login github   # interactive; OIDC is CI-only
 mcp-publisher publish        # reads ./server.json
 ```
 
+## Remote HTTP / Docker deployment
+
+Every release also publishes a linux/amd64 image to
+**`ghcr.io/fmadore/iwac-mcp-server`** that runs the server in stateless
+Streamable-HTTP mode (`node server/index.js --http`) — this is what serves the
+public `https://islam.zmo.de/mcp/` endpoint (TLS, rate limiting, and the `/mcp`
+path mount are handled upstream by nginx). The server **refuses to start in
+HTTP mode without a bearer token**; an unauthenticated `GET /health` is exposed
+for container health checks.
+
+```bash
+docker run -d -p 8000:8000 \
+  -e IWAC_MCP_BEARER_TOKEN=<your-secret-token> \
+  -v iwac-cache:/cache \
+  ghcr.io/fmadore/iwac-mcp-server:latest
+```
+
+Environment variables (all transports unless noted):
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `IWAC_CACHE_DIR` | `~/.iwac-mcp/cache` (`/cache` in Docker) | Where parquet data is cached (~250 MB) |
+| `IWAC_OFFLINE` | `false` | Trust the cache as-is; never touch the network |
+| `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Register the two `semantic_search_*` tools |
+| `IWAC_GOOGLE_API_KEY` (or `GOOGLE_API_KEY` / `GEMINI_API_KEY`) | — | Gemini key for semantic search |
+| `IWAC_EMBEDDING_MODEL` | `gemini-embedding-2` | Query-embedding model (must match the dataset's) |
+| `IWAC_EMBEDDING_DIMENSIONALITY` | `768` | Query-embedding dimensionality |
+| `PORT` | `8000` | HTTP mode only: listen port |
+| `IWAC_MCP_BEARER_TOKEN` | — | HTTP mode only: the bearer token clients must send |
+| `IWAC_MCP_TOKEN_FILE` | `/run/secrets/iwac_mcp_token` | HTTP mode only: read the token from a mounted secret file instead |
+
 ## Layout
 
 | Path                         | Purpose                                         |
 | ---------------------------- | ----------------------------------------------- |
 | `manifest.json`              | MCPB manifest (version, tools, user_config)     |
 | `src/`                       | TypeScript sources, split into `tools/` modules |
+| `src/http.ts`                | Remote Streamable-HTTP transport (`--http`)     |
 | `server/index.js`            | Single esbuild bundle (server + MCP SDK + zod)  |
 | `node_modules/`              | Runtime externals: `@duckdb/*` + `@google/genai`|
+| `Dockerfile`                 | GHCR image for the remote HTTP deployment       |
+| `biome.json`                 | Lint configuration (`npm run lint`)             |
 | `scripts/bundle.mjs`         | esbuild config (single-file bundle)             |
 | `scripts/duckdb-bindings.mjs`| Shared helper: fetch/extract platform bindings  |
 | `scripts/install-duckdb-bindings.mjs` | Fetch the 4 macOS/Windows bindings     |
 | `scripts/pack-platforms.mjs` | Build one `.mcpb` per OS (Windows, macOS)       |
 | `scripts/make-fixtures.mjs`  | Generate synthetic parquet test fixtures        |
-| `test/`                      | Unit tests + offline fixture MCP test           |
+| `scripts/make-server-json.mjs` | Generate `server.json` for the MCP Registry   |
+| `test/`                      | Unit tests + offline fixture/HTTP MCP tests     |
 | `smoke-test.mjs`             | Live MCP round-trip test (real dataset)         |
 | `.mcpbignore`                | Files excluded from the `.mcpb` archive         |
 

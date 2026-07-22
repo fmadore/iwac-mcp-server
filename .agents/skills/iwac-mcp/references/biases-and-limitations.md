@@ -22,7 +22,7 @@ The collection has **deep coverage** for some countries and **very thin coverage
 | Benin | 2,003 | Moderate: mixed secular and Islamic press |
 | Togo | 1,570 | Moderate: several newspapers across decades |
 | Niger | 1,061 | Thin: a **single outlet** (Le Sahel), **2018–2024 only**, inconsistent subject tagging |
-| Nigeria | 0 | No press articles at all — 45 audiovisual items only |
+| Nigeria | 0 | No press articles at all — 47 audiovisual items only (July 2026) |
 
 **IMPORTANT:** Niger and Nigeria are dramatically underrepresented compared to Benin, Burkina Faso, Côte d'Ivoire, and Togo. Niger coverage is one state newspaper over seven recent years — no historical depth, and many articles lack subject tagging (e.g., 0 articles tagged with "Hadj" despite Niger being a major hajj departure country). Nigeria has no press articles in the collection. Any cross-country comparison involving Niger or Nigeria must prominently disclose this gap. Patterns found in Niger data may reflect tagging gaps or the single-outlet/short-window bias rather than genuine differences.
 
@@ -105,9 +105,9 @@ The 4,697 index entries (persons, organizations, places, events, subjects) repre
 ## 8. Search Limitations
 
 - **Substring matching only** — no wildcards, fuzzy matching, or Boolean operators. One term per call; run variants as separate searches.
-- **Keyword scope varies by tool:** articles = title + OCR + AI abstract; publications = title + subject + OCR; references = title + abstract. Keyword does NOT search the spatial field — use `subject` for curated tags.
+- **Keyword scope varies by tool:** articles = title + OCR + AI abstract; publications = title + subject + table of contents + OCR; references = title + abstract. Keyword does NOT search the spatial field — use `subject` for curated tags.
 - **Accents and case are folded** (server ≥ 0.6.0): `pelerinage`, `Bénin`, `These` all match. Spelling differences still matter.
-- **Country filters take exact names** (Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo; Nigeria only in references/index/audiovisual). Partial names return nothing.
+- **Country filters take exact names** (Benin, Burkina Faso, Côte d'Ivoire, Niger, Togo; Nigeria only in references/index/audiovisual). Partial names ("Burkina") are invalid and return an `{error, valid_values}` response — pick a valid value and retry; never read the error as a finding.
 - **Keyword search terms must be French for primary-source subsets** — formulate keyword terms in French for press, publications, documents, and index searches. Academic references are multilingual: search titles/abstracts with French and English concept terms when relevant, while keeping metadata/filter values in French. Semantic embedding queries may be in any language.
 
 ## Disclosure Template

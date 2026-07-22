@@ -5,15 +5,20 @@
   "private": true,
   "type": "module",
   "main": "server/index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
     "build": "node scripts/bundle.mjs",
     "start": "node server/index.js",
     "start:http": "node server/index.js --http",
     "clean": "rimraf server",
-    "test": "npm run test:unit && npm run test:fixture",
+    "test": "npm run test:unit && npm run test:fixture && npm run test:http",
     "test:unit": "tsx --test test/unit.test.ts",
     "test:fixture": "node scripts/make-fixtures.mjs && node test/fixture-server.test.mjs",
+    "test:http": "node scripts/make-fixtures.mjs && node test/http-server.test.mjs",
     "test:live": "node smoke-test.mjs",
     "prepack-mcpb": "npm run clean && npm run typecheck && npm run build",
     "install-bindings": "node scripts/install-duckdb-bindings.mjs",
@@ -40,6 +45,7 @@
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "^2.1.2",
+    "@biomejs/biome": "^2.5.4",
     "@types/node": "^26.0.0",
     "esbuild": "^0.28.1",
     "rimraf": "^6.1.3",
