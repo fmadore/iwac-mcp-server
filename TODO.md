@@ -46,15 +46,21 @@
 - [ ] **Add `screenshots/`** showing a research query in Claude Desktop — the
   directory listing surfaces these.
 
-- [ ] **Migrate to MCP TypeScript SDK v2** (after its stable release alongside
-  the 2026-07-28 spec — verified July 2026: `2.0.0-beta.2` current, v1.x is
-  maintenance-only). Breaking for this server: scoped packages
-  (`@modelcontextprotocol/server`), raw Zod shapes replaced by Standard Schema
-  objects (`z.object(...)`), `serveStdio()` / `createMcpHandler()` replacing the
-  v1 stdio + StreamableHTTP transports (stateless core). Start with the official
-  codemod (`npx @modelcontextprotocol/codemod@beta v1-to-v2 .`), then re-run the
-  fixture + live test suites. Re-check the final 2026-07-28 changelog first —
-  details were RC-stage when noted.
+- [ ] **Migrate to MCP TypeScript SDK v2** — wait for `2.0.0` stable. Verified
+  2026-07-23 (blog.modelcontextprotocol.io "SDK betas"): the *spec* finalizes
+  July 28, 2026, but SDK stables follow a ~4-week beta feedback window, so
+  stable lands ~late Aug 2026 (`@modelcontextprotocol/server` is at
+  `2.0.0-beta.5`; v1 `sdk` 1.29.0 remains latest, critical fixes ≥6 months).
+  Breaking for this server: scoped packages, raw Zod shapes → Standard Schema
+  objects (`z.object(...)` — zod 4 already in use), `serveStdio()` /
+  `createMcpHandler()` replacing the v1 stdio + StreamableHTTP transports
+  (stateless core), ESM-only + Node 20+ (both already true). Start with the
+  official codemod (`npx @modelcontextprotocol/codemod@beta v1-to-v2 .`), then
+  re-run the fixture + live test suites. The 2026-07-28 *protocol* changes were
+  audited against this server 2026-07-23 and need no action: stateless HTTP
+  already implemented, no resources (error-code change N/A), no roots/sampling/
+  logging capabilities (deprecations N/A), static bearer auth (OAuth hardening
+  N/A), single-backend proxy (routing headers N/A), read-only tools (MRTR N/A).
 
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 
