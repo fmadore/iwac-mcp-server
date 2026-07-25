@@ -9,12 +9,13 @@
 // `npm run build`.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { readFileSync } from "node:fs";
+import { cpSync, readFileSync, rmSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkManifestParity, createHarness } from "./_harness.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+let failuresFromDegraded = 0;
 
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -323,5 +324,52 @@ await call("search_articles", { keyword: "_" }, {
 await client.close();
 await transport.close();
 
-console.log(`\n${failures() === 0 ? "ALL FIXTURE CHECKS PASSED" : `${failures()} FIXTURE CHECK(S) FAILED`}`);
-process.exitCode = failures() === 0 ? 0 : 1;
+// --- degraded dataset: one subset unloadable ----------------------------------
+// A subset's first query downloads its parquet, so a single Hugging Face hiccup
+// can leave one subset unavailable while the other five are cached and fine.
+// `search` must then degrade to the healthy subsets AND name the missing ones —
+// a category silently absent from results reads as "nothing there", which is the
+// silent-zero trap the enum validation exists to prevent.
+{
+  const degradedDir = path.join(root, "test", "fixtures-degraded");
+  rmSync(degradedDir, { recursive: true, force: true });
+  cpSync(path.join(root, "test", "fixtures"), degradedDir, { recursive: true });
+  rmSync(path.join(degradedDir, "audiovisual"), { recursive: true, force: true });
+
+  const degradedTransport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.join(root, "server", "index.js")],
+    stderr: "ignore", // the subset-unavailable warning is expected here
+    env: { ...process.env, IWAC_CACHE_DIR: degradedDir, IWAC_OFFLINE: "1", IWAC_SEMANTIC_SEARCH_ENABLED: "false" },
+  });
+  const degradedClient = new Client({ name: "degraded-test", version: "0.0.0" });
+  await degradedClient.connect(degradedTransport);
+  const { call: degradedCall, failures: degradedFailures } = createHarness(degradedClient, { timeoutMs: 60_000 });
+
+  await degradedCall("search", { query: "pèlerinage" }, {
+    structured: true,
+    check: (p) => {
+      if (!p.results?.length) return "search should still return hits from the 5 healthy subsets";
+      if (p.results.some((r) => r.category === "audiovisual")) return "unloadable subset must not yield results";
+      if (!p.unavailable_categories?.includes("audiovisual"))
+        return `unavailable subset must be named, got ${JSON.stringify(p.unavailable_categories)}`;
+      if (!p.coverage_warning) return "missing coverage_warning for a partially unavailable search";
+      return null;
+    },
+  });
+  // A healthy subset's own search_* tool is unaffected by its neighbour's failure.
+  await degradedCall("search_articles", { country: "Bénin" }, {
+    check: (p) => (p.total_matches === 2 ? null : `healthy subset broken by neighbour failure: ${p.total_matches}`),
+  });
+  // The failing subset's own tool still reports the failure honestly.
+  await degradedCall("search_audiovisual", {}, { expectError: true });
+
+  failuresFromDegraded = degradedFailures();
+  await degradedClient.close();
+  await degradedTransport.close();
+  rmSync(degradedDir, { recursive: true, force: true });
+}
+
+const total = failures() + failuresFromDegraded;
+console.log(`\n${total === 0 ? "ALL FIXTURE CHECKS PASSED" : `${total} FIXTURE CHECK(S) FAILED`}`);
+process.exitCode = total === 0 ? 0 : 1;

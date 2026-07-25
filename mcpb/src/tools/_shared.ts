@@ -837,12 +837,21 @@ export function capText(
  * Index-stability: for NFC input the fold maps each UTF-16 unit to exactly one
  * unit, so offsets into the folded string remain valid in the (NFC) original —
  * keywordExcerpts relies on this and normalises its haystack before slicing.
+ *
+ * The character class spans BOTH Latin blocks DuckDB's strip_accents folds:
+ * Latin-1 Supplement + Latin Extended-A/B (U+00C0–U+024F, the French accents)
+ * AND Latin Extended Additional (U+1E00–U+1EFF), which carries the dot-below /
+ * dot-above letters used by scholarly Arabic transliteration (ḥadīth, Ṣūfī,
+ * Muḥammad) and by Yoruba/Igbo orthography (Ẹ, ọ, ṣ). Omitting the second block
+ * desynchronised the two folds: SQL matched `Muhammad` against an OCR blob
+ * containing `Muḥammad`, then the excerpt path folded only the query and
+ * reported "keyword not found in full text" for an item search had just returned.
  */
 export function foldText(s: string): string {
   return s
     .normalize("NFC")
     .toLowerCase()
-    .replace(/[À-ɏ]/g, (c) => c.normalize("NFD")[0] ?? c);
+    .replace(/[À-ɏḀ-ỿ]/g, (c) => c.normalize("NFD")[0] ?? c);
 }
 
 /** TOC entries (paragraph-separated) that contain `keyword`, accent-insensitively. */

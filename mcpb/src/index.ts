@@ -49,7 +49,10 @@ const INSTRUCTIONS =
   "genuinely empty). Free-text filters (newspaper, subject, author, reference_type, language) are " +
   "NOT validated, so a typo there returns 0 silently — sanity-check them. On list_locations / " +
   "list_persons, `country` means 'mentioned in records from that country' (not 'located there') and " +
-  "`frequency` is a collection-wide total; the response restates this in a `note`.\n\n" +
+  "`frequency` is a collection-wide total; the response restates this in a `note`. If `search` cannot " +
+  "load a subset it still returns the rest and names the missing ones in `unavailable_categories` + " +
+  "`coverage_warning` — those categories are ABSENT from the results, not empty, so retry or use their " +
+  "own search_* tool before concluding a term is unattested there.\n\n" +
   "REPORT LANGUAGE: write the final report, synthesis, and follow-up questions in the language " +
   "of the user's question. If the question is mixed, use its dominant language.\n\n" +
   "QUERY LANGUAGE: formulate keyword/substr search strings and concept keywords in FRENCH for " +

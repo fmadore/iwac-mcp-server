@@ -15,8 +15,11 @@ mcpb/manifest.json.orig
 # hashes) — regenerate, never hand-edit or commit.
 /server.json
 
-# Generated synthetic test fixtures (scripts/make-fixtures.mjs)
+# Generated synthetic test fixtures (scripts/make-fixtures.mjs), plus the
+# degraded copy the missing-subset test builds and removes (kept ignored so an
+# interrupted run can't leave a committable directory behind).
 mcpb/test/fixtures/
+mcpb/test/fixtures-degraded/
 
 # Local cache / secrets
 .cache/
