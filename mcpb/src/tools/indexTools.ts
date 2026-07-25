@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { ensureView, getById, q, selectList, type Bindable } from "../db.js";
+import { ensureView, getById, q, type Bindable } from "../db.js";
 import {
   capOffset,
+  colsFor,
   COUNTRIES,
   countryFilterIfExists,
   countryParam,
@@ -11,7 +12,6 @@ import {
   foldedLike,
   INDEX_TYPES,
   indexFreqOrder,
-  indexSummaryCols,
   pipeValueEquals,
   resolveLimit,
   runListQuery,
@@ -76,7 +76,7 @@ export function registerIndexTools(server: Server): void {
           subset: "index",
           where,
           params,
-          cols: indexSummaryCols(schema),
+          cols: colsFor("index", schema, "summary"),
           orderBy: indexFreqOrder(schema),
           limit,
           offset,
@@ -162,19 +162,13 @@ function registerIndexListTool(
     if (withCountry) {
       countryFilterIfExists(schema, where, params, "countries", country.canonical);
     }
-    const cols = selectList(schema, [
-      ['"o:id"', "id", ["o:id"]],
-      [q("Titre"), "title", ["Titre"]],
-      [q("Description"), "description", ["Description"]],
-      "frequency",
-      ...(withCountry ? (["countries"] as const) : []),
-      ["iwac_url", "url", ["iwac_url"]],
-    ]);
+    // The country-filtered lists also return `countries`, so the caller can see
+    // WHY an entry matched a country it isn't located in.
     const env = await runListQuery({
       subset: "index",
       where,
       params,
-      cols,
+      cols: colsFor("index", schema, withCountry ? "listCountries" : "list"),
       orderBy: indexFreqOrder(schema),
       limit,
       offset,

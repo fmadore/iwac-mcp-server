@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { ensureView, query, queryScalarSingle, selectList, viewName, type Bindable } from "../db.js";
+import { ensureView, query, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import {
   capOffset,
   CENTRALITY_VALUES,
   COUNTRIES,
   countryFilterIfExists,
+  colsFor,
   countryParam,
   errorResult,
   foldedEquals,
@@ -79,23 +80,12 @@ export function registerSentimentTools(server: Server): void {
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
 
-      const cols = selectList(schema, [
-        ['"o:id"', "id", ["o:id"]],
-        "title",
-        "newspaper",
-        "country",
-        ["pub_date", "date", ["pub_date"]],
-        ["gemini_polarite", "polarity", ["gemini_polarite"]],
-        ["gemini_centralite_islam_musulmans", "centrality", ["gemini_centralite_islam_musulmans"]],
-        ["gemini_subjectivite_score", "subjectivity", ["gemini_subjectivite_score"]],
-        ["iwac_url", "url", ["iwac_url"]],
-      ]);
       return textResult(
         await runListQuery({
           subset: "articles",
           where,
           params,
-          cols,
+          cols: colsFor("articles", schema, "sentiment"),
           orderBy: pubDateOrder(schema),
           limit,
           offset,

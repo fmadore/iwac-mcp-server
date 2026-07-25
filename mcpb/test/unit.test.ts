@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 
 import {
   capText,
+  colsFor,
   COUNTRIES,
   countryParam,
   dateRangeFilter,
@@ -21,11 +22,13 @@ import {
   structuredResult,
   TEXT_COLS,
   textResult,
+  TITLE_COL,
   validateEnum,
   yearRangeFilter,
 } from "../src/tools/_shared.js";
 import { interleave, tokenizedWhere } from "../src/tools/search.js";
 import { q, selectList, type Bindable } from "../src/db.js";
+import { ALL_SUBSETS } from "../src/config.js";
 
 describe("foldText", () => {
   it("folds accents and case", () => {
@@ -269,6 +272,72 @@ describe("textResult / structuredResult compaction", () => {
     assert.deepEqual(JSON.parse(res.content[0].text), res.structuredContent);
     assert.equal((res.structuredContent as Record<string, unknown>).big, 9);
     assert.equal("drop" in res.structuredContent, false);
+  });
+});
+
+// The descriptor is now the single source for every projection, so these lock
+// the invariants the old hand-maintained lists used to encode implicitly.
+describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
+  // Every column of the synthetic fixtures, so nothing is dropped for absence.
+  const FULL: Record<string, Set<string>> = {
+    articles: new Set([
+      "o:id", "iwac_url", "identifier", "title", "author", "newspaper", "country", "pub_date",
+      "subject", "spatial", "language", "nb_pages", "descriptionAI", "gemini_polarite",
+      "gemini_centralite_islam_musulmans", "gemini_subjectivite_score", "nb_mots",
+      "Richesse_Lexicale_OCR", "Lisibilite_OCR", "OCR",
+    ]),
+    index: new Set([
+      "o:id", "iwac_url", "Titre", "Titre alternatif", "Type", "Description", "frequency",
+      "first_occurrence", "last_occurrence", "countries",
+    ]),
+  };
+
+  it("derives TITLE_COL from the field aliased to `title`", () => {
+    assert.equal(TITLE_COL.articles, "title");
+    assert.equal(TITLE_COL.index, "Titre"); // the one subset with a French title column
+    for (const s of ALL_SUBSETS) assert.ok(TITLE_COL[s], `no title column for ${s}`);
+  });
+
+  it("derives TEXT_COLS from the `searchable` tag", () => {
+    // Set equality, not order: the OR-clause order is not semantic.
+    assert.deepEqual(new Set(TEXT_COLS.articles), new Set(["title", "OCR", "descriptionAI"]));
+    assert.deepEqual(new Set(TEXT_COLS.index), new Set(["Titre", "Titre alternatif", "Description"]));
+    // Every searchable column must be a real column name the schema can be probed for.
+    for (const s of ALL_SUBSETS) {
+      assert.ok(TEXT_COLS[s].length > 0, `${s} has no searchable columns`);
+      for (const c of TEXT_COLS[s]) assert.ok(!c.includes('"'), `${c} is an expression, not a column`);
+    }
+  });
+
+  it("`fetch` re-aliases the body column to the contract key `text`", () => {
+    assert.match(colsFor("articles", FULL.articles, "fetch"), /"OCR" AS "text"/);
+    assert.match(colsFor("index", FULL.index, "fetch"), /"Description" AS "text"/);
+    // …and every other view keeps the field's own alias.
+    assert.match(colsFor("articles", FULL.articles, "detail"), /"OCR" AS "ocr_text"/);
+  });
+
+  it("keeps `fetch` leaner than `detail` while `detail` stays the superset", () => {
+    const cols = (v: Parameters<typeof colsFor>[2]) => colsFor("articles", FULL.articles, v).split(", ").length;
+    assert.ok(cols("detail") > cols("fetch"), "fetch should drop verbose/lexical fields");
+    assert.ok(cols("detail") > cols("summary"), "summary should be leaner than detail");
+    // `triage` is `summary` + the AI abstract (search_articles with_description).
+    assert.equal(cols("triage"), cols("summary") + 1);
+    assert.match(colsFor("articles", FULL.articles, "triage"), /"descriptionAI" AS "description_ai"/);
+    assert.ok(!colsFor("articles", FULL.articles, "summary").includes("description_ai"));
+  });
+
+  it("gives the country-filtered index lists their `countries` column", () => {
+    const list = colsFor("index", FULL.index, "list");
+    const withCountries = colsFor("index", FULL.index, "listCountries");
+    assert.ok(!list.includes("countries"));
+    assert.ok(withCountries.includes('"countries"'));
+    assert.equal(withCountries.split(", ").length, list.split(", ").length + 1);
+  });
+
+  it("drops columns missing from the live schema instead of throwing", () => {
+    const thin = new Set(["o:id", "title"]);
+    const cols = colsFor("articles", thin, "summary");
+    assert.equal(cols, '"o:id" AS "id", "title"');
   });
 });
 

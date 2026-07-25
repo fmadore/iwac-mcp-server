@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { ensureView, getById, q, selectList, type Bindable } from "../db.js";
+import { ensureView, getById, q, type Bindable } from "../db.js";
 import {
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
+  colsFor,
   countryParam,
-  detailColsFor,
   errorResult,
   foldedEquals,
   keywordFilter,
@@ -20,24 +20,6 @@ import {
   validateEnum,
   type Server,
 } from "./_shared.js";
-
-function audiovisualSummaryCols(schema: Set<string>): string {
-  return selectList(schema, [
-    ['"o:id"', "id", ["o:id"]],
-    "title",
-    "creator",
-    "publisher",
-    "country",
-    ["pub_date", "date", ["pub_date"]],
-    "medium",
-    "extent",
-    "subject",
-    "spatial",
-    "language",
-    ["PDF", "media_url", ["PDF"]],
-    ["iwac_url", "url", ["iwac_url"]],
-  ]);
-}
 
 export function registerAudiovisualTools(server: Server): void {
   // === search_audiovisual ==================================================
@@ -84,7 +66,7 @@ export function registerAudiovisualTools(server: Server): void {
           subset: "audiovisual",
           where,
           params,
-          cols: audiovisualSummaryCols(schema),
+          cols: colsFor("audiovisual", schema, "summary"),
           orderBy: pubDateOrder(schema),
           limit,
           offset,
@@ -121,7 +103,7 @@ export function registerAudiovisualTools(server: Server): void {
           subset: "audiovisual",
           where,
           params,
-          cols: audiovisualSummaryCols(schema),
+          cols: colsFor("audiovisual", schema, "summary"),
           orderBy: pubDateOrder(schema),
           limit,
           offset,
@@ -141,7 +123,7 @@ export function registerAudiovisualTools(server: Server): void {
     },
     async ({ audiovisual_id }) => {
       const schema = await ensureView("audiovisual");
-      const row = await getById("audiovisual", detailColsFor("audiovisual", schema, "get"), audiovisual_id);
+      const row = await getById("audiovisual", colsFor("audiovisual", schema, "detail"), audiovisual_id);
       if (!row) return errorResult({ error: `Audiovisual item ${audiovisual_id} not found` });
       return textResult(row);
     },

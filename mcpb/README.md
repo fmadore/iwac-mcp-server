@@ -156,6 +156,13 @@ Environment variables (all transports unless noted):
   probes each subset's column list at view-creation time so fields that are
   missing from the current dataset revision (e.g. `sentiment_label`) are silently
   dropped rather than raising.
+- Columns: every projection is generated from one per-subset descriptor
+  (`SUBSET_FIELDS` in `src/tools/_shared.ts`). Each column is declared once — SQL
+  expression, output alias, schema dependencies — and tagged with the *views* it
+  belongs to (`detail`, `fetch`, `summary`, and a few tool-specific ones), plus
+  `searchable` for the keyword-search surface. `colsFor(subset, schema, view)`
+  builds the SELECT list; `TEXT_COLS` and `TITLE_COL` are derived from the same
+  table, so a dataset column rename is a one-line change.
 - Semantic search: loads the `embedding_OCR` / `embedding_tableOfContents`
   column into a normalised `Float32Array`, encodes the query via Gemini, then
   does a dot-product top-k in-process.

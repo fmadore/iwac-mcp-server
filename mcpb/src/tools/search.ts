@@ -14,7 +14,7 @@ import { ensureView, getById, q, query, viewName, type Bindable } from "../db.js
 import { ALL_SUBSETS, type Subset } from "../config.js";
 import {
   capText,
-  detailColsFor,
+  colsFor,
   errorResult,
   escapeLike,
   foldedLike,
@@ -22,6 +22,7 @@ import {
   resolveLimit,
   structuredResult,
   TEXT_COLS,
+  TITLE_COL,
   toolMeta,
   type Server,
 } from "./_shared.js";
@@ -35,17 +36,6 @@ const SEARCH_SUBSETS: Subset[] = [
   "index",
   "audiovisual",
 ];
-
-/** Column holding the display title (the index subset uses the French "Titre").
- * The token-matched text columns come from the shared TEXT_COLS map. */
-const TITLE_COL: Record<Subset, string> = {
-  articles: "title",
-  publications: "title",
-  references: "title",
-  documents: "title",
-  index: "Titre",
-  audiovisual: "title",
-};
 
 /**
  * Build an accent/case-insensitive predicate requiring EVERY query token to
@@ -334,7 +324,7 @@ export function registerSearchTools(server: Server): void {
       }
 
       const schema = await ensureView(subset);
-      const row = await getById(subset, detailColsFor(subset, schema, "fetch"), localId);
+      const row = await getById(subset, colsFor(subset, schema, "fetch"), localId);
       if (!row) {
         return errorResult({
           error: `No ${subset} item with id '${localId}'.`,

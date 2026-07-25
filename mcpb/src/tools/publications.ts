@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { ensureView, getById, q, query, selectList, viewName, type Bindable } from "../db.js";
+import { ensureView, getById, query, selectList, viewName, type Bindable } from "../db.js";
 import { config } from "../config.js";
 import { runSemanticSearchTool } from "./_semantic.js";
 import {
   capOffset,
   capText,
+  colsFor,
   COUNTRIES,
   countryFilterIfExists,
   countryParam,
@@ -14,7 +15,6 @@ import {
   keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
-  publicationSummaryCols,
   pubDateOrder,
   resolveLimit,
   runListQuery,
@@ -72,24 +72,22 @@ export function registerPublicationTools(server: Server): void {
       countryFilterIfExists(schema, where, params, "country", country.canonical);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
-      const cols = publicationSummaryCols(schema);
-      const tocExpr =
-        args.keyword && schema.has("tableOfContents") ? `, ${q("tableOfContents")}` : "";
-
+      // With a keyword, pull the TOC too so matching entries can be extracted
+      // below; without one it is dead weight on every row.
       const env = await runListQuery<Record<string, unknown>>({
         subset: "publications",
         where,
         params,
-        cols: `${cols}${tocExpr}`,
+        cols: colsFor("publications", schema, args.keyword ? "withToc" : "summary"),
         orderBy: pubDateOrder(schema),
         limit,
         offset,
       });
       if (args.keyword) {
         for (const r of env.results) {
-          const toc = r.tableOfContents ? String(r.tableOfContents) : "";
+          const toc = r.table_of_contents ? String(r.table_of_contents) : "";
           const matching = extractMatchingTocEntries(toc, args.keyword);
-          delete r.tableOfContents;
+          delete r.table_of_contents;
           if (matching) r.matching_toc_entries = matching;
         }
       }
@@ -230,8 +228,7 @@ export function registerPublicationTools(server: Server): void {
         limit: resolveLimit(args.limit, 10, 50),
         // Include the TOC in the summary rows — it is the very text the
         // similarity ranking matched against. (Empty TOCs are compacted away.)
-        summaryCols: (schema) =>
-          publicationSummaryCols(schema) + (schema.has("tableOfContents") ? `, ${q("tableOfContents")}` : ""),
+        summaryView: "withToc",
         buildCandidateFilters: (schema, where, params) => {
           countryFilterIfExists(schema, where, params, "country", country.canonical);
         },
