@@ -25,7 +25,7 @@ import {
   yearRangeFilter,
 } from "../src/tools/_shared.js";
 import { interleave, tokenizedWhere } from "../src/tools/search.js";
-import { q, selectList } from "../src/db.js";
+import { q, selectList, type Bindable } from "../src/db.js";
 
 describe("foldText", () => {
   it("folds accents and case", () => {
@@ -42,6 +42,21 @@ describe("foldText", () => {
     const nfd = "pe\u0300lerinage"; // e + combining grave accent (decomposed \u00e8)
     assert.equal(foldText(nfd), "pelerinage");
     assert.equal(foldText(nfd), foldText("p\u00e8lerinage"));
+  });
+  // Latin Extended Additional (U+1E00-U+1EFF). DuckDB's strip_accents folds this
+  // block, so the JS fold must too or the excerpt path reports "not found" for an
+  // item the SQL search just matched. These are the transliteration characters of
+  // the corpus: scholarly Arabic (Mu\u1e25ammad, \u1e25ad\u012bth, \u1e62\u016bf\u012b) and Yoruba/Igbo (\u1eb8, \u1ecd, \u1e63).
+  it("folds Latin Extended Additional the way SQL strip_accents does", () => {
+    assert.equal(foldText("Mu\u1e25ammad"), "muhammad");
+    assert.equal(foldText("\u1e25ad\u012bth"), "hadith");
+    assert.equal(foldText("\u1e62\u016bf\u012b"), "sufi");
+    assert.equal(foldText("\u1eb8gb\u1eb9\u0301 \u1eccm\u1ecd Od\u00f9duw\u00e0"), "egbe\u0301 omo oduduwa");
+    // Same length in, same length out \u2014 keywordExcerpts slices the ORIGINAL
+    // string at offsets found in the folded one.
+    for (const s of ["Mu\u1e25ammad", "\u1e62\u016bf\u012b", "\u1ecdm\u1ecd"]) {
+      assert.equal(foldText(s).length, s.length, `length changed for ${s}`);
+    }
   });
 });
 
@@ -154,14 +169,14 @@ describe("date range filters", () => {
   const schema = new Set(["pub_date"]);
   it("dateRangeFilter pads partial bounds to full days", () => {
     const where: string[] = [];
-    const params: unknown[] = [];
+    const params: Bindable[] = [];
     dateRangeFilter(schema, where, params, "1995-06", "1999");
     assert.equal(where.length, 2);
     assert.deepEqual(params, ["1995-06-01", "1999-12-31"]);
   });
   it("dateRangeFilter ignores garbage and missing columns", () => {
     const where: string[] = [];
-    const params: unknown[] = [];
+    const params: Bindable[] = [];
     dateRangeFilter(schema, where, params, "garbage", undefined);
     assert.equal(where.length, 0);
     dateRangeFilter(new Set(), where, params, "1995", "1999");
@@ -169,7 +184,7 @@ describe("date range filters", () => {
   });
   it("yearRangeFilter compares leading years numerically", () => {
     const where: string[] = [];
-    const params: unknown[] = [];
+    const params: Bindable[] = [];
     yearRangeFilter(schema, where, params, "1912", "1999-06-15");
     assert.equal(where.length, 2);
     assert.deepEqual(params, [1912, 1999]);
@@ -180,7 +195,7 @@ describe("keywordFilter", () => {
   it("ORs across the present text columns only", () => {
     const schema = new Set(["title", "OCR"]);
     const where: string[] = [];
-    const params: (string | number | boolean | null)[] = [];
+    const params: Bindable[] = [];
     keywordFilter(schema, where, params, TEXT_COLS.articles, "charia");
     assert.equal(where.length, 1);
     assert.match(where[0], /OR/);
@@ -188,7 +203,7 @@ describe("keywordFilter", () => {
   });
   it("escapes LIKE metacharacters in the keyword", () => {
     const where: string[] = [];
-    const params: (string | number | boolean | null)[] = [];
+    const params: Bindable[] = [];
     keywordFilter(new Set(["title"]), where, params, TEXT_COLS.articles, "100%_x");
     assert.deepEqual(params, ["%100\\%\\_x%"]);
     assert.match(where[0], /ESCAPE/);
@@ -204,7 +219,7 @@ describe("tokenizedWhere (unified search)", () => {
   it("ANDs tokens, ORs columns, binds params in lockstep", () => {
     const schema = new Set(["title", "OCR"]);
     const where: string[] = [];
-    const params: unknown[] = [];
+    const params: Bindable[] = [];
     assert.equal(tokenizedWhere(schema, ["title", "OCR", "descriptionAI"], "pèlerinage Mecque", where, params), true);
     assert.equal(where.length, 2); // one clause per token
     assert.equal(params.length, 4); // two present columns per token

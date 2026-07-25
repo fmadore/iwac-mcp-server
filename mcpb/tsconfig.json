@@ -3,8 +3,7 @@
     "target": "ES2022",
     "module": "Node16",
     "moduleResolution": "Node16",
-    "outDir": "server",
-    "rootDir": "src",
+    "noEmit": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,5 +12,11 @@
     "declaration": false,
     "sourceMap": false
   },
-  "include": ["src/**/*.ts"]
+  // `npm run build` is esbuild (scripts/bundle.mjs); tsc is only ever run as
+  // `--noEmit`, so there is no outDir/rootDir to keep. Tests are included:
+  // test/unit.test.ts runs under tsx, which STRIPS types without checking them,
+  // so leaving it out of the program meant its type errors — including
+  // `unknown[]` where the SQL layer's deliberately narrow `Bindable[]` is
+  // required — never surfaced in CI.
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

@@ -134,16 +134,52 @@ function isSubset(s: string): s is Subset {
 }
 
 /**
+ * Human-readable names for the dataset columns `search` matches on. Only the
+ * ones that need renaming for a reader; anything absent falls through to the raw
+ * column name, so a new entry in TEXT_COLS degrades to something readable rather
+ * than silently vanishing from the ranking note.
+ */
+const COL_LABELS: Record<string, string> = {
+  Titre: "title",
+  "Titre alternatif": "alternate names",
+  Description: "description",
+  OCR: "OCR",
+  descriptionAI: "AI description",
+  tableOfContents: "table of contents",
+  spatial: "places",
+};
+
+/**
+ * Per-subset label overrides, for columns the tool descriptions name differently
+ * depending on the subset: `descriptionAI` is the "AI abstract" on articles
+ * (see search_articles / get_article) but the "AI description" everywhere else.
+ */
+const SUBSET_COL_LABELS: Partial<Record<Subset, Record<string, string>>> = {
+  articles: { descriptionAI: "AI abstract" },
+};
+
+/**
  * Honest description of how `search` orders results — there is no relevance
  * score, so we document the actual mechanics (which fields are matched, the
  * round-robin interleave, the per-category tiebreak) rather than inventing one.
  * Returned as the response's `ranking` field so scholarly users can judge the order.
+ *
+ * The matched-field list is DERIVED from TEXT_COLS rather than restated in
+ * prose: the hand-written version had drifted (it claimed audiovisual matched
+ * only the AI description, omitting the six metadata columns that actually
+ * match, and omitted the index's alternate names — the columns that make
+ * "Dahomey" find "Bénin"). Adding a column to TEXT_COLS now updates this note.
  */
 const RANKING_NOTE =
-  "Accent/case-insensitive substring match over each item's title + main text " +
-  "(articles: OCR + AI abstract; publications: subject + table of contents + OCR; references: abstract; " +
-  "documents: OCR + AI description + subject; index: description; audiovisual: AI description). " +
-  "Results are interleaved round-robin across categories so each is represented; within a category, " +
+  "Accent/case-insensitive substring match over each item's title + main text (" +
+  SEARCH_SUBSETS.map(
+    (s) =>
+      `${s}: ${TEXT_COLS[s]
+        .filter((c) => c !== TITLE_COL[s])
+        .map((c) => SUBSET_COL_LABELS[s]?.[c] ?? COL_LABELS[c] ?? c)
+        .join(" + ")}`,
+  ).join("; ") +
+  "). Results are interleaved round-robin across categories so each is represented; within a category, " +
   "index entries are ordered by collection frequency and dated items (articles, publications, references, " +
   "documents) newest-first. There is no numeric relevance score — for precise filtering use the search_* tools.";
 
@@ -173,6 +209,8 @@ const SEARCH_OUTPUT = {
   count: z.number().int(),
   limit: z.number().int(),
   ranking: z.string(),
+  unavailable_categories: z.array(z.string()).optional(),
+  coverage_warning: z.string().optional(),
   requested_limit: z.number().int().optional(),
   limit_warning: z.string().optional(),
 };
@@ -216,13 +254,50 @@ export function registerSearchTools(server: Server): void {
     },
     async ({ query: queryStr, limit }) => {
       const cap = resolveLimit(limit, 20, 50);
-      const lists = await Promise.all(SEARCH_SUBSETS.map((s) => searchSubset(s, queryStr, cap.value)));
-      const results = interleave(lists, cap.value);
+      // Per-subset failure isolation. A subset's first query downloads its
+      // parquet, so one Hugging Face hiccup used to reject the whole Promise.all
+      // and fail `search` outright — the entry-point tool for skill-less clients
+      // — even with the other five subsets cached and queryable. Degrade to the
+      // healthy subsets instead, and NAME the missing ones: a search silently
+      // missing a category reads as "nothing there", the same silent-zero trap
+      // validateEnum exists to prevent. Mirrors get_collection_stats'
+      // failed_subsets fan-out.
+      const settled = await Promise.all(
+        SEARCH_SUBSETS.map(async (subset) => {
+          try {
+            return { subset, hits: await searchSubset(subset, queryStr, cap.value), ok: true };
+          } catch (err) {
+            console.error(`[iwac] search: subset ${subset} unavailable — ${(err as Error).message}`);
+            return { subset, hits: [] as Hit[], ok: false };
+          }
+        }),
+      );
+      const unavailable = settled.filter((r) => !r.ok).map((r) => r.subset);
+      // Every subset down is a failure, not an empty result set: returning
+      // {count: 0} there would present a total outage as "no matches found".
+      if (unavailable.length === SEARCH_SUBSETS.length) {
+        return errorResult({
+          error: "No IWAC subset could be loaded — the dataset cache is unavailable and Hugging Face could not be reached.",
+          unavailable_categories: unavailable,
+        });
+      }
+      const results = interleave(
+        settled.map((r) => r.hits),
+        cap.value,
+      );
       return structuredResult({
         results,
         count: results.length,
         limit: cap.value,
         ranking: RANKING_NOTE,
+        ...(unavailable.length
+          ? {
+              unavailable_categories: unavailable,
+              coverage_warning:
+                `Could not load ${unavailable.join(", ")}; these categories are MISSING from these results ` +
+                "rather than empty. Retry, or use the matching search_* tool, before concluding a term is absent.",
+            }
+          : {}),
         ...limitWarning(cap),
       });
     },
