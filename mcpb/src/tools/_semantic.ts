@@ -8,9 +8,11 @@ import { ensureView, getManyByIds, query, viewName, type Bindable } from "../db.
 import { semanticSearch } from "../embeddings.js";
 import type { Subset } from "../config.js";
 import {
+  colsFor,
   errorResult,
   limitWarning,
   textResult,
+  type FieldView,
   type ResolvedLimit,
 } from "./_shared.js";
 
@@ -19,8 +21,8 @@ export async function runSemanticSearchTool(opts: {
   embeddingColumn: string;
   query: string;
   limit: ResolvedLimit;
-  /** SELECT list for the summary rows, given the live schema. */
-  summaryCols: (schema: Set<string>) => string;
+  /** Which projection the result rows use (see FieldView in _shared.ts). */
+  summaryView: FieldView;
   /** Append subset-specific SQL prefilters (country, newspaper, dates…). */
   buildCandidateFilters?: (schema: Set<string>, where: string[], params: Bindable[]) => void;
   /** Echoed back as `filters` so the model sees which filters applied. */
@@ -29,7 +31,7 @@ export async function runSemanticSearchTool(opts: {
   const { subset, embeddingColumn, query: queryStr, limit } = opts;
   try {
     const schema = await ensureView(subset);
-    const cols = opts.summaryCols(schema);
+    const cols = colsFor(subset, schema, opts.summaryView);
 
     // Optional SQL prefilter: semantic ranking then runs only over the
     // candidate ids, so metadata filters compose with similarity search.

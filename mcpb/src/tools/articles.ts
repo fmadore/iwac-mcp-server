@@ -1,16 +1,15 @@
 import { z } from "zod";
-import { ensureView, getById, q, type Bindable } from "../db.js";
+import { ensureView, getById, type Bindable } from "../db.js";
 import { config } from "../config.js";
 import { runSemanticSearchTool } from "./_semantic.js";
 import {
-  articleSummaryCols,
   attachOcrOrExcerpts,
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
+  colsFor,
   countryParam,
   dateRangeFilter,
-  detailColsFor,
   errorResult,
   keywordFilter,
   likeFilterIfExists,
@@ -64,16 +63,13 @@ export function registerArticleTools(server: Server): void {
       keywordFilter(schema, where, params, TEXT_COLS.articles, args.keyword);
       dateRangeFilter(schema, where, params, args.date_from, args.date_to);
 
-      let cols = articleSummaryCols(schema);
-      if (args.with_description && schema.has("descriptionAI")) {
-        cols += `, ${q("descriptionAI")} AS description_ai`;
-      }
       return textResult(
         await runListQuery({
           subset: "articles",
           where,
           params,
-          cols,
+          // `triage` = the summary row plus the AI abstract (with_description).
+          cols: colsFor("articles", schema, args.with_description ? "triage" : "summary"),
           orderBy: pubDateOrder(schema),
           limit,
           offset,
@@ -102,7 +98,7 @@ export function registerArticleTools(server: Server): void {
     },
     async ({ article_id, keyword, context_chars, max_excerpts }) => {
       const schema = await ensureView("articles");
-      const row = await getById("articles", detailColsFor("articles", schema, "get"), article_id);
+      const row = await getById("articles", colsFor("articles", schema, "detail"), article_id);
       if (!row) return errorResult({ error: `Article ${article_id} not found` });
       attachOcrOrExcerpts(row, "ocr_text", keyword, { contextChars: context_chars, maxExcerpts: max_excerpts });
       return textResult(row);
@@ -137,7 +133,7 @@ export function registerArticleTools(server: Server): void {
         embeddingColumn: "embedding_OCR",
         query: args.query,
         limit: resolveLimit(args.limit, 10, 50),
-        summaryCols: articleSummaryCols,
+        summaryView: "summary",
         buildCandidateFilters: (schema, where, params) => {
           countryFilterIfExists(schema, where, params, "country", country.canonical);
           likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);

@@ -4,14 +4,13 @@ import {
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
+  colsFor,
   countryParam,
-  detailColsFor,
   errorResult,
   keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
-  referenceSummaryCols,
   resolveLimit,
   runListQuery,
   TEXT_COLS,
@@ -76,7 +75,7 @@ export function registerReferenceTools(server: Server): void {
           subset: "references",
           where,
           params,
-          cols: referenceSummaryCols(schema),
+          cols: colsFor("references", schema, "summary"),
           orderBy: pubDateOrder(schema),
           limit,
           offset,
@@ -97,7 +96,7 @@ export function registerReferenceTools(server: Server): void {
     },
     async ({ reference_id }) => {
       const schema = await ensureView("references");
-      const row = await getById("references", detailColsFor("references", schema, "get"), reference_id);
+      const row = await getById("references", colsFor("references", schema, "detail"), reference_id);
       if (!row) return errorResult({ error: `Reference ${reference_id} not found` });
       return textResult(row);
     },

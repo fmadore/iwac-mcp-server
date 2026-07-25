@@ -5,11 +5,10 @@ import {
   capOffset,
   COUNTRIES,
   countryFilterIfExists,
+  colsFor,
   countryParam,
-  detailColsFor,
   errorResult,
   keywordFilter,
-  documentSummaryCols,
   pubDateOrder,
   resolveLimit,
   runListQuery,
@@ -53,7 +52,7 @@ export function registerDocumentTools(server: Server): void {
           subset: "documents",
           where,
           params,
-          cols: documentSummaryCols(schema),
+          cols: colsFor("documents", schema, "summary"),
           orderBy: pubDateOrder(schema),
           limit,
           offset,
@@ -83,7 +82,7 @@ export function registerDocumentTools(server: Server): void {
     },
     async ({ document_id, keyword, context_chars, max_excerpts }) => {
       const schema = await ensureView("documents");
-      const row = await getById("documents", detailColsFor("documents", schema, "get"), document_id);
+      const row = await getById("documents", colsFor("documents", schema, "detail"), document_id);
       if (!row) return errorResult({ error: `Document ${document_id} not found` });
       attachOcrOrExcerpts(row, "ocr_text", keyword, { contextChars: context_chars, maxExcerpts: max_excerpts });
       return textResult(row);

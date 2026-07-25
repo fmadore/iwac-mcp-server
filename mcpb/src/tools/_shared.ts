@@ -1,6 +1,8 @@
 // Cross-cutting helpers shared by every tool module: input capping, JSON result
 // formatting, the pagination envelope, the generic list-query runner, reusable
-// SELECT/ORDER-BY fragments, accent-insensitive matching, and text capping.
+// ORDER-BY fragments, accent-insensitive matching, and text capping — plus
+// SUBSET_FIELDS, the per-subset column descriptor every SELECT list is built
+// from (see `colsFor`).
 import { z } from "zod";
 import {
   q,
@@ -11,7 +13,7 @@ import {
   type Bindable,
   type Row,
 } from "../db.js";
-import type { Subset } from "../config.js";
+import { ALL_SUBSETS, type Subset } from "../config.js";
 
 /** The McpServer type, aliased once so tool modules don't repeat the import path. */
 export type Server = import("@modelcontextprotocol/sdk/server/mcp.js").McpServer;
@@ -313,20 +315,8 @@ export async function runListQuery<T = Row>(opts: {
 // WHERE-clause helpers (all matching is accent- and case-insensitive)
 // -----------------------------------------------------------------------------
 
-/**
- * The free-text columns each subset's keyword search matches against — the ONE
- * place this knowledge lives. Consumed by the per-subset `keyword` filters, the
- * unified `search` tool, and get_temporal_distribution, so adding a column to a
- * subset's searchable surface is a single-line change.
- */
-export const TEXT_COLS: Record<Subset, string[]> = {
-  articles: ["title", "OCR", "descriptionAI"],
-  publications: ["title", "subject", "tableOfContents", "OCR"],
-  references: ["title", "abstract"],
-  documents: ["title", "OCR", "descriptionAI", "subject"],
-  index: ["Titre", "Titre alternatif", "Description"],
-  audiovisual: ["title", "creator", "publisher", "subject", "spatial", "language", "source", "descriptionAI"],
-};
+// TEXT_COLS — the free-text columns each subset's keyword search matches — is
+// derived from the SUBSET_FIELDS descriptor below (fields tagged `searchable`).
 
 /**
  * Append the standard keyword predicate — ONE literal substring, OR-ed across
@@ -532,44 +522,79 @@ export function indexFreqOrder(schema: Set<string>): string {
 }
 
 // -----------------------------------------------------------------------------
-// Column lists (kept only for columns present in the current dataset revision).
-// Output keys are normalised to short English snake_case across all tools so
-// the model sees ONE shape (`id`, `date`, `polarity`, …) instead of re-learning
+// Per-subset field descriptor — the ONE place that maps dataset columns to the
+// stable output keys, for EVERY projection.
+//
+// Output keys are normalised to short English snake_case across all tools so the
+// model sees ONE shape (`id`, `date`, `polarity`, …) instead of re-learning
 // per-tool field names — and the long French dataset keys
 // (gemini_centralite_islam_musulmans × 20 rows) stop costing tokens.
+//
+// Each column is declared ONCE, with its SQL expression, output alias, schema
+// dependencies, and the set of VIEWS it belongs to. Previously the same column
+// was restated in up to four places — a detail table, a `*SummaryCols` function,
+// an inline `selectList` in a tool module, and the TEXT_COLS search surface —
+// which is how the detail lists had already drifted apart before they were
+// consolidated. A dataset column rename is now a single-line change everywhere.
+//
+// Columns absent from the live schema are dropped by selectList, so a dataset
+// revision degrades gracefully instead of throwing.
 // -----------------------------------------------------------------------------
 
-export function articleSummaryCols(schema: Set<string>): string {
-  return selectList(schema, [
-    ['"o:id"', "id", ["o:id"]],
-    "title",
-    "author",
-    "newspaper",
-    "country",
-    ["pub_date", "date", ["pub_date"]],
-    "subject",
-    "spatial",
-    "language",
-    ["gemini_polarite", "polarity", ["gemini_polarite"]],
-    ["gemini_centralite_islam_musulmans", "centrality", ["gemini_centralite_islam_musulmans"]],
-    ["gemini_subjectivite_score", "subjectivity", ["gemini_subjectivite_score"]],
-    ["iwac_url", "url", ["iwac_url"]],
-  ]);
+/**
+ * The projections a field can belong to. Most are shared; a few are specific to
+ * one subset's tools, which is fine — the field tables are per-subset anyway.
+ *
+ *   detail   every get_* tool: the full record
+ *   fetch    the lean cross-subset `fetch` (OpenAI Deep Research contract);
+ *            deliberately omits verbose/lexical fields to keep deep-research
+ *            payloads small, and re-aliases the body column to `text`
+ *   summary  the search_* result rows
+ *   triage   articles only: summary + the AI abstract (`with_description`)
+ *   withToc  publications only: summary + the table of contents (the text the
+ *            TOC keyword match and the semantic ranking actually ran against)
+ *   list     index only: the lean list_subjects/locations/persons rows
+ *   listCountries  index only: list + `countries` (the country-filtered lists)
+ *   sentiment      articles only: the search_by_sentiment rows
+ */
+export type FieldView =
+  | "detail"
+  | "fetch"
+  | "summary"
+  | "triage"
+  | "withToc"
+  | "list"
+  | "listCountries"
+  | "sentiment";
+
+/** Views that are "base view + a few extra columns", so the shared columns are
+ * declared once on the base rather than repeated on both. */
+const VIEW_BASE: Partial<Record<FieldView, FieldView>> = {
+  triage: "summary",
+  withToc: "summary",
+  listCountries: "list",
+};
+
+interface SubsetField {
+  /** SQL expression — a bare column name, or a pre-quoted/complex expression. */
+  expr: string;
+  /** Output alias; bare columns without one keep their own name. */
+  alias?: string;
+  /** Columns that must exist in the live schema (defaults to the bare column). */
+  requires?: string[];
+  /** The projections this column appears in. */
+  views: FieldView[];
+  /** The subset's main text body; `fetch` re-aliases it to the contract key `text`. */
+  body?: boolean;
+  /** Part of the subset's keyword-search surface (derives TEXT_COLS). */
+  searchable?: boolean;
 }
 
-export function publicationSummaryCols(schema: Set<string>): string {
-  return selectList(schema, [
-    ['"o:id"', "id", ["o:id"]],
-    "title",
-    "newspaper",
-    "country",
-    ["pub_date", "date", ["pub_date"]],
-    "language",
-    "subject",
-    "nb_pages",
-    ["iwac_url", "url", ["iwac_url"]],
-  ]);
-}
+/** Every subset leads with its id and canonical IWAC URL. */
+const ID_URL = (views: FieldView[]): SubsetField[] => [
+  { expr: '"o:id"', alias: "id", requires: ["o:id"], views },
+  { expr: "iwac_url", alias: "url", requires: ["iwac_url"], views },
+];
 
 /** Truncated abstract for reference search results (full text via get_reference). */
 const ABSTRACT_SNIPPET_EXPR =
@@ -577,214 +602,235 @@ const ABSTRACT_SNIPPET_EXPR =
   `WHEN length("abstract") <= 320 THEN "abstract" ` +
   `ELSE substr("abstract", 1, 320) || '…' END`;
 
-export function referenceSummaryCols(schema: Set<string>): string {
-  return selectList(schema, [
-    ['"o:id"', "id", ["o:id"]],
-    "title",
-    "author",
-    "type",
-    ["pub_date", "date", ["pub_date"]],
-    "publisher",
-    "country",
-    "language",
-    "doi",
-    [ABSTRACT_SNIPPET_EXPR, "abstract_snippet", ["abstract"]],
-    ["iwac_url", "url", ["iwac_url"]],
-  ]);
-}
+const ALL_ARTICLE_VIEWS: FieldView[] = ["detail", "fetch", "summary", "sentiment"];
 
-export function indexSummaryCols(schema: Set<string>): string {
-  return selectList(schema, [
-    ['"o:id"', "id", ["o:id"]],
-    [q("Titre"), "title", ["Titre"]],
-    [q("Titre alternatif"), "alternate_titles", ["Titre alternatif"]],
-    [q("Type"), "type", ["Type"]],
-    [q("Description"), "description", ["Description"]],
-    "frequency",
-    "first_occurrence",
-    "last_occurrence",
-    "countries",
-    ["iwac_url", "url", ["iwac_url"]],
-  ]);
-}
-
-export function documentSummaryCols(schema: Set<string>): string {
-  return selectList(schema, [
-    ['"o:id"', "id", ["o:id"]],
-    "title",
-    "author",
-    "country",
-    ["pub_date", "date", ["pub_date"]],
-    "type",
-    "subject",
-    ['"descriptionAI"', "description_ai", ["descriptionAI"]],
-    ["iwac_url", "url", ["iwac_url"]],
-  ]);
-}
-
-// -----------------------------------------------------------------------------
-// Detail projections — the ONE place per subset that maps dataset columns to
-// stable output keys for item-detail views. Consumed by both the get_* tools
-// (full view) and the cross-subset `fetch` (lean view), which previously kept
-// hand-maintained duplicate lists that had already drifted apart. A dataset
-// column rename is now a single-line change.
-// -----------------------------------------------------------------------------
-
-interface DetailField {
-  /** SQL expression — a bare column name, or a pre-quoted/complex expression. */
-  expr: string;
-  /** Output alias; bare columns without one keep their own name. */
-  alias?: string;
-  /** Columns that must exist in the live schema (defaults to the bare column). */
-  requires?: string[];
-  /**
-   * Include in the lean cross-subset `fetch` projection? (default true).
-   * `fetch` deliberately omits verbose/lexical fields to keep deep-research
-   * payloads lean; the get_* tools return everything.
-   */
-  inFetch?: boolean;
-  /** The subset's main text body; `fetch` re-aliases it to the contract key `text`. */
-  body?: boolean;
-}
-
-const ID_URL: DetailField[] = [
-  { expr: '"o:id"', alias: "id", requires: ["o:id"] },
-  { expr: "iwac_url", alias: "url", requires: ["iwac_url"] },
-];
-
-const DETAIL_FIELDS: Record<Subset, DetailField[]> = {
+const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
   articles: [
-    ...ID_URL,
-    { expr: "identifier", inFetch: false },
-    { expr: "title" },
-    { expr: "author" },
-    { expr: "newspaper" },
-    { expr: "country" },
-    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
-    { expr: "subject" },
-    { expr: "spatial" },
-    { expr: "language" },
-    { expr: "nb_pages", inFetch: false },
-    { expr: '"descriptionAI"', alias: "description_ai", requires: ["descriptionAI"] },
-    { expr: "gemini_polarite", alias: "polarity", requires: ["gemini_polarite"] },
-    { expr: "gemini_centralite_islam_musulmans", alias: "centrality", requires: ["gemini_centralite_islam_musulmans"] },
-    { expr: "gemini_subjectivite_score", alias: "subjectivity", requires: ["gemini_subjectivite_score"], inFetch: false },
-    { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], inFetch: false },
-    { expr: '"Richesse_Lexicale_OCR"', alias: "lexical_richness", requires: ["Richesse_Lexicale_OCR"], inFetch: false },
-    { expr: '"Lisibilite_OCR"', alias: "readability", requires: ["Lisibilite_OCR"], inFetch: false },
-    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], body: true },
+    ...ID_URL(ALL_ARTICLE_VIEWS),
+    { expr: "identifier", views: ["detail"] },
+    { expr: "title", views: ALL_ARTICLE_VIEWS, searchable: true },
+    { expr: "author", views: ["detail", "fetch", "summary"] },
+    { expr: "newspaper", views: ALL_ARTICLE_VIEWS },
+    { expr: "country", views: ALL_ARTICLE_VIEWS },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"], views: ALL_ARTICLE_VIEWS },
+    { expr: "subject", views: ["detail", "fetch", "summary"] },
+    { expr: "spatial", views: ["detail", "fetch", "summary"] },
+    { expr: "language", views: ["detail", "fetch", "summary"] },
+    { expr: "nb_pages", views: ["detail"] },
+    // `triage` only, not `summary`: search_articles returns the ~500-char
+    // abstract solely under with_description (it costs ~125 tokens/row).
+    {
+      expr: '"descriptionAI"',
+      alias: "description_ai",
+      requires: ["descriptionAI"],
+      views: ["detail", "fetch", "triage"],
+      searchable: true,
+    },
+    { expr: "gemini_polarite", alias: "polarity", requires: ["gemini_polarite"], views: ALL_ARTICLE_VIEWS },
+    {
+      expr: "gemini_centralite_islam_musulmans",
+      alias: "centrality",
+      requires: ["gemini_centralite_islam_musulmans"],
+      views: ALL_ARTICLE_VIEWS,
+    },
+    {
+      expr: "gemini_subjectivite_score",
+      alias: "subjectivity",
+      requires: ["gemini_subjectivite_score"],
+      views: ["detail", "summary", "sentiment"],
+    },
+    { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], views: ["detail"] },
+    { expr: '"Richesse_Lexicale_OCR"', alias: "lexical_richness", requires: ["Richesse_Lexicale_OCR"], views: ["detail"] },
+    { expr: '"Lisibilite_OCR"', alias: "readability", requires: ["Lisibilite_OCR"], views: ["detail"] },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true },
   ],
+
   publications: [
-    ...ID_URL,
-    { expr: "title" },
-    { expr: "newspaper" },
-    { expr: "country" },
-    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
-    { expr: "subject" },
-    { expr: "language" },
-    { expr: '"tableOfContents"', alias: "table_of_contents", requires: ["tableOfContents"] },
-    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], body: true },
+    ...ID_URL(["detail", "fetch", "summary"]),
+    { expr: "title", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "newspaper", views: ["detail", "fetch", "summary"] },
+    { expr: "country", views: ["detail", "fetch", "summary"] },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"], views: ["detail", "fetch", "summary"] },
+    { expr: "subject", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "language", views: ["detail", "fetch", "summary"] },
+    // Summary-only, matching the previous hand-written lists: the detail/fetch
+    // projections never carried nb_pages for publications.
+    { expr: "nb_pages", views: ["summary"] },
+    {
+      expr: '"tableOfContents"',
+      alias: "table_of_contents",
+      requires: ["tableOfContents"],
+      views: ["detail", "fetch", "withToc"],
+      searchable: true,
+    },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true },
   ],
+
   references: [
-    ...ID_URL,
-    { expr: "identifier", inFetch: false },
-    { expr: "title" },
-    { expr: "author" },
-    { expr: "editor" },
-    { expr: "type" },
-    { expr: '"o:resource_class"', alias: "resource_class", requires: ["o:resource_class"], inFetch: false },
-    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
-    { expr: "publisher" },
-    { expr: "book_title" },
-    { expr: "chapter", inFetch: false },
-    { expr: "volume" },
-    { expr: "issue" },
-    { expr: "page_start" },
-    { expr: "page_end" },
-    { expr: "nb_pages", inFetch: false },
-    { expr: "edition", inFetch: false },
-    { expr: "extent", inFetch: false },
-    { expr: "subject", inFetch: false },
-    { expr: "spatial", inFetch: false },
-    { expr: "language" },
-    { expr: "country" },
-    { expr: "doi" },
-    { expr: '"URL"', alias: "external_url", requires: ["URL"], inFetch: false },
-    { expr: "is_part_of", inFetch: false },
-    { expr: "review_of", inFetch: false },
-    { expr: "provenance", inFetch: false },
-    { expr: "abstract", alias: "abstract", requires: ["abstract"], body: true },
+    ...ID_URL(["detail", "fetch", "summary"]),
+    { expr: "identifier", views: ["detail"] },
+    { expr: "title", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "author", views: ["detail", "fetch", "summary"] },
+    { expr: "editor", views: ["detail", "fetch"] },
+    { expr: "type", views: ["detail", "fetch", "summary"] },
+    { expr: '"o:resource_class"', alias: "resource_class", requires: ["o:resource_class"], views: ["detail"] },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"], views: ["detail", "fetch", "summary"] },
+    { expr: "publisher", views: ["detail", "fetch", "summary"] },
+    { expr: "book_title", views: ["detail", "fetch"] },
+    { expr: "chapter", views: ["detail"] },
+    { expr: "volume", views: ["detail", "fetch"] },
+    { expr: "issue", views: ["detail", "fetch"] },
+    { expr: "page_start", views: ["detail", "fetch"] },
+    { expr: "page_end", views: ["detail", "fetch"] },
+    { expr: "nb_pages", views: ["detail"] },
+    { expr: "edition", views: ["detail"] },
+    { expr: "extent", views: ["detail"] },
+    { expr: "subject", views: ["detail"] },
+    { expr: "spatial", views: ["detail"] },
+    { expr: "language", views: ["detail", "fetch", "summary"] },
+    { expr: "country", views: ["detail", "fetch", "summary"] },
+    { expr: "doi", views: ["detail", "fetch", "summary"] },
+    { expr: '"URL"', alias: "external_url", requires: ["URL"], views: ["detail"] },
+    { expr: "is_part_of", views: ["detail"] },
+    { expr: "review_of", views: ["detail"] },
+    { expr: "provenance", views: ["detail"] },
+    { expr: ABSTRACT_SNIPPET_EXPR, alias: "abstract_snippet", requires: ["abstract"], views: ["summary"] },
+    { expr: "abstract", alias: "abstract", requires: ["abstract"], views: ["detail", "fetch"], body: true, searchable: true },
   ],
+
   documents: [
-    ...ID_URL,
-    { expr: "identifier", inFetch: false },
-    { expr: "title" },
-    { expr: "author" },
-    { expr: "country" },
-    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
-    { expr: "type" },
-    { expr: "subject" },
-    { expr: "spatial", inFetch: false },
-    { expr: "language" },
-    { expr: "nb_pages", inFetch: false },
-    { expr: "source", inFetch: false },
-    { expr: "rights", inFetch: false },
-    { expr: '"descriptionAI"', alias: "description_ai", requires: ["descriptionAI"] },
-    { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], inFetch: false },
-    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], body: true },
+    ...ID_URL(["detail", "fetch", "summary"]),
+    { expr: "identifier", views: ["detail"] },
+    { expr: "title", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "author", views: ["detail", "fetch", "summary"] },
+    { expr: "country", views: ["detail", "fetch", "summary"] },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"], views: ["detail", "fetch", "summary"] },
+    { expr: "type", views: ["detail", "fetch", "summary"] },
+    { expr: "subject", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "spatial", views: ["detail"] },
+    { expr: "language", views: ["detail", "fetch"] },
+    { expr: "nb_pages", views: ["detail"] },
+    { expr: "source", views: ["detail"] },
+    { expr: "rights", views: ["detail"] },
+    {
+      expr: '"descriptionAI"',
+      alias: "description_ai",
+      requires: ["descriptionAI"],
+      views: ["detail", "fetch", "summary"],
+      searchable: true,
+    },
+    { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], views: ["detail"] },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true },
   ],
+
   index: [
-    ...ID_URL,
-    { expr: '"Titre"', alias: "title", requires: ["Titre"] },
-    { expr: '"Type"', alias: "type", requires: ["Type"] },
-    { expr: "frequency" },
-    { expr: "first_occurrence" },
-    { expr: "last_occurrence" },
-    { expr: "countries" },
-    { expr: '"Description"', alias: "description", requires: ["Description"], body: true },
+    ...ID_URL(["detail", "fetch", "summary", "list"]),
+    { expr: '"Titre"', alias: "title", requires: ["Titre"], views: ["detail", "fetch", "summary", "list"], searchable: true },
+    // Pipe-separated aliases — the columns that make a search for "Dahomey"
+    // resolve to "Bénin". Carried in search results only.
+    {
+      expr: '"Titre alternatif"',
+      alias: "alternate_titles",
+      requires: ["Titre alternatif"],
+      views: ["summary"],
+      searchable: true,
+    },
+    { expr: '"Type"', alias: "type", requires: ["Type"], views: ["detail", "fetch", "summary"] },
+    { expr: "frequency", views: ["detail", "fetch", "summary", "list"] },
+    { expr: "first_occurrence", views: ["detail", "fetch", "summary"] },
+    { expr: "last_occurrence", views: ["detail", "fetch", "summary"] },
+    // The uncountried lists (list_subjects) omit this; the country-filtered ones
+    // return it so the caller can see WHY an entry matched.
+    { expr: "countries", views: ["detail", "fetch", "summary", "listCountries"] },
+    {
+      expr: '"Description"',
+      alias: "description",
+      requires: ["Description"],
+      views: ["detail", "fetch", "summary", "list"],
+      body: true,
+      searchable: true,
+    },
   ],
+
   audiovisual: [
-    ...ID_URL,
-    { expr: "identifier", inFetch: false },
-    { expr: "added_date", inFetch: false },
-    { expr: "iiif_manifest" },
-    { expr: "PDF", alias: "media_url", requires: ["PDF"] },
-    { expr: "thumbnail" },
-    { expr: "title" },
-    { expr: "creator" },
-    { expr: "publisher" },
-    { expr: "country" },
-    { expr: "pub_date", alias: "date", requires: ["pub_date"] },
-    { expr: "volume" },
-    { expr: "issue" },
-    { expr: "is_part_of" },
-    { expr: "extent" },
-    { expr: "medium" },
-    { expr: "subject" },
-    { expr: "spatial" },
-    { expr: "language" },
-    { expr: "source" },
-    { expr: '"descriptionAI"', alias: "description_ai", requires: ["descriptionAI"], body: true },
+    ...ID_URL(["detail", "fetch", "summary"]),
+    { expr: "identifier", views: ["detail"] },
+    { expr: "added_date", views: ["detail"] },
+    { expr: "iiif_manifest", views: ["detail", "fetch"] },
+    { expr: "PDF", alias: "media_url", requires: ["PDF"], views: ["detail", "fetch", "summary"] },
+    { expr: "thumbnail", views: ["detail", "fetch"] },
+    { expr: "title", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "creator", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "publisher", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "country", views: ["detail", "fetch", "summary"] },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"], views: ["detail", "fetch", "summary"] },
+    { expr: "volume", views: ["detail", "fetch"] },
+    { expr: "issue", views: ["detail", "fetch"] },
+    { expr: "is_part_of", views: ["detail", "fetch"] },
+    { expr: "extent", views: ["detail", "fetch", "summary"] },
+    { expr: "medium", views: ["detail", "fetch", "summary"] },
+    { expr: "subject", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "spatial", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "language", views: ["detail", "fetch", "summary"], searchable: true },
+    // Searchable but not projected into search rows, matching the previous
+    // hand-written list — `source` is a provenance note, not a triage field.
+    { expr: "source", views: ["detail", "fetch"], searchable: true },
+    {
+      expr: '"descriptionAI"',
+      alias: "description_ai",
+      requires: ["descriptionAI"],
+      views: ["detail", "fetch"],
+      body: true,
+      searchable: true,
+    },
   ],
 };
 
+/** The bare column a field depends on (its schema key), for the derived maps. */
+function baseColumn(field: SubsetField): string {
+  return (field.requires ?? [field.expr])[0];
+}
+
 /**
- * Build a subset's detail SELECT list. `view: "get"` returns every field with
- * its stable key (the get_* tools); `view: "fetch"` returns the lean projection
- * with the body column aliased to `text` (the OpenAI Deep Research contract).
- * Fields whose required columns are missing from the live schema are dropped by
- * selectList, so a dataset revision degrades gracefully rather than throwing.
+ * Build a subset's SELECT list for one view. `fetch` re-aliases the body column
+ * to the contract key `text`; every other view keeps the field's own alias.
  */
-export function detailColsFor(subset: Subset, schema: Set<string>, view: "get" | "fetch"): string {
+export function colsFor(subset: Subset, schema: Set<string>, view: FieldView): string {
+  const chain = new Set<FieldView>([view]);
+  for (let base = VIEW_BASE[view]; base; base = VIEW_BASE[base]) chain.add(base);
+
   const items: Array<string | [string, string, string[]?]> = [];
-  for (const field of DETAIL_FIELDS[subset]) {
-    if (view === "fetch" && field.inFetch === false) continue;
+  for (const field of SUBSET_FIELDS[subset]) {
+    if (!field.views.some((v) => chain.has(v))) continue;
     const alias = view === "fetch" && field.body ? "text" : field.alias;
     if (alias === undefined) items.push(field.expr);
     else items.push([field.expr, alias, field.requires ?? [field.expr]]);
   }
   return selectList(schema, items);
 }
+
+/**
+ * The free-text columns each subset's keyword search matches against. Consumed
+ * by the per-subset `keyword` filters, the unified `search` tool, and
+ * get_temporal_distribution — so adding a column to a subset's searchable
+ * surface is a single `searchable: true` above.
+ */
+export const TEXT_COLS: Record<Subset, string[]> = Object.fromEntries(
+  ALL_SUBSETS.map((s) => [s, SUBSET_FIELDS[s].filter((f) => f.searchable).map(baseColumn)]),
+) as Record<Subset, string[]>;
+
+/**
+ * The column holding each subset's display title (the index subset uses the
+ * French "Titre"). Derived from the field tagged with the `title` output key, so
+ * it cannot disagree with what the projections actually select.
+ */
+export const TITLE_COL: Record<Subset, string> = Object.fromEntries(
+  ALL_SUBSETS.map((s) => {
+    const field = SUBSET_FIELDS[s].find((f) => (f.alias ?? f.expr) === "title");
+    if (!field) throw new Error(`SUBSET_FIELDS.${s} declares no field aliased to 'title'`);
+    return [s, baseColumn(field)];
+  }),
+) as Record<Subset, string>;
 
 // -----------------------------------------------------------------------------
 // Aggregation / text helpers
