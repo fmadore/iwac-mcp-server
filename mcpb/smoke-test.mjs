@@ -108,12 +108,19 @@ await call("list_subjects", { limit: 3 }, { check: (p) => (p.count === 3 ? null 
 await call("list_locations", { country: "Burkina Faso", limit: 3 });
 await call("list_persons", { limit: 3 });
 // NB: audiovisual descriptionAI is empty corpus-wide in the current revision,
-// so rows legitimately carry no description_ai key.
-await call("list_audiovisual", { limit: 2 }, {
+// so rows legitimately carry no description_ai key. `medium` (3 of 47 rows) and
+// `media_url` (1 of 47) are likewise empty for individual items, and empty
+// strings are dropped from responses — so assert these across the page rather
+// than on results[0]. Pinning them to the first row made the check a hostage to
+// pub_date DESC ordering: the two items added in the July 2026 refresh carry no
+// medium and sort newest-first, which turned a projection assertion into a
+// dataset-drift alarm. What is actually under test is that the summary
+// projection carries the columns at all.
+await call("list_audiovisual", { limit: 5 }, {
   check: (p) => {
     if (p.total_matches !== EXPECTED.audiovisualTotal) return `expected ${EXPECTED.audiovisualTotal} audiovisual items, got ${p.total_matches}`;
-    if (!p.results?.[0]?.medium) return "list_audiovisual should expose medium";
-    if (!p.results?.[0]?.media_url) return "list_audiovisual should expose media_url";
+    if (!p.results?.some((r) => r.medium)) return "list_audiovisual should expose medium";
+    if (!p.results?.some((r) => r.media_url)) return "list_audiovisual should expose media_url";
     return null;
   },
 });
