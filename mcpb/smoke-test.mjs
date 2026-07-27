@@ -15,9 +15,10 @@ const EXPECTED = {
   imagesTotal: 30, // images subset added in the July 2026 refresh
   nigerArticles: 1061,
   // 27 -> 32 in v0.13.0: get_topic_distribution, get_field_distribution,
-  // get_cooccurrence, get_lexical_metrics, get_place_distribution, get_semantic_map.
-  toolsCore: 33, // semantic disabled (3 semantic tools are dropped entirely)
-  toolsWithSemantic: 36,
+  // get_cooccurrence, get_lexical_metrics, get_place_distribution, get_semantic_map,
+  // get_similar_items.
+  toolsCore: 34, // semantic disabled (3 semantic tools are dropped entirely)
+  toolsWithSemantic: 37,
   subsets: 7, // + images
   // Full text is masked per row in the PUBLIC dataset (OCR_is_public). These are
   // the July 2026 ratios; a change here means the upstream publication policy
@@ -363,6 +364,27 @@ await call("get_semantic_map", { limit: 200, color_by: "country" }, {
     if (!p.points?.every((x) => Number.isFinite(x.x) && Number.isFinite(x.y))) return "non-finite coordinates";
     return null;
   },
+});
+// Neighbours of a real article. Also the closest thing this server has to a
+// reprint check: a corpus of syndicated West African press should produce at
+// least one near-duplicate somewhere in a 20-neighbour sweep.
+await call("get_similar_items", { id: "10076", limit: 20 }, {
+  structured: true,
+  check: (p) => {
+    if (p.neighbours?.length !== 20) return `expected 20 neighbours, got ${p.neighbours?.length}`;
+    if (p.neighbours.some((n) => n.id === "10076")) return "the source is its own neighbour";
+    const scores = p.neighbours.map((n) => n.score);
+    if (String(scores) !== String([...scores].sort((a, b) => b - a))) return "neighbours are not sorted by score";
+    // Cosine over L2-normalised vectors: anything outside [-1, 1] means the
+    // stored vectors are no longer normalised upstream.
+    if (scores.some((s) => s > 1.0001 || s < -1.0001)) return `score out of range: ${Math.max(...scores)}`;
+    if (scores[0] < 0.5) return `nearest neighbour only ${scores[0]} — the vectors may have changed model`;
+    return null;
+  },
+});
+await call("get_similar_items", { id: "999999999" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("No articles item") ? null : "an unknown id should say so"),
 });
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,

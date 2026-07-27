@@ -86,6 +86,7 @@ for (const n of [
   "get_lexical_metrics",
   "get_place_distribution",
   "get_semantic_map",
+  "get_similar_items",
   "get_collection_stats",
   "get_newspaper_stats",
   "get_country_comparison",
@@ -96,7 +97,7 @@ for (const n of [
   if (t?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
     fail(`${n} should declare the chart UI in _meta, got ${JSON.stringify(t?._meta)}`);
 }
-if (tools.tools.length !== 33) fail(`expected 33 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
+if (tools.tools.length !== 34) fail(`expected 34 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
 if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");
 for (const t of tools.tools) {
   if (!t.title && !t.annotations?.title) fail(`tool ${t.name} has no title`);
@@ -115,6 +116,7 @@ for (const n of [
   "get_lexical_metrics",
   "get_place_distribution",
   "get_semantic_map",
+  "get_similar_items",
 ]) {
   const t = tools.tools.find((x) => x.name === n);
   if (!t?.outputSchema) fail(`${n} should declare an outputSchema`);
@@ -512,6 +514,28 @@ await call("get_semantic_map", { color_by: "country" }, {
 await call("get_semantic_map", { color_by: "OCR" }, {
   expectError: true,
   checkBody: (b) => (b.includes("valid_values") ? null : "an invalid color_by should list the valid ones"),
+});
+
+await call("get_similar_items", { id: "101", limit: 3 }, {
+  structured: true,
+  check: (p) => {
+    if (p.source?.id !== "101") return "source not echoed";
+    if (p.neighbours?.length !== 3) return `expected 3 neighbours, got ${p.neighbours?.length}`;
+    if (p.neighbours.some((n) => n.id === "101")) return "the source must not be its own neighbour";
+    // Descending, and 105 (the other pilgrimage vector) must lead.
+    const scores = p.neighbours.map((n) => n.score);
+    if (String(scores) !== String([...scores].sort((a, b) => b - a))) return "neighbours not sorted by score";
+    if (p.neighbours[0].id !== "105") return `nearest to 101 should be 105, got ${p.neighbours[0].id}`;
+    if (!p.neighbours.every((n) => n.url?.startsWith("https://"))) return "neighbours need a resolvable url";
+    return null;
+  },
+});
+await call("get_similar_items", { id: "101", min_score: 0.999 }, {
+  check: (p) => (p.neighbours?.length === 0 ? null : "min_score should be able to exclude everything"),
+});
+await call("get_similar_items", { id: "does-not-exist" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("No articles item") ? null : `unknown id should say so: ${b.slice(0, 120)}`),
 });
 
 await call("get_lexical_metrics", {}, {

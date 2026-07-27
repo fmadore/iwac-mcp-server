@@ -56,6 +56,7 @@ export const VIEW = {
   lexical: "lexical",
   places: "places",
   semanticMap: "semanticMap",
+  similar: "similar",
 } as const;
 
 export function registerAppResources(server: Server): void {

@@ -104,7 +104,7 @@ try {
   await client.connect(transport);
 
   const tools = await client.listTools();
-  if (tools.tools.length !== 33) fail(`expected 33 tools over HTTP with semantic off, got ${tools.tools.length}`);
+  if (tools.tools.length !== 34) fail(`expected 34 tools over HTTP with semantic off, got ${tools.tools.length}`);
 
   const { call, failures: callFailures } = createHarness(client, { timeoutMs: 60_000 });
   await call("search_articles", { country: "Bénin" }, {

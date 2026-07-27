@@ -15,6 +15,7 @@ import { periodicalsView } from "./periodicals.js";
 import { placesView } from "./places.js";
 import { semanticMapView } from "./semanticMap.js";
 import { sentimentView } from "./sentiment.js";
+import { similarView } from "./similar.js";
 import { temporalView } from "./temporal.js";
 import { topicsView } from "./topics.js";
 
@@ -31,4 +32,5 @@ export const VIEWS: Record<string, View> = {
   lexical: lexicalView,
   places: placesView,
   semanticMap: semanticMapView,
+  similar: similarView,
 };

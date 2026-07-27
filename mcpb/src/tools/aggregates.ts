@@ -22,6 +22,7 @@ import {
   countryParam,
   dateRangeFilter,
   errorResult,
+  itemUrl,
   keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
@@ -144,6 +145,14 @@ const SEMANTIC_MAP_OUTPUT = {
   color_by: z.string().optional(),
   explained_variance: z.array(z.number()),
   points: z.array(z.looseObject({})),
+  note: z.string(),
+};
+
+const SIMILAR_OUTPUT = {
+  view: z.string(),
+  subset: z.string(),
+  source: z.looseObject({}),
+  neighbours: z.array(z.looseObject({})),
   note: z.string(),
 };
 
@@ -731,8 +740,12 @@ export function registerAggregateTools(server: Server): void {
         const emb = r.emb as unknown;
         if (!Array.isArray(emb) || emb.length === 0) continue;
         if (dim === 0) dim = emb.length;
-        // A ragged row would poison every coordinate with NaN.
-        if (emb.length !== dim) continue;
+        // A ragged or non-finite row would poison EVERY coordinate with NaN,
+        // not just its own — PCA mixes all rows through the covariance — so a
+        // bad vector has to be dropped rather than merely tolerated.
+        if (emb.length !== dim || !(emb as unknown[]).every((x) => typeof x === "number" && Number.isFinite(x))) {
+          continue;
+        }
         vectors.push(emb as number[]);
         kept.push({
           id: String(r.id),
@@ -778,6 +791,119 @@ export function registerAggregateTools(server: Server): void {
             ? `${total - kept.length} of ${total} matching items are not plotted — an item is embedded only if ` +
               `its full text ships in this public dataset.`
             : ""),
+      });
+    },
+  );
+
+  // === get_similar_items ==================================================
+  server.registerTool(
+    "get_similar_items",
+    {
+      ...toolMeta("Find similar items"),
+      description:
+        "The items nearest to a given one in meaning, by cosine similarity over the stored embeddings. " +
+        "Answers 'what else is like this' without a keyword — it finds pieces on the same event or theme that " +
+        "share no vocabulary. A neighbour above ~0.85 is usually the same story reprinted or lightly rewritten, " +
+        "which is how to spot syndication in this corpus; 0.6-0.8 is 'same subject, different piece'. " +
+        "Needs no API key: the item's own vector is a column, so nothing has to be embedded at request time. " +
+        "This is per-item, NOT the corpus-wide near-duplicate sweep — that is an all-pairs job and belongs " +
+        "offline.",
+      _meta: CHARTS_UI_META,
+      inputSchema: {
+        id: z.string().describe("The o:id of the item to find neighbours for"),
+        subset: z.string().optional().describe("articles (default) | publications | references"),
+        limit: z.number().int().optional().describe("Neighbours returned (default 12, max 50)"),
+        min_score: z.number().optional().describe("Drop neighbours below this cosine similarity (0-1)"),
+      },
+      outputSchema: SIMILAR_OUTPUT,
+    },
+    async (args) => {
+      const subsetV = validateEnum(args.subset, AGG_SUBSETS, "subset");
+      if (subsetV.err) return errorResult(subsetV.err);
+      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const schema = await ensureView(subset);
+      const embeddingCol = EMBEDDING_COLS[subset];
+      if (!embeddingCol || !schema.has(embeddingCol)) {
+        return errorResult({
+          error: `Subset '${subset}' carries no embedding column in this dataset revision`,
+          valid_values: AGG_SUBSETS.filter((s) => EMBEDDING_COLS[s]),
+        });
+      }
+      const id = String(args.id ?? "").trim();
+      if (!id) return errorResult({ error: "id is required" });
+      const limit = Math.max(1, Math.min(50, args.limit ?? 12));
+
+      const titleCol = TITLE_COL[subset];
+      const extra = ["newspaper", "pub_date", "country"].filter((c) => schema.has(c));
+      const extraSel = extra.length ? `, ${extra.map((c) => q(c)).join(", ")}` : "";
+
+      // Resolve the source FIRST. A missing id would otherwise make the target
+      // subquery NULL, and `list_inner_product(v, NULL)` returns NULL rather
+      // than raising — so every row would come back scored 0 and the tool would
+      // present the whole subset as "neighbours" of an item that does not
+      // exist. Distinguish the two failures too: a bad id is the caller's, a
+      // missing vector is a coverage limit of the public dataset.
+      const source = await queryOne(
+        `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title,
+                ${q(embeddingCol)} IS NOT NULL AS has_vector
+         FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ?`,
+        [id],
+      );
+      if (!source) return errorResult({ error: `No ${subset} item with id ${id}` });
+      if (!source.has_vector) {
+        return errorResult({
+          error:
+            `Item ${id} carries no embedding, so it has no neighbours to find. Only items whose full text ships ` +
+            `in this public dataset are embedded.`,
+        });
+      }
+
+      // MATERIALIZED is load-bearing, not a hint. DuckDB otherwise evaluates
+      // list_inner_product before the IS NOT NULL filter, and the row with no
+      // vector aborts the whole query with "left argument can not contain NULL
+      // values". Materialising the filtered source removes the NULL from the
+      // function's input entirely.
+      const rows = await query(
+        `WITH src AS MATERIALIZED (
+           SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title${extraSel},
+                  ${q(embeddingCol)} AS v
+           FROM ${viewName(subset)} WHERE ${q(embeddingCol)} IS NOT NULL
+         ),
+         target AS MATERIALIZED (SELECT v FROM src WHERE id = ? LIMIT 1)
+         SELECT id, title${extraSel}, list_inner_product(v, (SELECT v FROM target)) AS score
+         FROM src WHERE id <> ?
+         ORDER BY score DESC LIMIT ${limit}`,
+        [id, id],
+      );
+
+      const min = typeof args.min_score === "number" ? args.min_score : undefined;
+      const neighbours = rows
+        .map((r) => {
+          const rec: Record<string, unknown> = {
+            id: String(r.id),
+            title: clipTitle(r.title),
+            score: Math.round(Number(r.score) * 1e4) / 1e4,
+            url: itemUrl(String(r.id)),
+          };
+          for (const c of extra) if (r[c] != null && String(r[c]).trim() !== "") rec[c] = String(r[c]);
+          return rec;
+        })
+        .filter((r) => min === undefined || (r.score as number) >= min);
+
+      const reprints = neighbours.filter((r) => (r.score as number) >= 0.85).length;
+      return structuredResult({
+        view: VIEW.similar,
+        subset,
+        source: { id: String(source.id), title: clipTitle(source.title), url: itemUrl(String(source.id)) },
+        neighbours,
+        note:
+          `Cosine similarity over the stored embeddings; 1.0 is identical. ` +
+          (reprints
+            ? `${reprints} neighbour${reprints === 1 ? " scores" : "s score"} at or above 0.85, which in this ` +
+              `corpus usually means the same story reprinted or lightly rewritten. `
+            : "") +
+          `Only items whose full text ships in this public dataset are embedded, so unembedded items can never ` +
+          `appear here however similar they are.`,
       });
     },
   );

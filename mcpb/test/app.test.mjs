@@ -612,6 +612,29 @@ CASES.push([
 ]);
 
 CASES.push([
+  "similar items",
+  {
+    view: "similar",
+    subset: "articles",
+    source: { id: "10076", title: "Tabaski 2018 : 800 bœufs abattus", url: "https://islam.zmo.de/x" },
+    neighbours: [
+      { id: "2374", title: "Fête de la tabaski : 832 bœufs", score: 0.8747, newspaper: "Sidwaya", pub_date: "2018-08-23" },
+      { id: "4018", title: "Tabaski 2018 : l'ONG FOSAPA solidaire", score: 0.8225, newspaper: "L'Observateur" },
+      { id: "3428", title: "Tabaski 2017 : tolérance religieuse", score: 0.6979, newspaper: "Sidwaya" },
+    ],
+    note: "Cosine similarity over the stored embeddings; 1.0 is identical.",
+  },
+  (markup) => {
+    if (!markup.includes("0.875")) return "scores should render at 3 decimals";
+    if (!markup.includes("1 at or above 0.85")) return "the reprint band was not counted in the headline";
+    if (!markup.includes("likely reprints")) return "missing the reprint caution";
+    // The above-threshold bar is coloured differently so the cliff is visible.
+    if (!markup.includes("#c5504d")) return "the reprint bar is not distinguished";
+    return null;
+  },
+]);
+
+CASES.push([
   "temporal (empty)",
   {
     view: "temporal",
