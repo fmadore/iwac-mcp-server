@@ -64,6 +64,9 @@ jobs:
       - name: Fixture MCP round-trip (offline)
         run: npm run test:fixture
 
+      - name: MCP App bundle (offline)
+        run: npm run test:app
+
       - name: HTTP transport round-trip (offline)
         run: npm run test:http
 
