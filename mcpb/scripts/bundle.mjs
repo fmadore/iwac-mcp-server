@@ -18,6 +18,54 @@ import { fileURLToPath } from "node:url";
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
 
+// --- zod locale stubbing ----------------------------------------------------
+// zod's `v4/locales/index.js` re-exports 50+ error-message catalogues (Arabic,
+// Hebrew, Japanese, …) and `v4/classic/external.js` re-exports that index as
+// `z.locales`, so every catalogue lands in every bundle that touches zod. In
+// the app bundle that was 195.0 kb of 387.6 kb — half the payload, for strings
+// that can never fire. Only `en.js` is live: `classic/external.js` imports it
+// directly to seed the default error map, and nothing in this project ever
+// calls `z.config(z.locales.<x>())`.
+//
+// Two details are load-bearing, both learned by getting them wrong first:
+//
+//   * The filter has to be broad and match the RESOLVED path. esbuild runs
+//     `onLoad` filters against absolute paths, so a specifier-shaped filter
+//     (`/^zod\/v4\/locales\//`) silently matches nothing and the plugin looks
+//     like it worked while saving zero bytes.
+//   * `index.js` must NOT be stubbed. It is the re-export barrel; stubbing it
+//     removes the `z.locales` namespace itself rather than its contents.
+//
+// The stub throws instead of exporting `undefined`, so if a future app really
+// does want a non-English catalogue it fails with a message naming this plugin
+// rather than "undefined is not a function" from deep inside zod. All 50 stubs
+// re-export ONE shared virtual module, so that diagnostic costs ~200 bytes
+// total instead of ~110 bytes each.
+const STUB_MODULE = "iwac-virtual:zod-locale-stub";
+
+const stubZodLocales = {
+  name: "stub-zod-locales",
+  setup(build) {
+    build.onResolve({ filter: /^iwac-virtual:zod-locale-stub$/ }, (args) => ({
+      path: args.path,
+      namespace: "iwac-stub",
+    }));
+    build.onLoad({ filter: /.*/, namespace: "iwac-stub" }, () => ({
+      contents:
+        "export default function stubbedZodLocale(){throw new Error(" +
+        '"This bundle ships only zod\'s English locale; the others are stubbed out by ' +
+        'scripts/bundle.mjs. Drop the stub-zod-locales plugin to use z.locales.<lang>().")}',
+      loader: "js",
+    }));
+    build.onLoad({ filter: /locales/ }, (args) => {
+      const path = args.path.replaceAll("\\", "/");
+      if (!path.includes("/zod/") || !path.includes("/locales/")) return null;
+      if (/\/(?:en|index)\.js$/.test(path)) return null;
+      return { contents: `export { default } from ${JSON.stringify(STUB_MODULE)};`, loader: "js" };
+    });
+  },
+};
+
 // --- MCP App UI ------------------------------------------------------------
 // The coverage chart is bundled to a single IIFE and inlined into ONE
 // self-contained HTML string, then injected into the server bundle as a define.
@@ -34,6 +82,7 @@ const ui = await esbuild.build({
   target: "es2020",
   minify: true,
   legalComments: "none",
+  plugins: [stubZodLocales],
   write: false,
 });
 const uiScript = ui.outputFiles[0].text;
@@ -71,6 +120,12 @@ button:disabled{opacity:.6;cursor:default}
 </style></head>
 <body><div id="root"></div><script>${uiScript}</script></body></html>`;
 
+// Report it: the UI is inlined into the server bundle as a string constant, so
+// esbuild's own output summary hides it, and it is the one artifact whose size
+// a new chart can quietly double. test/fixture-server.test.mjs enforces a hard
+// budget; this line is so the number is visible while iterating.
+console.log(`  ui resource   ${(Buffer.byteLength(uiHtml) / 1024).toFixed(1)}kb`);
+
 await esbuild.build({
   absWorkingDir: rootDir,
   entryPoints: [join(rootDir, "src", "index.ts")],
@@ -89,6 +144,11 @@ await esbuild.build({
   // and esbuild hoists the entry point's shebang to line 1 of the bundle.
   legalComments: "none",
   external: ["@duckdb/*", "@google/genai"],
+  // Same dead weight as in the UI build above, and the server bundle ships in
+  // every .mcpb and every Docker image. The server declares its input schemas
+  // with zod but never re-configures the locale, so the catalogues are as dead
+  // here as they are in an iframe.
+  plugins: [stubZodLocales],
   define: {
     __IWAC_VERSION__: JSON.stringify(pkg.version),
     __IWAC_UI_COVERAGE__: JSON.stringify(uiHtml),
