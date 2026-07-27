@@ -15,9 +15,9 @@ const EXPECTED = {
   imagesTotal: 30, // images subset added in the July 2026 refresh
   nigerArticles: 1061,
   // 27 -> 32 in v0.13.0: get_topic_distribution, get_field_distribution,
-  // get_cooccurrence, get_lexical_metrics, get_place_distribution.
-  toolsCore: 32, // semantic disabled (3 semantic tools are dropped entirely)
-  toolsWithSemantic: 35,
+  // get_cooccurrence, get_lexical_metrics, get_place_distribution, get_semantic_map.
+  toolsCore: 33, // semantic disabled (3 semantic tools are dropped entirely)
+  toolsWithSemantic: 36,
   subsets: 7, // + images
   // Full text is masked per row in the PUBLIC dataset (OCR_is_public). These are
   // the July 2026 ratios; a change here means the upstream publication policy
@@ -348,6 +348,19 @@ await call("get_place_distribution", { top_n: 40 }, {
     if (!mecca?.lat) return "La Mecque should come back geocoded";
     if (!(p.ungeocoded_mentions > 0)) return "no ungeocoded places reported — the join has stopped missing";
     if (!p.items_by_country?.["Burkina Faso"]) return "per-country totals missing for the choropleth";
+    return null;
+  },
+});
+await call("get_semantic_map", { limit: 200, color_by: "country" }, {
+  structured: true,
+  check: (p) => {
+    if (p.projected < 150) return `only ${p.projected} of 200 requested items projected`;
+    const [a, b] = p.explained_variance ?? [];
+    // 768-d text embeddings put ~13-18% in the first two components. Anything
+    // near 1 would mean the vectors had collapsed; 0 would mean they are noise.
+    if (!(a > 0.02 && a < 0.6)) return `PC1 explains ${a}, outside the plausible band for 768-d embeddings`;
+    if (!(b > 0 && b <= a)) return `PC2 explains ${b}, which cannot exceed PC1`;
+    if (!p.points?.every((x) => Number.isFinite(x.x) && Number.isFinite(x.y))) return "non-finite coordinates";
     return null;
   },
 });

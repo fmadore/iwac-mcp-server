@@ -582,6 +582,36 @@ CASES.push([
 ]);
 
 CASES.push([
+  "semantic map (weak projection)",
+  {
+    view: "semanticMap",
+    subset: "articles",
+    filters: {},
+    total_matches: 12287,
+    projected: 300,
+    color_by: "country",
+    // 18% is the real figure for 768-d article embeddings; the view must say
+    // so rather than let the reader take the distances at face value.
+    explained_variance: [0.1349, 0.0466],
+    points: Array.from({ length: 300 }, (_, i) => ({
+      id: String(i),
+      title: `Article ${i}`,
+      group: ["Benin", "Togo", "Niger"][i % 3],
+      x: Math.cos(i) * 0.3,
+      y: Math.sin(i) * 0.2,
+    })),
+    note: "PCA over 768-dimension embeddings.",
+  },
+  (markup) => {
+    if ((markup.match(/<circle/g) ?? []).length !== 300) return "not every point was drawn";
+    if (!markup.includes("18.1%")) return "explained variance missing from the headline";
+    if (!markup.includes("distances here are a weak signal")) return "a weak projection must be flagged as such";
+    if (!markup.includes("This is PCA, not UMAP")) return "missing the UMAP disclaimer";
+    return null;
+  },
+]);
+
+CASES.push([
   "temporal (empty)",
   {
     view: "temporal",

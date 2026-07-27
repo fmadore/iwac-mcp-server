@@ -130,6 +130,10 @@
       "description": "Places named by a filtered set, joined to the index's geocoded 'Lieux' authority records. Renders as an interactive choropleth-and-bubble map of West Africa in hosts that support MCP Apps."
     },
     {
+      "name": "get_semantic_map",
+      "description": "A 2-D PCA scatter of a filtered set, projected from the stored 768-dimension embeddings, with the explained-variance share. Needs no API key. Renders as an interactive scatter in hosts that support MCP Apps."
+    },
+    {
       "name": "get_lexical_metrics",
       "description": "Readability, lexical richness (MATTR) and length of the press text by year, newspaper or country. Renders as interactive charts in hosts that support MCP Apps."
     },

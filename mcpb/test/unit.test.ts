@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 
 import { bubbleMap, columns, donut, forceGraph, gantt, heatmapMatrix, horizontalBar, squarify, ticks, treemap } from "../src/app/svg.js";
 import { BASEMAP, BASEMAP_BOUNDS } from "../src/app/basemap.js";
+import { project2d } from "../src/pca.js";
 import { csv, csvCell } from "../src/app/shell.js";
 import { fmtInt, THOUSANDS_SEP } from "../src/app/theme.js";
 import { carryFilters, temporalView } from "../src/app/views/temporal.js";
@@ -661,11 +662,11 @@ describe("co-mention network", () => {
 
   it("places tightly-linked nodes closer than unlinked ones", () => {
     const svg = forceGraph({ nodes: NODES, edges: EDGES });
-    const at = (i) => {
+    const at = (i: number) => {
       const circles = [...svg.matchAll(/<circle cx="([\d.-]+)" cy="([\d.-]+)"/g)];
       return { x: Number(circles[i][1]), y: Number(circles[i][2]) };
     };
-    const d = (i, j) => Math.hypot(at(i).x - at(j).x, at(i).y - at(j).y);
+    const d = (i: number, j: number) => Math.hypot(at(i).x - at(j).x, at(i).y - at(j).y);
     // Within-cluster distance must beat the across-cluster distance, or the
     // layout is telling the reader nothing.
     assert.ok(d(0, 1) < d(0, 7), `cluster mates ${d(0, 1).toFixed(0)} apart, rivals ${d(0, 7).toFixed(0)}`);
@@ -682,5 +683,53 @@ describe("co-mention network", () => {
     // Zero weights everywhere must not produce infinite radii.
     const flat = forceGraph({ nodes: [{ label: "a", weight: 0 }, { label: "b", weight: 0 }], edges: [{ source: 0, target: 1, weight: 0 }] });
     assert.ok(!flat.includes("NaN") && !flat.includes("Infinity"));
+  });
+});
+
+describe("PCA projection", () => {
+  it("recovers a planted 2-D structure from high-dimensional noise", () => {
+    // Points on a known plane inside 40 dimensions, plus small noise on the
+    // rest. PC1/PC2 must recover the plane and explain nearly all the variance.
+    const D = 40;
+    const vectors = [];
+    for (let i = 0; i < 60; i++) {
+      const a = Math.cos((i / 60) * Math.PI * 2) * 10;
+      const b = Math.sin((i / 60) * Math.PI * 2) * 4;
+      const v = new Array(D).fill(0).map((_, j) => (j % 7) * 1e-4 * ((i % 5) - 2));
+      v[3] = a;
+      v[17] = b;
+      vectors.push(v);
+    }
+    const { points, explained } = project2d(vectors);
+    assert.equal(points.length, 60);
+    assert.ok(explained[0] + explained[1] > 0.99, `explained ${explained} should be ~1 for a planar cloud`);
+    // The wider axis must come first.
+    assert.ok(explained[0] > explained[1]);
+    // The ring's shape survives: the spread along PC1 is ~10/4 that along PC2.
+    const spread = (k: number) => Math.max(...points.map((p) => p[k])) - Math.min(...points.map((p) => p[k]));
+    assert.ok(Math.abs(spread(0) / spread(1) - 2.5) < 0.3, `aspect ${spread(0) / spread(1)}`);
+  });
+
+  it("is deterministic and sign-stable", () => {
+    const vectors = Array.from({ length: 30 }, (_, i) =>
+      Array.from({ length: 12 }, (_, j) => Math.sin(i * 0.7 + j) + (j === 2 ? i : 0)),
+    );
+    const a = project2d(vectors);
+    const b = project2d(vectors);
+    assert.deepEqual(a.points, b.points, "two runs on identical data must agree, including sign");
+  });
+
+  it("degrades safely", () => {
+    assert.deepEqual(project2d([]).points, []);
+    assert.deepEqual(project2d([[1, 2, 3]]).points, [[0, 0]]);
+    // Identical vectors: zero variance, no NaN, no divide-by-zero.
+    const same = project2d([
+      [1, 1, 1],
+      [1, 1, 1],
+      [1, 1, 1],
+    ]);
+    assert.equal(same.points.length, 3);
+    assert.ok(same.points.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)));
+    assert.deepEqual(same.explained, [0, 0]);
   });
 });

@@ -15,6 +15,7 @@
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import type { Subset } from "../config.js";
+import { project2d } from "../pca.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   COUNTRIES,
@@ -27,6 +28,7 @@ import {
   rowsToMap,
   structuredResult,
   TEXT_COLS,
+  TITLE_COL,
   toolMeta,
   validateEnum,
   yearRangeFilter,
@@ -45,11 +47,35 @@ const AGG_SUBSETS = ["articles", "publications", "references"] as const;
 
 const GROUP_FIELDS = ["year", "newspaper", "country"] as const;
 
+/** Fields a semantic scatter may colour by. */
+const COLOR_FIELDS = ["country", "newspaper", "subject", "lda_topic_label", "gemini_polarite"] as const;
+
+/**
+ * Which column holds each subset's vectors. Publications embed their table of
+ * contents rather than their OCR (a whole issue is far past the model's token
+ * limit), and only ~31% of them have one, so a publications scatter is sparse
+ * by construction.
+ */
+const EMBEDDING_COLS: Partial<Record<Subset, string>> = {
+  articles: "embedding_OCR",
+  references: "embedding_OCR",
+  publications: "embedding_tableOfContents",
+};
+
 /** The three AI sentiment models the dataset carries, all at 100% coverage. */
 export const SENTIMENT_MODELS = ["gemini", "chatgpt", "mistral"] as const;
 
 /** Multi-value columns are pipe-joined; ranking one means exploding it first. */
 const PIPE_FIELDS = new Set(["subject", "spatial", "author", "language", "country"]);
+
+/**
+ * Titles are the bulk of a semantic-map payload and only ever become a chart
+ * tooltip, so they are clipped rather than sent whole.
+ */
+function clipTitle(value: unknown): string {
+  const s = value == null ? "" : String(value).trim();
+  return s.length <= 70 ? s : `${s.slice(0, 69)}…`;
+}
 
 /** `unnest`-based explode of a pipe column into one trimmed, non-empty row per value. */
 function explode(field: string): string {
@@ -107,6 +133,18 @@ const PLACES_OUTPUT = {
   ungeocoded: z.array(z.looseObject({})).optional(),
   ungeocoded_mentions: z.number().optional(),
   note: z.string().optional(),
+};
+
+const SEMANTIC_MAP_OUTPUT = {
+  view: z.string(),
+  subset: z.string(),
+  filters: z.looseObject({}),
+  total_matches: z.number(),
+  projected: z.number(),
+  color_by: z.string().optional(),
+  explained_variance: z.array(z.number()),
+  points: z.array(z.looseObject({})),
+  note: z.string(),
 };
 
 const LEXICAL_OUTPUT = {
@@ -614,6 +652,132 @@ export function registerAggregateTools(server: Server): void {
           `Coordinates come from the index's 'Lieux' authority records, which cover 555 of 683 places; a named ` +
           `place with no geocoded index entry is listed under 'ungeocoded' with its count, not dropped. ` +
           `'spatial' is multi-valued, so counts sum to more than the item count.`,
+      });
+    },
+  );
+
+  // === get_semantic_map ===================================================
+  server.registerTool(
+    "get_semantic_map",
+    {
+      ...toolMeta("Semantic scatter"),
+      description:
+        "A 2-D scatter of a filtered set, projected from the stored 768-dimension embeddings by PCA. Shows which " +
+        "items sit near each other in meaning — where a set splits into distinct strands and where it is one " +
+        "cloud. Read `explained_variance` before drawing any conclusion: with 768 dimensions the first two " +
+        "components usually carry a modest share, and a scatter explaining 6% of the variance is a much weaker " +
+        "claim than one explaining 40%. This is PCA, not UMAP: it spreads the broadest axes of variation and " +
+        "flattens fine cluster structure, so it is not comparable to the semantic landscapes on islam.zmo.de. " +
+        "Needs no API key — the vectors are a column in the dataset — but only items whose full text ships are " +
+        "embedded at all. NOTE the payload scales with `limit`: a point cloud is a chart, not something a " +
+        "text-only client can read, so for those the useful part is the explained-variance summary rather than " +
+        "the coordinates. Keep `limit` low unless a chart is going to be drawn.",
+      _meta: CHARTS_UI_META,
+      inputSchema: {
+        subset: z.string().optional().describe("articles (default) | publications | references"),
+        ...filterInputs(),
+        color_by: z.string().optional().describe("country | newspaper | subject | lda_topic_label | gemini_polarite"),
+        limit: z.number().int().optional().describe("Items projected (default 300, max 2000)"),
+      },
+      outputSchema: SEMANTIC_MAP_OUTPUT,
+    },
+    async (args) => {
+      const subsetV = validateEnum(args.subset, AGG_SUBSETS, "subset");
+      if (subsetV.err) return errorResult(subsetV.err);
+      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const country = validateEnum(args.country, COUNTRIES, "country");
+      if (country.err) return errorResult(country.err);
+      const colorV = validateEnum(args.color_by, COLOR_FIELDS, "color_by");
+      if (colorV.err) return errorResult(colorV.err);
+
+      const schema = await ensureView(subset);
+      const embeddingCol = EMBEDDING_COLS[subset];
+      if (!embeddingCol || !schema.has(embeddingCol)) {
+        return errorResult({
+          error: `Subset '${subset}' carries no embedding column in this dataset revision`,
+          valid_values: AGG_SUBSETS.filter((s) => EMBEDDING_COLS[s]),
+        });
+      }
+      const colorBy = colorV.canonical && schema.has(colorV.canonical) ? colorV.canonical : undefined;
+      // 2,000 x 768 doubles is ~12 MB and ~1 s of power iteration; past that the
+      // scatter is an unreadable smear anyway. The default is deliberately low:
+      // every point costs payload, and 300 already fills a 760px frame.
+      const limit = Math.max(10, Math.min(2000, args.limit ?? 300));
+
+      const { where, params, echo } = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      const whereSql = [...where, `${q(embeddingCol)} IS NOT NULL`].join(" AND ");
+      const total = Number(
+        (await queryScalarSingle<number | bigint>(
+          `SELECT COUNT(*) FROM ${viewName(subset)} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
+          params,
+        )) ?? 0,
+      );
+
+      // Deterministic ordering, so the same filter always projects the same
+      // items — an arbitrary LIMIT would redraw a different map each call.
+      const titleCol = TITLE_COL[subset];
+      const rows = await query(
+        `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title,
+                ${colorBy ? `${q(colorBy)} AS grp,` : ""} ${q(embeddingCol)} AS emb
+         FROM ${viewName(subset)} WHERE ${whereSql}
+         ORDER BY "o:id" LIMIT ${limit}`,
+        params,
+      );
+
+      const kept: Record<string, unknown>[] = [];
+      const vectors: number[][] = [];
+      let dim = 0;
+      for (const r of rows) {
+        const emb = r.emb as unknown;
+        if (!Array.isArray(emb) || emb.length === 0) continue;
+        if (dim === 0) dim = emb.length;
+        // A ragged row would poison every coordinate with NaN.
+        if (emb.length !== dim) continue;
+        vectors.push(emb as number[]);
+        kept.push({
+          id: String(r.id),
+          // Titles are the bulk of this payload and only ever become a chart
+          // tooltip, so they are capped rather than sent whole.
+          title: clipTitle(r.title),
+          ...(colorBy ? { group: r.grp == null ? "" : String(r.grp) } : {}),
+        });
+      }
+      if (!vectors.length) {
+        return structuredResult({
+          view: VIEW.semanticMap,
+          subset,
+          filters: echo,
+          total_matches: total,
+          projected: 0,
+          explained_variance: [0, 0],
+          points: [],
+          note: "No item in this selection carries an embedding.",
+        });
+      }
+
+      const { points, explained } = project2d(vectors);
+      // 4 decimals is ~0.01% of a typical axis span: below what any scatter can
+      // show, and it keeps a 500-point payload from tripling in size.
+      const round = (v: number): number => Math.round(v * 1e4) / 1e4;
+
+      return structuredResult({
+        view: VIEW.semanticMap,
+        subset,
+        filters: echo,
+        total_matches: total,
+        projected: kept.length,
+        ...(colorBy ? { color_by: colorBy } : {}),
+        explained_variance: [round(explained[0]), round(explained[1])],
+        points: kept.map((k, i) => ({ ...k, x: round(points[i][0]), y: round(points[i][1]) })),
+        note:
+          `PCA over ${dim}-dimension embeddings, capturing ` +
+          `${Math.round((explained[0] + explained[1]) * 100)}% of the variance in these two axes. ` +
+          `PCA preserves global spread, not local neighbourhoods, so this is NOT the UMAP semantic landscape ` +
+          `published on islam.zmo.de and will not look like it. ` +
+          (total > kept.length
+            ? `${total - kept.length} of ${total} matching items are not plotted — an item is embedded only if ` +
+              `its full text ships in this public dataset.`
+            : ""),
       });
     },
   );

@@ -85,6 +85,7 @@ for (const n of [
   "get_cooccurrence",
   "get_lexical_metrics",
   "get_place_distribution",
+  "get_semantic_map",
   "get_collection_stats",
   "get_newspaper_stats",
   "get_country_comparison",
@@ -95,7 +96,7 @@ for (const n of [
   if (t?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
     fail(`${n} should declare the chart UI in _meta, got ${JSON.stringify(t?._meta)}`);
 }
-if (tools.tools.length !== 32) fail(`expected 32 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
+if (tools.tools.length !== 33) fail(`expected 33 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
 if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");
 for (const t of tools.tools) {
   if (!t.title && !t.annotations?.title) fail(`tool ${t.name} has no title`);
@@ -113,6 +114,7 @@ for (const n of [
   "get_cooccurrence",
   "get_lexical_metrics",
   "get_place_distribution",
+  "get_semantic_map",
 ]) {
   const t = tools.tools.find((x) => x.name === n);
   if (!t?.outputSchema) fail(`${n} should declare an outputSchema`);
@@ -481,6 +483,35 @@ await call("get_cooccurrence", { field: "subject", top_n: 3 }, {
     if (p.top_pairs?.some((x) => x.a === x.b)) return "top_pairs should not contain self-pairs";
     return null;
   },
+});
+
+await call("get_semantic_map", { color_by: "country" }, {
+  structured: true,
+  check: (p) => {
+    if (p.projected !== 6) return `expected all 6 fixture articles projected, got ${p.projected}`;
+    if (!p.points?.every((x) => Number.isFinite(x.x) && Number.isFinite(x.y))) return "a point has no finite coordinates";
+    if (!p.points.every((x) => x.group)) return "color_by=country did not populate group";
+    const [a, b] = p.explained_variance ?? [];
+    if (!(a > 0 && b >= 0 && a + b <= 1.0001)) return `explained_variance ${p.explained_variance} is not a share`;
+    if (a < b) return "components should be ordered by variance";
+    // The fixture embeddings are two separable clusters, so a 2-d projection
+    // should capture nearly all of the variance.
+    if (a + b < 0.9) return `two clusters in 4-d should project cleanly, got ${a + b}`;
+    if (!String(p.note ?? "").includes("NOT the UMAP")) return "must disclaim the UMAP comparison";
+    return null;
+  },
+});
+// Deterministic: the same filter must project the same picture, or the chart
+// reshuffles itself on every call and cannot be read as evidence.
+{
+  const one = await call("get_semantic_map", {}, {});
+  const two = await call("get_semantic_map", {}, {});
+  if (JSON.stringify(one?.points) !== JSON.stringify(two?.points))
+    fail("get_semantic_map is not deterministic across calls");
+}
+await call("get_semantic_map", { color_by: "OCR" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "an invalid color_by should list the valid ones"),
 });
 
 await call("get_lexical_metrics", {}, {

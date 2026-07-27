@@ -762,6 +762,64 @@ export function forceGraph(o: NetworkOptions): string {
   });
 }
 
+export interface ScatterPoint {
+  x: number;
+  y: number;
+  label: string;
+  group?: string;
+}
+
+export interface ScatterOptions extends Partial<Frame> {
+  points: ScatterPoint[];
+  /** Group order, which fixes the colour assignment and the legend. */
+  groups?: string[];
+  clickable?: boolean;
+}
+
+/** Plain 2-D scatter, autoscaled to the data. Used by the semantic map. */
+export function scatter(o: ScatterOptions): string {
+  const pts = o.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  if (!pts.length) return "";
+  const width = o.width ?? 760;
+  const height = o.height ?? 460;
+  const pad = 16;
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const sx = maxX - minX < 1e-9 ? 0 : (width - 2 * pad) / (maxX - minX);
+  const sy = maxY - minY < 1e-9 ? 0 : (height - 2 * pad) / (maxY - minY);
+  const X = (v: number): number => pad + (sx ? (v - minX) * sx : (width - 2 * pad) / 2);
+  // SVG y grows downward; flip so "up" on the chart is a larger component score.
+  const Y = (v: number): number => height - pad - (sy ? (v - minY) * sy : (height - 2 * pad) / 2);
+
+  const colors = palette();
+  const groups = o.groups ?? [];
+  // Radius shrinks as the cloud gets denser, so 2,000 points stay legible.
+  const r = pts.length > 900 ? 2 : pts.length > 300 ? 2.8 : 4;
+
+  const dots = pts
+    .map((p) => {
+      const gi = p.group ? groups.indexOf(p.group) : -1;
+      const fill = gi >= 0 ? colors[gi % colors.length] : colors[0];
+      return (
+        `<circle cx="${n(X(p.x))}" cy="${n(Y(p.y))}" r="${r}" fill="${fill}" class="dot"` +
+        `${o.clickable ? ` data-key="${esc(p.label)}"` : ""}>` +
+        `<title>${esc(clip(p.label, 90))}${p.group ? ` — ${esc(p.group)}` : ""}</title></circle>`
+      );
+    })
+    .join("");
+
+  return frame(dots, {
+    width,
+    height,
+    minWidth: o.minWidth ?? 420,
+    ariaLabel: o.ariaLabel ?? "Semantic scatter",
+  });
+}
+
 export interface GaugeOptions {
   /** 0..1 */
   value: number;
