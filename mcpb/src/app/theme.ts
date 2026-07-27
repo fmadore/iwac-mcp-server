@@ -60,6 +60,56 @@ export function colorFor(name: string, order: string[]): string {
   return colors[(i < 0 ? order.length : i) % colors.length];
 }
 
+/**
+ * The AI sentiment vocabularies are ORDINAL five-point French scales, not
+ * unordered categories, so charting them needs a fixed order and a scale that
+ * carries the ordering — alphabetical buckets in arbitrary hues would throw
+ * away half of what the data says. Values outside these lists (a future
+ * vocabulary change) fall back to the categorical palette and sort last.
+ */
+export const POLARITY_ORDER = [
+  "Très positif",
+  "Positif",
+  "Neutre",
+  "Négatif",
+  "Très négatif",
+  "Non applicable",
+];
+
+export const CENTRALITY_ORDER = ["Très central", "Central", "Secondaire", "Marginal", "Non abordé"];
+
+/** Diverging green→red for polarity; sequential for centrality. */
+const POLARITY_COLORS: Record<string, string> = {
+  "Très positif": "#2f6b52",
+  Positif: "#6fb08e",
+  Neutre: "#a68e6d",
+  Négatif: "#d4796f",
+  "Très négatif": "#a83a2e",
+  "Non applicable": "#9a9a9a",
+};
+const CENTRALITY_COLORS: Record<string, string> = {
+  "Très central": "#ce4115",
+  Central: "#e08a5f",
+  Secondaire: "#c9a98d",
+  Marginal: "#b8b3ac",
+  "Non abordé": "#9a9a9a",
+};
+
+/** Sort keys by a known ordinal scale, leaving unknown values alphabetical at the end. */
+export function orderBy(keys: string[], scale: string[]): string[] {
+  const rank = (k: string): number => {
+    const i = scale.indexOf(k);
+    return i < 0 ? scale.length : i;
+  };
+  return [...keys].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, "fr"));
+}
+
+/** Colour for an ordinal sentiment value, or undefined to use the palette. */
+export function ordinalColor(label: string, scale: string[]): string | undefined {
+  const table = scale === POLARITY_ORDER ? POLARITY_COLORS : scale === CENTRALITY_ORDER ? CENTRALITY_COLORS : null;
+  return table?.[label];
+}
+
 const hex = (c: string): [number, number, number] => [
   Number.parseInt(c.slice(1, 3), 16),
   Number.parseInt(c.slice(3, 5), 16),

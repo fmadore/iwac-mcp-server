@@ -75,7 +75,7 @@
     },
     {
       "name": "get_sentiment_distribution",
-      "description": "Aggregate Gemini sentiment stats across a filter set."
+      "description": "Aggregate Gemini sentiment stats across a filter set. Renders as interactive donut charts in hosts that support MCP Apps."
     },
     {
       "name": "search_index",
@@ -99,15 +99,15 @@
     },
     {
       "name": "get_collection_stats",
-      "description": "Overall stats for all seven IWAC subsets, including how much of each carries searchable full text (fulltext_coverage)."
+      "description": "Overall stats for all seven IWAC subsets, including how much of each carries searchable full text (fulltext_coverage). Renders as an interactive treemap with full-text coverage gauges in hosts that support MCP Apps."
     },
     {
       "name": "get_newspaper_stats",
-      "description": "Per-newspaper article counts and date ranges."
+      "description": "Per-newspaper article counts and date ranges. Renders as an interactive ranked bar chart in hosts that support MCP Apps."
     },
     {
       "name": "get_country_comparison",
-      "description": "Compare article counts and sentiment across countries."
+      "description": "Compare article counts and sentiment across countries. Renders as interactive comparison charts in hosts that support MCP Apps."
     },
     {
       "name": "get_temporal_distribution",
@@ -119,7 +119,7 @@
     },
     {
       "name": "list_periodicals",
-      "description": "List the periodical/series titles in the publications subset, with issue counts and year ranges."
+      "description": "List the periodical/series titles in the publications subset, with issue counts and year ranges. Renders as an interactive runs gantt in hosts that support MCP Apps."
     },
     {
       "name": "get_publication_fulltext",

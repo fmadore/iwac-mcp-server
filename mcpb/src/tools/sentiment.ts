@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ensureView, query, queryScalarSingle, viewName, type Bindable } from "../db.js";
+import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   capOffset,
   CENTRALITY_VALUES,
@@ -25,6 +26,7 @@ import {
 // Small, stable envelope → worth a structured-output contract. Distributions
 // are optional because the sentiment columns may be absent from a revision.
 const SENTIMENT_DISTRIBUTION_OUTPUT = {
+  view: z.string(),
   model: z.string(),
   total_articles: z.number(),
   filters: z.looseObject({}),
@@ -99,6 +101,7 @@ export function registerSentimentTools(server: Server): void {
     {
       ...toolMeta("Aggregate AI sentiment"),
       description: "Aggregate Gemini polarity and centrality counts across a filter set.",
+      _meta: CHARTS_UI_META,
       inputSchema: {
         country: countryParam(),
         newspaper: z.string().optional(),
@@ -124,6 +127,7 @@ export function registerSentimentTools(server: Server): void {
         )) ?? 0,
       );
       const payload: Record<string, unknown> = {
+        view: VIEW.sentiment,
         model: "gemini",
         total_articles: total,
         filters: {

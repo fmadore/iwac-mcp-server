@@ -45,6 +45,11 @@ export const CHARTS_UI_META = { ui: { resourceUri: CHARTS_UI_URI } };
  */
 export const VIEW = {
   temporal: "temporal",
+  periodicals: "periodicals",
+  countries: "countries",
+  newspapers: "newspapers",
+  sentiment: "sentiment",
+  collection: "collection",
 } as const;
 
 export function registerAppResources(server: Server): void {

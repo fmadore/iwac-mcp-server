@@ -76,10 +76,19 @@ for (const n of ["iwac_research", "iwac_overview"]) {
 
 const tools = await client.listTools();
 const names = tools.tools.map((t) => t.name);
-{
-  const temporal = tools.tools.find((t) => t.name === "get_temporal_distribution");
-  if (temporal?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
-    fail(`get_temporal_distribution should declare its UI in _meta, got ${JSON.stringify(temporal?._meta)}`);
+// Every chart-bearing tool points at the SAME resource — that is what keeps the
+// suite to one copy of the SDK (docs/mcp-apps-roadmap.md §2.2).
+for (const n of [
+  "get_temporal_distribution",
+  "get_collection_stats",
+  "get_newspaper_stats",
+  "get_country_comparison",
+  "get_sentiment_distribution",
+  "list_periodicals",
+]) {
+  const t = tools.tools.find((x) => x.name === n);
+  if (t?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
+    fail(`${n} should declare the chart UI in _meta, got ${JSON.stringify(t?._meta)}`);
 }
 if (tools.tools.length !== 27) fail(`expected 27 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
 if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");

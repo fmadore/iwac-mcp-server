@@ -75,6 +75,15 @@ export function chips(values: Record<string, unknown> | undefined): string {
 /** The empty state — a real sentence, not a blank panel. */
 export const empty = (message: string): string => `<p class="empty">${esc(message)}</p>`;
 
+/** Side-by-side captioned charts (the sentiment donuts, the coverage gauges). */
+export function panels(items: { title: string; body: string }[]): string {
+  const drawn = items.filter((p) => p.body);
+  if (!drawn.length) return "";
+  return `<div class="panels">${drawn
+    .map((p) => `<div class="panel"><h2>${esc(p.title)}</h2>${p.body}</div>`)
+    .join("")}</div>`;
+}
+
 /**
  * A CSV cell. Quotes anything containing a delimiter, quote or newline, and
  * prefixes the formula-injection characters so a spreadsheet treats an

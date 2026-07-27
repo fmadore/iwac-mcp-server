@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ensureView, getById, query, selectList, viewName, type Bindable } from "../db.js";
 import { config } from "../config.js";
 import { runSemanticSearchTool } from "./_semantic.js";
+import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   capOffset,
   capText,
@@ -29,6 +30,7 @@ import {
 // Small, stable envelope → worth a structured-output contract. Rows stay loose
 // (earliest/latest_year depend on the pub_date column being present).
 const PERIODICALS_OUTPUT = {
+  view: z.string(),
   country_filter: z.string().optional(),
   total_periodicals: z.number(),
   periodicals: z.array(z.looseObject({})),
@@ -102,6 +104,7 @@ export function registerPublicationTools(server: Server): void {
       description:
         "List the Islamic periodical/series titles in the publications subset, with issue counts and year ranges. " +
         "Use the returned newspaper value as the `newspaper` filter on search_publications.",
+      _meta: CHARTS_UI_META,
       inputSchema: {
         country: countryParam(),
       },
@@ -111,7 +114,8 @@ export function registerPublicationTools(server: Server): void {
       const schema = await ensureView("publications");
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
-      if (!schema.has("newspaper")) return structuredResult({ total_periodicals: 0, periodicals: [] });
+      if (!schema.has("newspaper"))
+        return structuredResult({ view: VIEW.periodicals, total_periodicals: 0, periodicals: [] });
       const where: string[] = [`NULLIF(trim(newspaper), '') IS NOT NULL`];
       const params: Bindable[] = [];
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
@@ -128,6 +132,7 @@ export function registerPublicationTools(server: Server): void {
         params,
       );
       return structuredResult({
+        view: VIEW.periodicals,
         country_filter: country.canonical ?? null,
         total_periodicals: rows.length,
         periodicals: rows,

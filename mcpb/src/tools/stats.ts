@@ -35,6 +35,7 @@ const GROUP_FIELDS = ["country", "newspaper"] as const;
 // columns vary with the dataset revision. NOTE: result compaction strips null
 // values, so anything that can be null is `optional` here rather than nullable.
 const COLLECTION_STATS_OUTPUT = {
+  view: z.string(),
   collection_name: z.string(),
   dataset_url: z.string(),
   subset_counts: z.record(z.string(), z.number()),
@@ -48,6 +49,7 @@ const COLLECTION_STATS_OUTPUT = {
 };
 
 const NEWSPAPER_STATS_OUTPUT = {
+  view: z.string(),
   country_filter: z.string().optional(),
   total_newspapers: z.number(),
   total_articles: z.number(),
@@ -55,6 +57,7 @@ const NEWSPAPER_STATS_OUTPUT = {
 };
 
 const COUNTRY_COMPARISON_OUTPUT = {
+  view: z.string(),
   total_countries: z.number(),
   countries: z.array(z.looseObject({})),
 };
@@ -83,6 +86,7 @@ export function registerStatsTools(server: Server): void {
         "Overall statistics for every IWAC subset, including `fulltext_coverage` — how many items in each " +
         "subset actually carry searchable full text in this public dataset. Read that before treating any " +
         "keyword count as a full-text census.",
+      _meta: CHARTS_UI_META,
       inputSchema: {},
       outputSchema: COLLECTION_STATS_OUTPUT,
     },
@@ -135,6 +139,7 @@ export function registerStatsTools(server: Server): void {
       // below are skipped and the subset-count envelope still goes out.
       const schema = entries.find(([s]) => s === "articles")?.[2] ?? new Set<string>();
       const payload: Record<string, unknown> = {
+        view: VIEW.collection,
         collection_name: "Islam West Africa Collection (IWAC)",
         dataset_url: "https://huggingface.co/datasets/fmadore/islam-west-africa-collection",
         subset_counts: counts,
@@ -185,6 +190,7 @@ export function registerStatsTools(server: Server): void {
     {
       ...toolMeta("Newspaper statistics"),
       description: "Per-newspaper article counts and date ranges.",
+      _meta: CHARTS_UI_META,
       inputSchema: {
         country: countryParam(),
       },
@@ -195,7 +201,13 @@ export function registerStatsTools(server: Server): void {
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
       if (!schema.has("newspaper")) {
-        return structuredResult({ country_filter: country.canonical ?? null, total_newspapers: 0, total_articles: 0, newspapers: [] });
+        return structuredResult({
+          view: VIEW.newspapers,
+          country_filter: country.canonical ?? null,
+          total_newspapers: 0,
+          total_articles: 0,
+          newspapers: [],
+        });
       }
       const where: string[] = [];
       const params: Bindable[] = [];
@@ -224,6 +236,7 @@ export function registerStatsTools(server: Server): void {
         )) ?? 0,
       );
       return structuredResult({
+        view: VIEW.newspapers,
         country_filter: country.canonical ?? null,
         total_newspapers: rows.length,
         total_articles: total,
@@ -239,12 +252,13 @@ export function registerStatsTools(server: Server): void {
       ...toolMeta("Compare countries"),
       description:
         "Compare article counts, newspaper counts, date ranges, and Gemini polarity across countries.",
+      _meta: CHARTS_UI_META,
       inputSchema: {},
       outputSchema: COUNTRY_COMPARISON_OUTPUT,
     },
     async () => {
       const schema = await ensureView("articles");
-      if (!schema.has("country")) return structuredResult({ total_countries: 0, countries: [] });
+      if (!schema.has("country")) return structuredResult({ view: VIEW.countries, total_countries: 0, countries: [] });
 
       const dateSel = schema.has("pub_date")
         ? `, MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest`
@@ -293,7 +307,7 @@ export function registerStatsTools(server: Server): void {
         if (pol && Object.keys(pol).length) rec.gemini_polarity = pol;
         return rec;
       });
-      return structuredResult({ total_countries: countries.length, countries });
+      return structuredResult({ view: VIEW.countries, total_countries: countries.length, countries });
     },
   );
 

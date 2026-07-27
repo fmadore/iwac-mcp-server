@@ -10,6 +10,7 @@ import { csv, csvCell } from "../src/app/shell.js";
 import { fmtInt, THOUSANDS_SEP } from "../src/app/theme.js";
 import { carryFilters, temporalView } from "../src/app/views/temporal.js";
 import { VIEWS } from "../src/app/views/index.js";
+import { VIEW } from "../src/tools/appUi.js";
 
 import {
   capText,
@@ -566,10 +567,13 @@ describe("chart kernel", () => {
     assert.deepEqual(carryFilters({ filters: { country: "Togo", keyword: null, subject: "" } }), { country: "Togo" });
   });
 
-  it("every registered view is reachable by its tag", () => {
+  it("the server's view tags and the app's view registry agree", () => {
+    // The two halves ship in different bundles and cannot import each other at
+    // runtime, so a tool stamping a tag no view renders — or a view nothing
+    // ever reaches — would only show up as a blank panel in Claude.
     for (const [tag, view] of Object.entries(VIEWS)) {
       assert.equal(typeof view, "function", `view ${tag} is not a function`);
     }
-    assert.ok(Object.keys(VIEWS).length > 0);
+    assert.deepEqual(Object.keys(VIEWS).sort(), Object.values(VIEW).sort());
   });
 });
