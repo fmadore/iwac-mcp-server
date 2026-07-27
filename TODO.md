@@ -20,7 +20,7 @@
   `get_similar_items`) plus `model` on `get_sentiment_distribution`. §7 of that
   document lists what is still open (PNG export, a wordcloud primitive,
   region drill-down) and §8 records where the plan turned out to be wrong.
-  **Not yet released** — the version is still 0.12.0.
+  Shipped in **v0.13.0**.
 
 - [x] **Publish to the official MCP Registry** — automated since v0.9.0: the
   tag workflow generates `server.json` (`mcpb/scripts/make-server-json.mjs`)

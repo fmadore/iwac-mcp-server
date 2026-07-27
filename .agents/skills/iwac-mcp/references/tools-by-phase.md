@@ -188,9 +188,11 @@ Detailed index entry. **Raw dataset columns, French names** (Titre, Titre altern
 
 ## Phase 4: Triangulation Tools
 
+> **Aggregates (v0.13.0+).** The seven tools after `get_temporal_distribution` all describe a *set* rather than returning its items, and all take the same filter block (`keyword`, `country`, `newspaper`, `subject`, `date_from`, `date_to`). Reach for them when the question is "what is this material like?" rather than "what does this piece say?" — they answer in one call what paging never will, and several are also the fastest way to scope in Phase 1.
+
 ### get_temporal_distribution *(v0.9.0+)*
 Counts of matching items per year (or month) — one call replaces paging through search results for any trend question. Also useful in Phase 1 to scope a topic's timeline before searching.
-- `subset` (optional, validated): articles (default) | publications | references | documents | audiovisual
+- `subset` (optional, validated): articles (default) | publications | references | documents | audiovisual | images
 - `granularity` (optional, validated): year (default) | month — items dated only to a year keep a bare-year key even at month granularity
 - `keyword` (optional): ONE substring over the subset's text fields (same semantics as the subset's search tool)
 - `country` / `newspaper` / `subject` / `date_from` / `date_to` (optional): same semantics as the subset's search tool
@@ -198,12 +200,64 @@ Counts of matching items per year (or month) — one call replaces paging throug
 - Returns `total_matches`, `dated_count`, `undated_count` (undated items are counted, never silently dropped), and the `distribution` map sorted by year
 - **Tip:** `get_temporal_distribution(keyword="hadj", group_by="country")` charts six decades of hajj coverage per country in a single ~1k-token call.
 
-### get_sentiment_distribution
-Aggregated Gemini sentiment counts.
+### get_sentiment_distribution *(`model` added v0.13.0)*
+Aggregated AI sentiment counts.
 - `country` (optional, exact name), `newspaper` (optional), `subject` (optional)
-- Returns `polarity_distribution` and `centrality_distribution` maps + `total_articles`
+- `model` (optional, validated): gemini (default) | chatgpt | mistral | **all**
+- Returns `polarity_distribution`, `centrality_distribution` and `subjectivity` (mean, median and per-level counts on the **1-5** scale — it is an ordinal rating, not a proportion, so never report the mean as a percentage)
+- With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity, pairwise and unanimously) and `agreement_matrix` (where the first two part company)
 
 **Tip:** `get_sentiment_distribution(subject="Laïcité", country="Burkina Faso")` gives the polarity distribution for laïcité articles in BF specifically; compare against the unfiltered country baseline.
+
+**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the three models agree unanimously on polarity for only 6,668 of 12,287 articles (54%). That number is the confidence floor: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable.
+
+### get_topic_distribution *(v0.13.0)*
+How a set spreads across the 30 precomputed LDA topics (12,234 of 12,287 articles are classified), each labelled by its top terms. Topics were assigned offline over the full text, so they describe what a piece is **about** rather than which words it contains — the fastest way to map an unfamiliar corpus without keyword guessing.
+- `subset` (optional): articles (default) | references (references have their own 33-topic model)
+- filter block; `min_prob` (0-1; mean assignment probability is 0.34, so 0.5 is already strong); `over_time` (per-year counts for the leading topics); `top_n` (bands in `over_time`, default 8)
+- Returns `topics` (label, count, `avg_prob`) sorted by count, and `classified` vs `total_matches` — unclassified items are disclosed, not hidden
+
+### get_field_distribution *(v0.13.0)*
+Rank the values of one multi-valued field across a set. One tool for four questions: which places this coverage names, who signs it, what subjects dominate, what languages appear.
+- `field` (required, validated): subject | spatial | author | language | newspaper | country
+- `subset` (optional): articles (default) | publications | references; filter block; `top_n` (default 25, max 100)
+- `over_time` (optional): adds `coverage_by_year` — the per-year **share** of items carrying any value
+- Pipe-joined fields are split, so counts sum to more than the item count; the response says so
+
+**Tip:** `get_field_distribution(field="author", over_time=true)` is the byline question. The finding is rarely who tops the list (9,664 of 12,287 articles are signed, across 2,463 names) — it is that the signed *share* climbs as the press professionalises after 1990.
+
+### get_cooccurrence *(v0.13.0)*
+How often the top values of a field appear on the **same** item — what X gets discussed alongside, straight from the tagging.
+- `field` (optional, validated): subject (default) | spatial | author | language
+- `subset` (optional); filter block; `top_n` (values per axis, default 15, max 30)
+- Returns the top values, the full symmetric `matrix` (diagonal = each value's own count) and `top_pairs`
+- Only pairs **within** the top-N are counted; anything outside that set is invisible, which the note repeats
+
+### get_place_distribution *(v0.13.0)*
+Places named by a set, joined to the index's authority records so each carries coordinates where the index has them. Use this rather than `get_field_distribution(field="spatial")` when the question is geographic.
+- `subset` (optional); filter block; `top_n` (default 60, max 200)
+- Returns `places` (with lat/lng), `items_by_country`, and `ungeocoded` — places named but never geocoded, listed with counts rather than dropped
+- **Only `Lieux` index entries carry coordinates** (555 of 683). Persons, organisations and events never will.
+
+### get_lexical_metrics *(v0.13.0)*
+Readability, lexical richness and length of the press text, by year, newspaper or country.
+- `group_by` (optional, validated): year (default) | newspaper | country; filter block; `top_n`
+- `Lisibilite_OCR` is a **French** readability score (higher = easier), so non-French items are excluded from that metric and counted in `readability_excluded` — 9 articles corpus-wide — rather than reported as unreadable
+- `Richesse_Lexicale_OCR` is MATTR, a moving-average type-token ratio that is **already length-robust**: do not normalise it by word count or bin it by length
+- These columns exist only for items whose full text ships, so the averages describe that subset
+
+### get_similar_items *(v0.13.0)*
+The items nearest a given one in meaning, by cosine similarity over the stored embeddings — finds pieces on the same event that share no vocabulary. **Needs no API key** (unlike `semantic_search_*`): it reads the item's own stored vector.
+- `id` (required), `subset` (optional), `limit` (default 12, max 50), `min_score`
+- A neighbour at or above **~0.85** is usually the same story reprinted or lightly rewritten — the practical way to spot syndication in this corpus. 0.6-0.8 is "same subject, different piece".
+- Per item and on demand; this is not a corpus-wide near-duplicate sweep
+
+### get_semantic_map *(v0.13.0)*
+A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. **Needs no API key.**
+- `subset` (optional); filter block; `color_by` (country | newspaper | subject | lda_topic_label | gemini_polarite); `limit` (default 300, max 2000)
+- **Read `explained_variance` before concluding anything.** Two components carry ~18% of the variance for an unfiltered article set, ~25% for a filtered one — so items drawn close together are not necessarily similar. Report it as a rough spread, not as clusters.
+- This is PCA, not UMAP: it preserves global spread rather than local neighbourhoods, and is not comparable to the semantic landscapes on islam.zmo.de.
+- The payload scales with `limit`; keep it low unless a chart will be drawn.
 
 ---
 

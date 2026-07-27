@@ -107,7 +107,8 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 3. Use `get_newspaper_stats` with country filter to identify which newspapers cover the topic
 4. Use `list_subjects` to discover relevant subject terms; `list_periodicals` if Islamic publications are in scope
 5. Use `get_temporal_distribution` (keyword/country/subject filters; per-year or per-month counts) to see WHEN coverage exists before searching — one call replaces paging through results to gauge a trend
-6. Identify which subsets are relevant: articles (press), publications (Islamic media), references (scholarship), documents (association papers), index (authority records)
+6. When you do not yet know what to search for, describe the material instead: `get_topic_distribution` maps a filtered set onto the 30 precomputed LDA topics, and `get_field_distribution(field=...)` ranks its subjects, places or bylines. Both are one call and beat guessing keywords.
+7. Identify which subsets are relevant: articles (press), publications (Islamic media), references (scholarship), documents (association papers), index (authority records)
 
 **Constraint:** Keep `limit` low (5-10) during scoping to save tokens. Use brief queries first, then drill down.
 
@@ -152,9 +153,11 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 **Actions:**
 1. Cross-reference MCP findings across subsets (articles vs. publications vs. references vs. documents vs. index)
 2. Use `get_sentiment_distribution` with `subject` filter to compare topic-specific sentiment against the collection baseline (e.g., `subject="Laïcité", country="Burkina Faso"` vs. the whole BF corpus)
-3. Use `search_articles` results (which include sentiment inline) to build topic-specific sentiment tables without extra calls
-4. Use `get_temporal_distribution` (optionally `group_by=country|newspaper`) to verify a claimed trend over time and compare trajectories across countries or outlets without paging
-5. Flag coverage gaps: which countries, time periods, or languages are underrepresented for this question?
+3. Before any sentiment claim carries weight, re-run it with `model="all"`. The three models agree unanimously on polarity for 54% of the corpus; where your slice diverges further, say so rather than quoting one model
+4. Use `search_articles` results (which include sentiment inline) to build topic-specific sentiment tables without extra calls
+5. Use `get_temporal_distribution` (optionally `group_by=country|newspaper`) to verify a claimed trend over time and compare trajectories across countries or outlets without paging
+6. Test whether a theme you have named is really distinct: `get_cooccurrence(field="subject")` shows what it is always discussed alongside, and `get_similar_items` on a key article shows whether your "finding" is one story reprinted across several outlets (scores ≥0.85)
+7. Flag coverage gaps: which countries, time periods, or languages are underrepresented for this question?
 
 ### Phase 5 -- Synthesis
 
@@ -185,7 +188,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 
 **For null results:** `Search for [term] in [tool] with [parameters] returned 0 results.`
 
-**For AI sentiment findings:** All sentiment data uses Gemini; the result keys are `polarity`, `centrality`, `subjectivity`. When comparing topics or countries, use `get_sentiment_distribution` with `subject` filter for aggregate data, or tabulate the sentiment columns from `search_articles` results.
+**For AI sentiment findings:** Three models scored every article — `gemini` (the default), `chatgpt` and `mistral`; the result keys are `polarity`, `centrality`, `subjectivity`. Name the model in any reported figure, and treat `subjectivity` as the ordinal **1-5** rating it is, never as a percentage. When comparing topics or countries, use `get_sentiment_distribution` with `subject` filter for aggregate data, or tabulate the sentiment columns from `search_articles` results.
 
 **For the evidence-base ledger (open every synthesis with one):** Report three tiers separately — items **read in full**, items **triaged on an AI abstract/snippet only**, and matches **surveyed by count only**. Example: `Evidence base: 4 articles + 1 document read in full; 18 articles triaged on description_ai; 1,909 keyword matches surveyed by count.` This keeps full-text evidence visibly distinct from AI-derived (abstract/snippet) evidence, which carries weaker evidential status.
 
