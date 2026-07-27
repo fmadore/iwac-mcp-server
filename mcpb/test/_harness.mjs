@@ -71,7 +71,7 @@ export function createHarness(client, { verbose = false, timeoutMs = 60_000 } = 
 /**
  * Assert that manifest.json's advertised tools[] track what the server actually
  * registers: every registered tool must be advertised, and every advertised
- * tool must be registered — except the two semantic_search_* tools, which the
+ * tool must be registered — except the semantic_search_* tools, which the
  * manifest always advertises but the server only registers when
  * IWAC_SEMANTIC_SEARCH_ENABLED is on.
  */

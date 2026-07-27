@@ -57,27 +57,42 @@ if (!instructions) {
   for (const needle of ["valid_values", "mentioned in records from", "requested_limit", "get_temporal_distribution"]) {
     if (!instructions.includes(needle)) fail(`instructions missing guidance: "${needle}"`);
   }
-  // The semantic guidance must track registration: mentioned iff the tools exist.
-  if (semanticOn !== instructions.includes("semantic_search_articles"))
-    fail(`instructions semantic mention (${instructions.includes("semantic_search_articles")}) does not match registration (${semanticOn})`);
+  // (the semantic guidance is checked against actual registration below, once
+  // the tool list and the manifest catalogue are both in hand)
 }
 
 const tools = await client.listTools();
 console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
-// The 2 semantic_search_* tools register only when IWAC_SEMANTIC_SEARCH_ENABLED=true;
+// The semantic_search_* tools register only when IWAC_SEMANTIC_SEARCH_ENABLED=true;
 // the live HTTP endpoint runs with it off, so they are dropped there entirely.
 const expectedTools = semanticOn ? EXPECTED.toolsWithSemantic : EXPECTED.toolsCore;
 if (tools.tools.length !== expectedTools) fail(`expected ${expectedTools} tools, got ${tools.tools.length}`);
-const semanticPresent = ["semantic_search_articles", "semantic_search_publications"].filter((n) =>
-  tools.tools.some((t) => t.name === n),
-);
-if (semanticOn && semanticPresent.length !== 2) fail(`semantic enabled but only registered: ${semanticPresent.join(", ") || "none"}`);
-if (!semanticOn && semanticPresent.length !== 0) fail(`semantic disabled but still registered: ${semanticPresent.join(", ")}`);
 
 // The manifest's advertised tool list must track what the server registers
-// (the two optional semantic tools are always advertised in the manifest).
+// (the optional semantic tools are always advertised in the manifest).
 const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
 checkManifestParity(fail, manifest, new Set(tools.tools.map((t) => t.name)));
+
+// DERIVED from the manifest, never hardcoded: the manifest is the full
+// catalogue, so a semantic tool added there but forgotten in registration or in
+// the instructions is caught. A hardcoded pair here is exactly what let
+// semantic_search_images ship registered-but-unmentioned.
+const semanticNames = manifest.tools.map((t) => t.name).filter((n) => n.startsWith("semantic_search_"));
+const semanticPresent = semanticNames.filter((n) => tools.tools.some((t) => t.name === n));
+if (semanticOn && semanticPresent.length !== semanticNames.length)
+  fail(`semantic enabled but only registered: ${semanticPresent.join(", ") || "none"} (expected all of ${semanticNames.join(", ")})`);
+if (!semanticOn && semanticPresent.length !== 0) fail(`semantic disabled but still registered: ${semanticPresent.join(", ")}`);
+
+// The instructions are the ONLY guidance a skill-less client gets, so every
+// registered semantic tool must be named there — and none may be when they are off.
+if (instructions) {
+  for (const n of semanticNames) {
+    const mentioned = instructions.includes(n);
+    const registered = semanticPresent.includes(n);
+    if (mentioned !== registered)
+      fail(`instructions mention ${n}=${mentioned} but it is registered=${registered}`);
+  }
+}
 
 // --- cold-start fan-out (regression guard) ---------------------------------
 // MUST be the first tool call: get_collection_stats fans ensureView() across

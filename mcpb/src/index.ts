@@ -86,7 +86,7 @@ function buildInstructions(): string {
   return INSTRUCTIONS.replace(
     "{{SEMANTIC_QUERY_LANGUAGE}}",
     config.semanticSearchEnabled
-      ? "Semantic embedding queries (`semantic_search_articles`, `semantic_search_publications`) may be in any language. "
+      ? "Semantic embedding queries (`semantic_search_articles`, `semantic_search_publications`, `semantic_search_images`) may be in any language. "
       : "",
   ).replace(
     "{{SEMANTIC_CAVEAT}}",
