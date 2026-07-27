@@ -26,7 +26,12 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }} # fmadore/iwac-mcp-server
   # Single source of truth for the Node major used to build and test releases.
-  # Keep in step with ci.yml and mcpb/Dockerfile.
+  # Keep in step with ci.yml, mcpb/Dockerfile and mcpb/package.json `engines`.
+  # NOTE: this is the BUILD baseline only. The shipped .mcpb still targets
+  # node18 (scripts/bundle.mjs) and declares `runtimes.node: ">=18.0.0"`
+  # (manifest.json), because Claude Desktop runs the extension on its OWN
+  # bundled Node — raising that floor without knowing Desktop's version would
+  # stop the extension installing. Those two move together, or not at all.
   NODE_VERSION: 24
   # Pin a specific mcp-publisher release (e.g. "v1.4.0") for reproducible,
   # supply-chain-safer publishes; "latest" keeps the old auto-tracking
@@ -89,10 +94,10 @@ jobs:
         run: npm run release
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -100,7 +105,7 @@ jobs:
 
       - name: Derive image tags and labels
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           # `latest` only moves on version tags — a manual workflow_dispatch
@@ -111,7 +116,7 @@ jobs:
             type=sha,format=short
 
       - name: Build image (local, for smoke test)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: mcpb
           file: mcpb/Dockerfile
@@ -143,7 +148,7 @@ jobs:
           docker stop iwac-smoke
 
       - name: Push image (linux/amd64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: mcpb
           file: mcpb/Dockerfile

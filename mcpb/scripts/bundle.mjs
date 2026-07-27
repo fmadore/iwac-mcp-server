@@ -78,6 +78,12 @@ await esbuild.build({
   bundle: true,
   platform: "node",
   format: "esm",
+  // Deliberately BELOW the build baseline (Node 24 in CI, Docker and
+  // package.json `engines`). Claude Desktop runs the extension on its own
+  // bundled Node, whose version this project does not control, so the emitted
+  // bundle stays parseable well below that. Raise this only together with
+  // `compatibility.runtimes.node` in manifest.json, and only once Desktop's
+  // bundled runtime is known to clear the new floor.
   target: "node18",
   // No banner shebang: src/index.ts already starts with `#!/usr/bin/env node`,
   // and esbuild hoists the entry point's shebang to line 1 of the bundle.
