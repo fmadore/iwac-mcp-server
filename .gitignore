@@ -38,3 +38,7 @@ Thumbs.db
 
 # Canonical skills live under .agents/skills/
 .claude/skills/
+
+# Throwaway probe scripts used to check dataset shape against the real parquet.
+probe-tmp.mjs
+mcpb/probe-tmp.mjs
