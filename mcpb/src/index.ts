@@ -38,7 +38,11 @@ const INSTRUCTIONS =
   "search_references, search_index, search_documents, plus get_* and list_*) with country, " +
   "newspaper, subject, and date filters — prefer the `subject` filter over keywords for curated " +
   "themes. For trends over time, call get_temporal_distribution (counts per year or month under " +
-  "the same filters) instead of paging through search results. All matching is accent- and " +
+  "the same filters) instead of paging through search results. To characterise a whole set rather " +
+  "than read it, the aggregate tools answer in one call what paging never will: " +
+  "get_topic_distribution (how it spreads over 30 precomputed LDA topics), get_field_distribution " +
+  "(rank its subjects, places, authors or languages), get_cooccurrence (what is discussed " +
+  "alongside what), and get_lexical_metrics (readability, lexical richness, length). All matching is accent- and " +
   "case-insensitive; country filters take exact names (Benin, " +
   "Burkina Faso, Côte d'Ivoire, Niger, Nigeria, Togo).\n\n" +
   "FULL-TEXT COVERAGE: this is the public dataset, and OCR full text ships only for items whose " +

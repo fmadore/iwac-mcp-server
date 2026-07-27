@@ -31,39 +31,48 @@ const SUBSET_SQL = {
       spatial VARCHAR, language VARCHAR, "descriptionAI" VARCHAR, "OCR" VARCHAR,
       gemini_polarite VARCHAR, gemini_centralite_islam_musulmans VARCHAR,
       gemini_subjectivite_score DOUBLE, nb_mots BIGINT, nb_pages BIGINT,
-      "Richesse_Lexicale_OCR" DOUBLE, "Lisibilite_OCR" DOUBLE, iwac_url VARCHAR
+      "Richesse_Lexicale_OCR" DOUBLE, "Lisibilite_OCR" DOUBLE, iwac_url VARCHAR,
+      -- LDA topics and the two further sentiment models, so the aggregate
+      -- tools have something to aggregate. Subjectivity is an INTEGER 1-5
+      -- rating in the real parquet, not a 0-1 proportion — the fixture matches
+      -- that, because a tool which ships the scale must be tested against it.
+      lda_topic_id DOUBLE, lda_topic_prob DOUBLE, lda_topic_label VARCHAR,
+      chatgpt_polarite VARCHAR, chatgpt_centralite_islam_musulmans VARCHAR,
+      chatgpt_subjectivite_score DOUBLE,
+      mistral_polarite VARCHAR, mistral_centralite_islam_musulmans VARCHAR,
+      mistral_subjectivite_score DOUBLE
     );
     INSERT INTO articles VALUES
       ('101', 'iwac-101', 'Le pèlerinage à La Mecque vu de Cotonou', 'A. Dossou',
        'La Nation', 'Benin', '1995-06-15', 'Pèlerinage|Religion', 'Cotonou|La Mecque', 'Français',
        'Reportage sur le départ des pèlerins béninois pour La Mecque.',
        'Cette année encore, le pèlerinage à La Mecque mobilise des centaines de fidèles depuis Cotonou. Les autorités saluent l''organisation du hadj.',
-       'Neutre', 'Central', 0.35, 120, 1, 0.62, 41.5, '${IWAC}101'),
+       'Neutre', 'Central', 2, 120, 1, 0.62, 41.5, '${IWAC}101', 12, 0.47, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 2, 'Positif', 'Central', 2),
       ('102', 'iwac-102', 'Ramadan à Ouagadougou', 'B. Ouedraogo',
        'Sidwaya', 'Burkina Faso', '2003-01-10', 'Mosquée|Ramadan', 'Ouagadougou', 'Français',
        'Le mois de jeûne vécu dans les mosquées de la capitale burkinabè.',
        'Le ramadan à Ouagadougou rassemble les fidèles dans les mosquées chaque soir.',
-       'Positif', 'Central', 0.42, 95, 1, 0.58, 38.2, '${IWAC}102'),
+       'Positif', 'Central', 2, 95, 1, 0.58, 38.2, '${IWAC}102', 25, 0.39, 'fête - prière - ramadan', 'Positif', 'Central', 2, 'Positif', 'Très central', 3),
       ('103', 'iwac-103', 'La communauté musulmane célèbre la fin du ramadan', '',
        'Fraternité Matin', 'Côte d''Ivoire', '2010-11-01', 'Ramadan', 'Abidjan', 'Français',
        'Célébrations de la Korité à Abidjan.',
        'La Korité a été célébrée dans la joie à Abidjan. La communauté musulmane appelle à la paix.',
-       'Très positif', 'Très central', 0.55, 88, 1, 0.6, 40.0, '${IWAC}103'),
+       'Très positif', 'Très central', 1, 88, 1, 0.6, 40.0, '${IWAC}103', 25, 0.41, 'fête - prière - ramadan', 'Très positif', 'Très central', 1, 'Positif', 'Très central', 2),
       ('104', 'iwac-104', 'L''islam au Niger : nouvelles associations', 'C. Issoufou',
        'Le Sahel', 'Niger', '2019-05-20', 'Islam', 'Niamey', 'Français',
        'Panorama des associations islamiques nigériennes.',
        'La communauté musulmane du Niger structure de nouvelles associations à Niamey.',
-       'Neutre', 'Secondaire', 0.3, 76, 1, 0.55, 37.1, '${IWAC}104'),
+       'Neutre', 'Secondaire', 3, 76, 1, 0.55, 37.1, '${IWAC}104', 6, 0.32, 'association - islam - organisation', 'Neutre', 'Secondaire', 3, 'Négatif', 'Marginal', 3),
       ('105', 'iwac-105', 'Dossier: le hadj expliqué', 'D. Lawson',
        'Togo-Presse', 'Togo', '1987-03-02', 'Pèlerinage', 'Lomé', 'Français',
        'Long dossier pédagogique sur le pèlerinage.',
        repeat('Le pèlerinage à La Mecque commence bientôt, selon les autorités locales. ', 450),
-       'Neutre', 'Central', 0.4, 32000, 4, 0.5, 35.0, '${IWAC}105'),
+       'Neutre', 'Central', 2, 32000, 4, 0.5, 35.0, '${IWAC}105', 12, 0.51, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 2, 'Neutre', 'Central', 2),
       ('106', 'iwac-106', 'Polémique autour d''une mosquée', '',
        'Le Matinal', 'Benin', '2001-09-14', 'Mosquée', 'Porto-Novo', 'Français',
        'Conflit foncier autour d''un projet de mosquée.',
        'La construction d''une mosquée à Porto-Novo suscite une vive polémique.',
-       'Négatif', 'Très central', 0.7, 102, 1, 0.61, 39.4, '${IWAC}106');
+       'Négatif', 'Très central', 4, 102, 1, 0.61, 39.4, '${IWAC}106', 12, 0.28, 'imam - mosquée - prière', 'Négatif', 'Très central', 4, 'Très négatif', 'Très central', 5);
   `,
 
   publications: `

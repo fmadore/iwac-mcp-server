@@ -114,6 +114,22 @@
       "description": "Coverage over time: counts of matching items per year or month, with the standard filters and optional grouping by country or newspaper. Renders as an interactive chart in hosts that support MCP Apps."
     },
     {
+      "name": "get_topic_distribution",
+      "description": "How a filtered set of articles distributes across the 30 precomputed LDA topics, optionally over time. Renders as an interactive treemap and stacked timeline in hosts that support MCP Apps."
+    },
+    {
+      "name": "get_field_distribution",
+      "description": "Rank the values of one multi-valued field (subject, spatial, author, language, newspaper, country) across a filtered set, optionally with the per-year share of items carrying a value. Renders as an interactive ranking in hosts that support MCP Apps."
+    },
+    {
+      "name": "get_cooccurrence",
+      "description": "How often the top values of a multi-valued field appear on the same item — a subject or place co-mention matrix. Renders as an interactive heatmap in hosts that support MCP Apps."
+    },
+    {
+      "name": "get_lexical_metrics",
+      "description": "Readability, lexical richness (MATTR) and length of the press text by year, newspaper or country. Renders as interactive charts in hosts that support MCP Apps."
+    },
+    {
       "name": "search_publications",
       "description": "Search Islamic publications (periodical issues, books) by French keyword (title, subject, table of contents, OCR), series, subject, country, and year."
     },

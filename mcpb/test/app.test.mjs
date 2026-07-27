@@ -403,6 +403,153 @@ CASES.push([
 ]);
 
 CASES.push([
+  "topics",
+  {
+    view: "topics",
+    subset: "articles",
+    filters: {},
+    total_matches: 12287,
+    classified: 12234,
+    topics: [
+      { topic_id: 12, label: "imam - mosquée - communauté_musulman - prière - fidèle - hadj", count: 1989, avg_prob: 0.347 },
+      { topic_id: 7, label: "religieux - politique - etat - question - communauté - religion", count: 1251, avg_prob: 0.318 },
+    ],
+    periods: ["1999", "2000"],
+    series_by_topic: {
+      "imam - mosquée - communauté_musulman - prière - fidèle - hadj": { 1999: 10, 2000: 20 },
+      "(other topics)": { 1999: 5, 2000: 8 },
+    },
+  },
+  (markup) => {
+    // Six-term LDA labels must be shortened for the cells but kept in full in
+    // the tooltip, which is the only place the whole label survives.
+    if (!markup.includes("imam · mosquée · communauté musulman…")) return "LDA label was not shortened for display";
+    if (!markup.includes("communauté_musulman - prière - fidèle - hadj")) return "full label missing from the tooltip";
+    if (!markup.includes("(other topics)")) return "the residual band did not render";
+    return null;
+  },
+]);
+
+CASES.push([
+  "field (bylines)",
+  {
+    view: "field",
+    subset: "articles",
+    field: "author",
+    filters: {},
+    total_matches: 12287,
+    items_with_value: 9664,
+    distinct_values: 2463,
+    values: [
+      { value: "Agence Togolaise de Presse", count: 272 },
+      { value: "Diaby Salif", count: 181 },
+    ],
+    other_values: 2461,
+    coverage_by_year: { 1970: { total: 48, with_value: 15 }, 1971: { total: 36, with_value: 7 } },
+  },
+  (markup) => {
+    if (!markup.includes("Bylines")) return "field title not mapped";
+    if (!markup.includes("Agence Togolaise de Presse")) return "missing a ranked value";
+    if (!markup.includes("2 461 further values")) return "did not disclose the untruncated remainder";
+    if (!markup.includes("31.3%")) return "coverage share panel did not render a percentage";
+    return null;
+  },
+]);
+
+CASES.push([
+  "cooccurrence",
+  {
+    view: "cooccurrence",
+    subset: "articles",
+    field: "subject",
+    filters: {},
+    total_matches: 12287,
+    values: [
+      { value: "Prière", count: 2139 },
+      { value: "Hadj", count: 1917 },
+      { value: "Paix", count: 1894 },
+    ],
+    matrix: [
+      [2139, 354, 796],
+      [354, 1917, 214],
+      [796, 214, 1894],
+    ],
+    top_pairs: [
+      { a: "Prière", b: "Paix", count: 796 },
+      { a: "Prière", b: "Hadj", count: 354 },
+    ],
+  },
+  (markup) => {
+    if (!markup.includes("Prière × Paix: 796")) return "matrix cell tooltip missing";
+    // The diagonal is blanked, so a 3x3 matrix draws 6 cells, not 9.
+    const cells = (markup.match(/Prière × Prière/g) ?? []).length;
+    if (cells !== 0) return "the diagonal should be blanked out of the heatmap";
+    if (!markup.includes("Prière + Paix")) return "top-pairs chart missing";
+    return null;
+  },
+]);
+
+CASES.push([
+  "lexical",
+  {
+    view: "lexical",
+    group_by: "country",
+    filters: {},
+    total_matches: 12287,
+    groups: [
+      { group: "Côte d'Ivoire", items: 3994, readability_avg: 65.23, readability_n: 3993, mattr_avg: 0.815, words_avg: 621 },
+      { group: "Burkina Faso", items: 3659, readability_avg: 63.15, readability_n: 3659, mattr_avg: 0.811, words_avg: 758 },
+    ],
+    metrics: { mattr: { label: "Lexical richness (MATTR)" } },
+    readability_excluded: 9,
+  },
+  (markup) => {
+    if (!markup.includes("Readability")) return "readability panel missing";
+    if (!markup.includes("0.815")) return "MATTR value not rendered at full precision";
+    if (!markup.includes("9 non-French items are excluded")) return "did not disclose the readability exclusion";
+    if (!markup.includes("already length-robust")) return "dropped the MATTR normalisation warning";
+    return null;
+  },
+]);
+
+CASES.push([
+  "sentiment (three models)",
+  {
+    view: "sentiment",
+    model: "all",
+    total_articles: 12287,
+    filters: {},
+    models: ["gemini", "chatgpt", "mistral"],
+    by_model: {
+      gemini: { polarity_distribution: { Positif: 5984, Neutre: 3999, Négatif: 569 }, subjectivity: { scale: "1-5 (1 = most factual, 5 = most opinionated)", mean: 2.12 } },
+      chatgpt: { polarity_distribution: { Positif: 7231, Neutre: 3444, Négatif: 580 } },
+      mistral: { polarity_distribution: { Positif: 6100, Neutre: 3800, Négatif: 700 } },
+    },
+    agreement: {
+      field: "polarity",
+      scored_by_all: 12287,
+      unanimous: 6668,
+      unanimous_percent: 54,
+      pairwise: { "gemini~chatgpt": 8729, "gemini~mistral": 7880, "chatgpt~mistral": 8709 },
+    },
+    agreement_matrix: {
+      rows: "gemini",
+      cols: "chatgpt",
+      counts: { Négatif: { Positif: 134, Neutre: 113, Négatif: 298 }, Neutre: { Positif: 900, Neutre: 3000 } },
+    },
+  },
+  (markup) => {
+    if (!markup.includes("three models compared")) return "did not switch to the comparison view";
+    if (!markup.includes("54%")) return "agreement rate missing from the headline";
+    if (!markup.includes("gemini ↔ chatgpt")) return "pairwise agreement chart missing";
+    // The agreeing diagonal is blanked so the ramp covers the disagreements.
+    if (markup.includes("Négatif × Négatif")) return "the agreeing diagonal should be blanked";
+    if (!markup.includes("Négatif × Neutre: 113")) return "confusion cell missing";
+    return null;
+  },
+]);
+
+CASES.push([
   "temporal (empty)",
   {
     view: "temporal",

@@ -50,6 +50,10 @@ export const VIEW = {
   newspapers: "newspapers",
   sentiment: "sentiment",
   collection: "collection",
+  topics: "topics",
+  field: "field",
+  cooccurrence: "cooccurrence",
+  lexical: "lexical",
 } as const;
 
 export function registerAppResources(server: Server): void {

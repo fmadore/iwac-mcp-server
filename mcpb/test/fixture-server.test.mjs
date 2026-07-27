@@ -80,6 +80,10 @@ const names = tools.tools.map((t) => t.name);
 // suite to one copy of the SDK (docs/mcp-apps-roadmap.md §2.2).
 for (const n of [
   "get_temporal_distribution",
+  "get_topic_distribution",
+  "get_field_distribution",
+  "get_cooccurrence",
+  "get_lexical_metrics",
   "get_collection_stats",
   "get_newspaper_stats",
   "get_country_comparison",
@@ -90,13 +94,24 @@ for (const n of [
   if (t?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
     fail(`${n} should declare the chart UI in _meta, got ${JSON.stringify(t?._meta)}`);
 }
-if (tools.tools.length !== 27) fail(`expected 27 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
+if (tools.tools.length !== 31) fail(`expected 31 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
 if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");
 for (const t of tools.tools) {
   if (!t.title && !t.annotations?.title) fail(`tool ${t.name} has no title`);
 }
 // Tools that promise structured output must declare an output schema.
-for (const n of ["search", "fetch", "get_collection_stats", "get_temporal_distribution", "get_sentiment_distribution", "list_periodicals"]) {
+for (const n of [
+  "search",
+  "fetch",
+  "get_collection_stats",
+  "get_temporal_distribution",
+  "get_sentiment_distribution",
+  "list_periodicals",
+  "get_topic_distribution",
+  "get_field_distribution",
+  "get_cooccurrence",
+  "get_lexical_metrics",
+]) {
   const t = tools.tools.find((x) => x.name === n);
   if (!t?.outputSchema) fail(`${n} should declare an outputSchema`);
 }
@@ -384,6 +399,135 @@ await call("get_temporal_distribution", { subset: "references", group_by: "newsp
 await call("get_temporal_distribution", { subset: "references", newspaper: "Le Monde" }, {
   expectError: true,
   checkBody: (b) => (b.includes("not available") ? null : "inapplicable newspaper filter on references should error"),
+});
+
+// --- corpus aggregates -----------------------------------------------------------
+await call("get_topic_distribution", {}, {
+  structured: true,
+  check: (p) => {
+    if (p.total_matches !== 6 || p.classified !== 6) return `topic counts wrong: ${p.total_matches}/${p.classified}`;
+    const top = p.topics?.[0];
+    if (top?.count !== 2) return `expected a 2-article leading topic, got ${JSON.stringify(top)}`;
+    if (!p.topics.every((t) => t.label && typeof t.avg_prob === "number")) return "topic rows missing label/avg_prob";
+    // Descending by count is what every consumer assumes.
+    const counts = p.topics.map((t) => t.count);
+    if (String(counts) !== String([...counts].sort((a, b) => b - a))) return "topics not ordered by count";
+    return null;
+  },
+});
+await call("get_topic_distribution", { over_time: true, top_n: 1 }, {
+  check: (p) => {
+    if (!p.periods?.length) return "over_time returned no periods";
+    const bands = Object.keys(p.series_by_topic ?? {});
+    if (!bands.includes("(other topics)")) return `top_n=1 should fold the rest into one band, got ${bands}`;
+    // The bands must still total the classified count, or the area chart lies.
+    const summed = bands.reduce((a, b) => a + Object.values(p.series_by_topic[b]).reduce((x, y) => x + y, 0), 0);
+    if (summed !== p.classified) return `bands sum to ${summed}, classified is ${p.classified}`;
+    return null;
+  },
+});
+// min_prob must exclude, and say what it excluded.
+await call("get_topic_distribution", { min_prob: 0.5 }, {
+  check: (p) =>
+    p.classified < 6 && String(p.note ?? "").includes("min_prob")
+      ? null
+      : `min_prob should shrink the set and disclose it: ${p.classified} / ${p.note}`,
+});
+
+await call("get_field_distribution", { field: "subject" }, {
+  structured: true,
+  check: (p) => {
+    if (p.items_with_value !== 6) return `expected 6 subject-tagged articles, got ${p.items_with_value}`;
+    // Pipe-split: 'Pèlerinage|Religion' must count once for each half.
+    const ramadan = p.values?.find((v) => v.value === "Ramadan");
+    if (ramadan?.count !== 2) return `Ramadan should appear twice, got ${JSON.stringify(ramadan)}`;
+    if (!String(p.note ?? "").includes("multi-valued")) return "multi-valued fields must disclose double counting";
+    return null;
+  },
+});
+await call("get_field_distribution", { field: "author", over_time: true }, {
+  check: (p) => {
+    if (p.items_with_value !== 4) return `4 of 6 fixture articles are signed, got ${p.items_with_value}`;
+    if (!p.coverage_by_year?.["1995"]) return "over_time returned no per-year coverage";
+    const y = p.coverage_by_year["1995"];
+    if (y.total !== 1 || y.with_value !== 1) return `1995 coverage wrong: ${JSON.stringify(y)}`;
+    return null;
+  },
+});
+await call("get_field_distribution", { field: "OCR" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "a non-rankable field should list the valid ones"),
+});
+await call("get_field_distribution", { field: "spatial", top_n: 1 }, {
+  check: (p) =>
+    p.values?.length === 1 && p.other_values > 0
+      ? null
+      : `top_n must cap AND report the remainder: ${JSON.stringify(p.values)} / ${p.other_values}`,
+});
+
+await call("get_cooccurrence", { field: "subject", top_n: 3 }, {
+  structured: true,
+  check: (p) => {
+    if (p.values?.length !== 3) return `expected 3 axis values, got ${p.values?.length}`;
+    const m = p.matrix;
+    if (m.length !== 3 || m.some((r) => r.length !== 3)) return "matrix is not square";
+    // Symmetric, with each value's own count on the diagonal.
+    for (let i = 0; i < 3; i++) {
+      if (m[i][i] !== p.values[i].count) return `diagonal ${i} should be the value's own count`;
+      for (let j = 0; j < 3; j++) if (m[i][j] !== m[j][i]) return `matrix not symmetric at ${i},${j}`;
+    }
+    if (p.top_pairs?.some((x) => x.a === x.b)) return "top_pairs should not contain self-pairs";
+    return null;
+  },
+});
+
+await call("get_lexical_metrics", {}, {
+  structured: true,
+  check: (p) => {
+    if (p.group_by !== "year") return "default grouping should be year";
+    if (!p.groups?.length) return "no lexical groups";
+    const g = p.groups.find((x) => x.group === "1995");
+    if (!g) return "1995 group missing";
+    if (g.readability_avg !== 41.5) return `1995 readability should be 41.5, got ${g.readability_avg}`;
+    if (g.mattr_avg !== 0.62) return `1995 MATTR should be 0.62, got ${g.mattr_avg}`;
+    if (!p.metrics?.mattr) return "metrics descriptor missing";
+    return null;
+  },
+});
+await call("get_lexical_metrics", { group_by: "country" }, {
+  check: (p) => (p.groups?.some((g) => g.group === "Benin") ? null : "country grouping missing Benin"),
+});
+
+// Cross-model sentiment: three models, and how far they agree.
+await call("get_sentiment_distribution", { model: "all" }, {
+  structured: true,
+  check: (p) => {
+    if (String(p.models) !== "gemini,chatgpt,mistral") return `models wrong: ${p.models}`;
+    if (!p.by_model?.chatgpt?.polarity_distribution) return "per-model distributions missing";
+    if (p.agreement?.scored_by_all !== 6) return `all 6 fixture articles are scored, got ${p.agreement?.scored_by_all}`;
+    // 102 (Positif) and 105 (Neutre) match across all three; the rest split.
+    if (p.agreement.unanimous !== 2) return `expected 2 unanimous articles, got ${p.agreement.unanimous}`;
+    if (p.agreement.unanimous_percent !== 33) return `expected 33%, got ${p.agreement.unanimous_percent}`;
+    if (p.agreement.pairwise?.["gemini~chatgpt"] === undefined) return "pairwise agreement missing";
+    if (p.agreement_matrix?.rows !== "gemini") return "confusion matrix should be rows=gemini";
+    return null;
+  },
+});
+await call("get_sentiment_distribution", { model: "chatgpt" }, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "chatgpt") return "model not echoed";
+    if (p.by_model) return "a single-model call should not return by_model";
+    if (p.polarity_distribution?.Neutre !== 3) return `chatgpt Neutre should be 3, got ${JSON.stringify(p.polarity_distribution)}`;
+    // Subjectivity is an ordinal 1-5 rating; the scale must ship with it.
+    if (!String(p.subjectivity?.scale ?? "").includes("1-5")) return "subjectivity must declare its 1-5 scale";
+    if (p.subjectivity.mean > 5 || p.subjectivity.mean < 1) return `mean ${p.subjectivity.mean} outside the scale`;
+    return null;
+  },
+});
+await call("get_sentiment_distribution", { model: "llama" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "an unknown model should list the valid ones"),
 });
 
 // --- publications / documents / audiovisual --------------------------------------

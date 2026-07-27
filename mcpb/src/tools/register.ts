@@ -7,6 +7,7 @@ import { registerReferenceTools } from "./references.js";
 import { registerDocumentTools } from "./documents.js";
 import { registerAudiovisualTools } from "./audiovisual.js";
 import { registerImageTools } from "./images.js";
+import { registerAggregateTools } from "./aggregates.js";
 import { registerSearchTools } from "./search.js";
 import { registerAppResources } from "./appUi.js";
 import type { Server } from "./_shared.js";
@@ -23,6 +24,7 @@ export function registerTools(server: Server): void {
   registerSentimentTools(server);
   registerIndexTools(server);
   registerStatsTools(server);
+  registerAggregateTools(server);
   registerPublicationTools(server);
   registerReferenceTools(server);
   registerDocumentTools(server);

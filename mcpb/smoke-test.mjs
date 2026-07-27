@@ -276,6 +276,79 @@ await call("get_temporal_distribution", { keyword: "ramadan", country: "Benin" }
 await call("get_temporal_distribution", { subset: "references", keyword: "islam" }, {
   check: (p) => (Object.keys(p.distribution ?? {}).length > 3 ? null : "reference timeline suspiciously flat"),
 });
+
+// --- corpus aggregates (v0.13.0) ------------------------------------------------
+// These read columns the fixtures can only imitate — the LDA assignments, the
+// two extra sentiment models, the lexical metrics — so the live run is the only
+// place their real shape is checked. Every number below was measured against
+// the 2026-07-27 dataset; a drift here means the pipeline moved, not the server.
+await call("get_topic_distribution", {}, {
+  structured: true,
+  check: (p) => {
+    if (p.topics?.length !== 30) return `expected the 30 LDA topics, got ${p.topics?.length}`;
+    if (p.classified < 12_000) return `only ${p.classified} articles carry a topic (was 12,234)`;
+    if (p.classified > p.total_matches) return "classified cannot exceed total_matches";
+    if (!p.topics[0]?.label?.includes(" - ")) return `topic labels should be hyphenated terms: ${p.topics[0]?.label}`;
+    return null;
+  },
+});
+await call("get_field_distribution", { field: "spatial", top_n: 5 }, {
+  structured: true,
+  check: (p) => {
+    if (p.items_with_value < 10_000) return `spatial fill dropped to ${p.items_with_value} (was 10,634)`;
+    if (p.distinct_values < 500) return `only ${p.distinct_values} distinct places (was 766)`;
+    if (p.values?.[0]?.count < 1000) return "the leading place should be named by 1,000+ articles";
+    return null;
+  },
+});
+await call("get_field_distribution", { field: "author", over_time: true }, {
+  check: (p) => {
+    if (p.items_with_value < 9000) return `signed articles dropped to ${p.items_with_value} (was 9,664)`;
+    const years = Object.keys(p.coverage_by_year ?? {});
+    if (years.length < 30) return `expected a long byline timeline, got ${years.length} years`;
+    return null;
+  },
+});
+await call("get_cooccurrence", { field: "subject", top_n: 8 }, {
+  structured: true,
+  check: (p) => {
+    const m = p.matrix ?? [];
+    if (m.length !== 8) return `matrix should be 8x8, got ${m.length}`;
+    for (let i = 0; i < m.length; i++) {
+      if (m[i][i] !== p.values[i].count) return "diagonal is not each value's own count";
+      for (let j = 0; j < m.length; j++) if (m[i][j] !== m[j][i]) return "matrix is not symmetric";
+    }
+    return null;
+  },
+});
+await call("get_lexical_metrics", { group_by: "country" }, {
+  structured: true,
+  check: (p) => {
+    const g = p.groups?.find((x) => x.group === "Burkina Faso");
+    if (!g) return "no Burkina Faso group";
+    // Readability 0-100 and MATTR 0-1: a swap or a rescale upstream shows here.
+    if (!(g.readability_avg > 30 && g.readability_avg < 90)) return `readability ${g.readability_avg} off-scale`;
+    if (!(g.mattr_avg > 0.5 && g.mattr_avg < 1)) return `MATTR ${g.mattr_avg} off-scale`;
+    if (g.words_avg < 100) return `words_avg ${g.words_avg} implausibly low`;
+    return null;
+  },
+});
+await call("get_sentiment_distribution", { model: "all" }, {
+  structured: true,
+  check: (p) => {
+    if (p.models?.length !== 3) return `expected 3 models, got ${p.models}`;
+    const a = p.agreement;
+    if (!a) return "no agreement block";
+    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all three (was 12,287)`;
+    // ~54% unanimous as of 2026-07-27. A jump to 100% would mean the three
+    // columns had collapsed onto one another upstream.
+    if (a.unanimous_percent < 30 || a.unanimous_percent > 95)
+      return `three-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
+    const subj = p.by_model?.gemini?.subjectivity;
+    if (subj && (subj.mean < 1 || subj.mean > 5)) return `subjectivity mean ${subj.mean} is not on the 1-5 scale`;
+    return null;
+  },
+});
 await call("get_article", { article_id: 67613 }, {
   check: (p) => (p.description_ai ? null : "get_article lacks description_ai"),
 });

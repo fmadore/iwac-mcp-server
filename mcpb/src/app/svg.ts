@@ -451,7 +451,9 @@ export function treemap(o: TreemapOptions): string {
       return (
         `<g${o.clickable ? ` class="hit" data-key="${esc(it.label)}"` : ""}>` +
         `<rect x="${n(b.x)}" y="${n(b.y)}" width="${n(b.w - 1)}" height="${n(b.h - 1)}" rx="2" fill="${it.color ?? colors[i % colors.length]}">` +
-        `<title>${esc(it.label)}: ${esc(fmt(it.value))}</title></rect>` +
+        // `note` carries the untruncated name: treemap cells show a short
+        // label, so the tooltip is the only place the full one survives.
+        `<title>${esc(it.note ?? it.label)}: ${esc(fmt(it.value))}</title></rect>` +
         (showLabel
           ? `<text x="${n(b.x + 7)}" y="${n(b.y + 17)}" class="cell">${esc(clip(it.label, Math.floor(b.w / 7)))}</text>`
           : "") +
