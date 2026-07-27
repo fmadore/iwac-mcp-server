@@ -5,8 +5,8 @@ available as a **Model Context Protocol (MCP) server** — a read-only research
 interface that lets an AI assistant search and analyse the collection directly:
 ~12,000 newspaper articles, 1,500 Islamic publications, 4,700 authority records
 (persons, places, organisations, events, subjects), 860+ academic references,
-plus archival documents and audiovisual materials from Benin, Burkina Faso,
-Côte d'Ivoire, Niger, Nigeria, and Togo.
+plus archival documents, audiovisual recordings and fieldwork photographs from
+Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria, and Togo.
 
 There are two ways to connect, depending on which assistant you use:
 
@@ -55,6 +55,34 @@ There is no Linux bundle, because Claude Desktop itself is not available on Linu
 data from Hugging Face into `~/.iwac-mcp/cache/` (you can change this folder in
 the extension's settings). After that, queries are fast and fully local.
 
+### Upgrading to a newer release
+
+Install the new `.mcpb` the same way — but **quit Claude Desktop completely
+first**, and reopen it afterwards.
+
+This matters on Windows in particular. Claude Desktop loads the extension's
+database engine (`duckdb.dll`) into its own process, and Windows will not let
+an installer delete a DLL that is mapped into a running process. Installing
+over a version that is still loaded fails with:
+
+```
+EPERM: operation not permitted, unlink '…\node_modules\@duckdb\…\duckdb.dll'
+```
+
+Closing the window is not enough — Claude Desktop keeps running in the
+notification area. Quit it from the tray icon (or end the `claude.exe` tree in
+Task Manager), check no `claude.exe` remains, then install.
+
+If you already hit the error, the extension folder is left half-removed (its
+`manifest.json` is gone but the DLL remains), so delete it before retrying:
+
+```powershell
+Remove-Item -Recurse -Force "$env:APPDATA\Claude\Claude Extensions\local.mcpb.*.iwac-mcp-server"
+```
+
+Your downloaded data is **not** affected — the cache lives in `~/.iwac-mcp/`,
+outside the extension folder, so a reinstall does not re-download it.
+
 ### 2. Add the research skill — strongly recommended
 
 The optional **`iwac-mcp` skill** teaches Claude *how* to use the tools well: a
@@ -68,10 +96,11 @@ Download `iwac-mcp-skill.zip` from the same release, then in Claude Desktop open
 
 ### Optional: semantic search
 
-Twenty-five tools work out of the box. Two extra tools find articles and
-publications by *meaning* rather than keywords; they need a free Google/Gemini
-API key and are **off by default**. To enable them, turn on **Enable semantic search** in the
-extension's settings and paste a key from
+Twenty-seven tools work out of the box. Three extra tools find articles,
+publications and photographs by *meaning* rather than keywords — the photo
+search is cross-modal, so you can describe what an image shows. They need a free
+Google/Gemini API key and are **off by default**. To enable them, turn on
+**Enable semantic search** in the extension's settings and paste a key from
 [Google AI Studio](https://aistudio.google.com/apikey). Most users don't need this.
 
 ---
