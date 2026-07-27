@@ -15,7 +15,7 @@
     "start": "node server/index.js",
     "start:http": "node server/index.js --http",
     "clean": "rimraf server",
-    "test": "npm run test:unit && npm run test:fixture && npm run test:http",
+    "test": "npm run test:unit && npm run test:fixture && npm run test:app && npm run test:http",
     "test:unit": "tsx --test test/unit.test.ts",
     "test:fixture": "node scripts/make-fixtures.mjs && node test/fixture-server.test.mjs",
     "test:http": "node scripts/make-fixtures.mjs && node test/http-server.test.mjs",
@@ -26,7 +26,8 @@
     "pack-platforms": "node scripts/pack-platforms.mjs",
     "release": "npm run prepack-mcpb && npm run install-bindings && npm run pack-platforms && npm run pack-skill && npm run make-server-json",
     "pack-skill": "git -C .. archive --format=zip --prefix=iwac-mcp/ -o iwac-mcp-skill.zip HEAD:.agents/skills/iwac-mcp",
-    "make-server-json": "node scripts/make-server-json.mjs"
+    "make-server-json": "node scripts/make-server-json.mjs",
+    "test:app": "node scripts/make-fixtures.mjs && node test/app.test.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",

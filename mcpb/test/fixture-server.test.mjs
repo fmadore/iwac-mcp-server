@@ -61,22 +61,16 @@ for (const n of ["iwac_research", "iwac_overview"]) {
     fail("iwac_research depth=extended did not select the extended workflow");
 }
 
-// MCP Apps: get_temporal_distribution declares a ui:// view that hosts with the
-// extension render as a chart. The resource must exist and be self-contained —
-// app resources load under a deny-by-default CSP.
+// MCP Apps: the ui:// chart resource must be registered and reachable. Its
+// CONTENT — self-containment, size budget, every payload shape rendering, the
+// interactive round trip — is test/app.test.mjs, which boots the real bundle.
 {
   const resources = await client.listResources();
-  const ui = resources.resources.find((r) => r.uri === "ui://iwac/coverage.html");
-  if (!ui) fail(`coverage chart resource not registered (got ${resources.resources.map((r) => r.uri).join(", ") || "none"})`);
+  const ui = resources.resources.find((r) => r.uri === "ui://iwac/charts.html");
+  if (!ui) fail(`chart resource not registered (got ${resources.resources.map((r) => r.uri).join(", ") || "none"})`);
   else {
     const read = await client.readResource({ uri: ui.uri });
-    const html = read.contents[0]?.text ?? "";
-    if (!html.includes("<!DOCTYPE html>")) fail("coverage UI resource is not an HTML document");
-    if (html.includes("run `npm run build`")) fail("coverage UI fell back to the dev placeholder — rebuild before testing");
-    // A remote src/href would be blocked by the host CSP at render time.
-    if (/<(?:script|link)[^>]+(?:src|href)=["']?https?:/i.test(html))
-      fail("coverage UI loads an external asset; it must be fully inlined");
-    if (read.contents[0]?.mimeType !== "text/html+mcp") fail(`UI resource mimeType ${read.contents[0]?.mimeType}`);
+    if (!(read.contents[0]?.text ?? "").includes("<!DOCTYPE html>")) fail("UI resource is not an HTML document");
   }
 }
 
@@ -84,7 +78,7 @@ const tools = await client.listTools();
 const names = tools.tools.map((t) => t.name);
 {
   const temporal = tools.tools.find((t) => t.name === "get_temporal_distribution");
-  if (temporal?._meta?.ui?.resourceUri !== "ui://iwac/coverage.html")
+  if (temporal?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
     fail(`get_temporal_distribution should declare its UI in _meta, got ${JSON.stringify(temporal?._meta)}`);
 }
 if (tools.tools.length !== 27) fail(`expected 27 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);

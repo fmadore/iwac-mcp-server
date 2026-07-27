@@ -13,7 +13,7 @@ import type { Server } from "./_shared.js";
 
 /** Register all IWAC tools on the server, grouped by domain. */
 export function registerTools(server: Server): void {
-  // The ui:// resource the coverage chart renders from. Registered before the
+  // The one ui:// resource every chart renders from. Registered before the
   // tools so the resource exists by the time a tool advertises it in `_meta`.
   registerAppResources(server);
   // Unified search/fetch first: they satisfy the OpenAI Deep Research contract and

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
-import { COVERAGE_UI_META } from "./appUi.js";
+import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   COUNTRIES,
   countryParam,
@@ -60,6 +60,7 @@ const COUNTRY_COMPARISON_OUTPUT = {
 };
 
 const TEMPORAL_OUTPUT = {
+  view: z.string(),
   subset: z.string(),
   granularity: z.string(),
   group_by: z.string().optional(),
@@ -311,7 +312,7 @@ export function registerStatsTools(server: Server): void {
       // MCP Apps: hosts that support the extension render the counts as an
       // interactive chart (see tools/appUi.ts); everyone else ignores `_meta`
       // and gets the identical JSON.
-      _meta: COVERAGE_UI_META,
+      _meta: CHARTS_UI_META,
       inputSchema: {
         subset: z
           .string()
@@ -424,6 +425,9 @@ export function registerStatsTools(server: Server): void {
       }
 
       const payload: Record<string, unknown> = {
+        // Which chart the MCP App should draw. Costs a handful of tokens and
+        // is the app's only reliable dispatch signal; see tools/appUi.ts.
+        view: VIEW.temporal,
         subset,
         granularity,
         ...(groupBy ? { group_by: groupBy } : {}),

@@ -5,6 +5,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
+import { columns, donut, gantt, heatmapMatrix, horizontalBar, squarify, ticks, treemap } from "../src/app/svg.js";
+import { csv, csvCell } from "../src/app/shell.js";
+import { fmtInt, THOUSANDS_SEP } from "../src/app/theme.js";
+import { carryFilters, temporalView } from "../src/app/views/temporal.js";
+import { VIEWS } from "../src/app/views/index.js";
+
 import {
   capText,
   colsFor,
@@ -447,5 +453,123 @@ describe("db helpers", () => {
       { k: "Togo", c: "7" },
     ];
     assert.deepEqual(rowsToMap(rows as Record<string, unknown>[]), { Benin: 5, Togo: 7 });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// MCP App chart kernel (src/app/*) — pure string/geometry helpers, so they test
+// in Node with no DOM. test/app.test.mjs covers the DOM-and-transport half by
+// booting the real bundle.
+// -----------------------------------------------------------------------------
+
+describe("chart kernel", () => {
+  it("ticks round the axis up to a 1/2/5 step", () => {
+    assert.deepEqual(ticks(97), { max: 100, values: [0, 25, 50, 75, 100] });
+    assert.deepEqual(ticks(3), { max: 3, values: [0, 1, 2, 3] });
+    // A degenerate peak must still produce a drawable axis rather than NaNs.
+    assert.deepEqual(ticks(0), { max: 1, values: [0, 1] });
+    assert.equal(ticks(12287).max >= 12287, true);
+  });
+
+  it("squarify covers the rect exactly and keeps input order", () => {
+    const rect = { x: 0, y: 0, w: 400, h: 200 };
+    const values = [50, 30, 12, 5, 3];
+    const boxes = squarify(values, rect);
+    assert.equal(boxes.length, values.length);
+    const area = boxes.reduce((a, b) => a + b.w * b.h, 0);
+    assert.ok(Math.abs(area - rect.w * rect.h) < 1, `area ${area} != ${rect.w * rect.h}`);
+    // Bigger value => bigger cell, and every cell stays inside the rect.
+    assert.ok(boxes[0].w * boxes[0].h > boxes[4].w * boxes[4].h);
+    for (const b of boxes) {
+      assert.ok(b.x >= -0.01 && b.y >= -0.01, "cell starts outside the rect");
+      assert.ok(b.x + b.w <= rect.w + 0.01 && b.y + b.h <= rect.h + 0.01, "cell overflows the rect");
+    }
+  });
+
+  it("squarify degrades safely on empty or zero input", () => {
+    assert.deepEqual(squarify([], { x: 0, y: 0, w: 10, h: 10 }), []);
+    const zero = squarify([0, 0], { x: 0, y: 0, w: 10, h: 10 });
+    assert.equal(zero.length, 2);
+    assert.ok(zero.every((b) => b.w === 0 && b.h === 0));
+  });
+
+  it("charts escape data into markup", () => {
+    // A newspaper title with an ampersand or quote must not break out of the
+    // attribute it lands in; nothing here is ever set as HTML by the host.
+    const svg = horizontalBar({
+      items: [{ label: '"Le <b>Soir</b>" & co', value: 3 }],
+      ariaLabel: "test",
+      clickable: true,
+    });
+    assert.ok(!svg.includes("<b>"), "unescaped markup leaked into the chart");
+    assert.ok(svg.includes("&#38;"), "ampersand was not escaped");
+    assert.ok(!/data-key="[^"]*"[^>]*"/.test(svg.split("data-key=")[1]?.slice(0, 60) ?? ""));
+  });
+
+  it("donut renders one arc per non-zero slice and totals the centre", () => {
+    const svg = donut({ slices: [{ label: "positive", value: 3 }, { label: "neutral", value: 0 }, { label: "negative", value: 1 }] });
+    assert.equal((svg.match(/<path/g) ?? []).length, 2);
+    assert.ok(svg.includes(">4<"), "centre value should default to the total");
+    assert.ok(svg.includes("75%"), "slice tooltip should carry the share");
+  });
+
+  it("donut and treemap return nothing rather than an empty frame", () => {
+    assert.equal(donut({ slices: [] }), "");
+    assert.equal(treemap({ items: [] }), "");
+    assert.equal(columns({ categories: [], series: [] }), "");
+    assert.equal(gantt({ rows: [] }), "");
+    assert.equal(heatmapMatrix({ rows: [], cols: [], values: [] }), "");
+  });
+
+  it("gantt places a single-year run inside the plot", () => {
+    const svg = gantt({ rows: [{ label: "Islam Info", start: 2000, end: 2000, weight: 695 }] });
+    assert.ok(svg.includes("Islam Info"));
+    assert.ok(svg.includes("695 issues"));
+    assert.ok(!svg.includes("NaN"), "degenerate span produced NaN geometry");
+  });
+
+  it("heatmap leaves non-finite cells empty instead of drawing rgb(NaN)", () => {
+    const svg = heatmapMatrix({ rows: ["a", "b"], cols: ["a", "b"], values: [[Number.NaN, 2], [2, Number.NaN]] });
+    assert.equal((svg.match(/<rect/g) ?? []).length, 2);
+    assert.ok(!svg.includes("NaN"));
+  });
+
+  it("csv quotes delimiters and defuses formula injection", () => {
+    assert.equal(csv([["year", "count"], [1999, 3]]), "year,count\r\n1999,3");
+    assert.equal(csvCell('Le "Soir", Cotonou'), '"Le ""Soir"", Cotonou"');
+    assert.equal(csvCell("=1+1"), "'=1+1");
+    assert.equal(csvCell(null), "");
+  });
+
+  it("fmtInt groups thousands without depending on the iframe locale", () => {
+    assert.equal(fmtInt(12287), `12${THOUSANDS_SEP}287`);
+    assert.equal(THOUSANDS_SEP, " ", "the separator should be a narrow no-break space");
+    assert.equal(fmtInt(7), "7");
+    assert.equal(fmtInt(-1200), `-1${THOUSANDS_SEP}200`);
+  });
+
+  it("the temporal view carries filters forward and discloses undated items", () => {
+    const result = temporalView({
+      view: "temporal",
+      subset: "articles",
+      granularity: "year",
+      filters: { country: "Togo", keyword: null },
+      total_matches: 10,
+      dated_count: 8,
+      undated_count: 2,
+      distribution: { 1999: 3, 2000: 5 },
+    });
+    assert.match(result.title, /articles per year/);
+    assert.ok(result.body.includes("<svg"));
+    assert.ok(result.notes?.some((n) => typeof n === "string" && n.includes("no usable date")));
+    // Null filters must not travel back to the server as explicit nulls.
+    assert.deepEqual(carryFilters({ filters: { country: "Togo", keyword: null, subject: "" } }), { country: "Togo" });
+  });
+
+  it("every registered view is reachable by its tag", () => {
+    for (const [tag, view] of Object.entries(VIEWS)) {
+      assert.equal(typeof view, "function", `view ${tag} is not a function`);
+    }
+    assert.ok(Object.keys(VIEWS).length > 0);
   });
 });
