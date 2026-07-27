@@ -12,9 +12,16 @@ import { checkManifestParity, createHarness } from "./test/_harness.mjs";
 // After a dataset refresh, update them here (one place) if the checks fire.
 const EXPECTED = {
   audiovisualTotal: 47, // 45 -> 47 in the July 2026 dataset refresh
+  imagesTotal: 30, // images subset added in the July 2026 refresh
   nigerArticles: 1061,
-  toolsCore: 25, // semantic disabled (2 semantic tools are dropped entirely)
-  toolsWithSemantic: 27,
+  toolsCore: 27, // semantic disabled (3 semantic tools are dropped entirely)
+  toolsWithSemantic: 30,
+  subsets: 7, // + images
+  // Full text is masked per row in the PUBLIC dataset (OCR_is_public). These are
+  // the July 2026 ratios; a change here means the upstream publication policy
+  // or the masking pipeline moved, not that the server broke.
+  articlesWithFulltext: 7480,
+  publicationsWithFulltext: 1298,
 };
 
 const transport = new StdioClientTransport({
@@ -74,7 +81,7 @@ checkManifestParity(fail, manifest, new Set(tools.tools.map((t) => t.name)));
 
 // --- cold-start fan-out (regression guard) ---------------------------------
 // MUST be the first tool call: get_collection_stats fans ensureView() across
-// all six subsets at once, which is the only path that races getConn(). Running
+// all seven subsets at once, which is the only path that races getConn(). Running
 // it cold (before any single-subset call warms the shared connection) is what
 // catches a reintroduced "Table with name articles does not exist" race. Under
 // the bug, racing callers build views on throwaway in-memory DBs, so the later
@@ -83,11 +90,31 @@ await call("get_collection_stats", {}, {
   structured: true,
   check: (p) => {
     if (p.failed_subsets?.length) return `failed_subsets: ${p.failed_subsets} (view built on the wrong connection?)`;
-    if (Object.keys(p.subset_counts ?? {}).length !== 6) return `expected 6 subset counts, got ${JSON.stringify(p.subset_counts)}`;
+    if (Object.keys(p.subset_counts ?? {}).length !== EXPECTED.subsets)
+      return `expected ${EXPECTED.subsets} subset counts, got ${JSON.stringify(p.subset_counts)}`;
+    if (p.subset_counts.images !== EXPECTED.imagesTotal)
+      return `images subset ${p.subset_counts.images}, expected ${EXPECTED.imagesTotal}`;
     if (!(p.date_range?.earliest && p.date_range.earliest >= "1900"))
       return `date_range missing/garbled: ${JSON.stringify(p.date_range)}`;
+    // Full-text coverage is a dataset-policy alarm, not a code check: if these
+    // move, the public/private masking upstream changed and every keyword count
+    // this server reports covers a different share of the corpus.
+    const art = p.fulltext_coverage?.articles;
+    const pub = p.fulltext_coverage?.publications;
+    if (art?.with_fulltext !== EXPECTED.articlesWithFulltext)
+      return `articles with full text ${art?.with_fulltext}, expected ${EXPECTED.articlesWithFulltext}`;
+    if (pub?.with_fulltext !== EXPECTED.publicationsWithFulltext)
+      return `publications with full text ${pub?.with_fulltext}, expected ${EXPECTED.publicationsWithFulltext}`;
     return null;
   },
+});
+
+// --- images (added July 2026) ----------------------------------------------
+await call("search_images", {}, {
+  check: (p) =>
+    p.total_matches === EXPECTED.imagesTotal
+      ? null
+      : `expected ${EXPECTED.imagesTotal} photographs, got ${p.total_matches}`,
 });
 
 // --- index / lists ---------------------------------------------------------

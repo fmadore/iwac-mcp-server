@@ -13,7 +13,10 @@ import {
   dateRangeFilter,
   escapeLike,
   extractMatchingTocEntries,
+  FAST_TEXT_COLS,
   foldText,
+  HAS_HEAVY_TEXT,
+  itemUrl,
   keywordExcerpts,
   keywordFilter,
   limitWarning,
@@ -26,7 +29,7 @@ import {
   validateEnum,
   yearRangeFilter,
 } from "../src/tools/_shared.js";
-import { interleave, tokenizedWhere } from "../src/tools/search.js";
+import { interleave, tokenize, tokenizedWhere } from "../src/tools/search.js";
 import { q, selectList, type Bindable } from "../src/db.js";
 import { ALL_SUBSETS } from "../src/config.js";
 
@@ -115,6 +118,25 @@ describe("resolveLimit / limitWarning", () => {
     assert.deepEqual(limitWarning(resolveLimit(50, 20, 100)), {});
     assert.deepEqual(limitWarning(resolveLimit(undefined, 20, 100)), {});
   });
+  // The low end is a silent truncation too: one row returned for `limit: 0`
+  // reads as "that is all there is".
+  it("reports clamps at the LOW end as well", () => {
+    for (const bad of [0, -5]) {
+      const low = resolveLimit(bad, 20, 100);
+      assert.equal(low.value, 1);
+      assert.equal(low.capped, true, `limit ${bad} should be flagged as clamped`);
+      const warn = limitWarning(low);
+      assert.equal(warn.requested_limit, bad);
+      assert.match(String(warn.limit_warning), /below the minimum 1/);
+    }
+  });
+});
+
+describe("itemUrl", () => {
+  it("derives the canonical IWAC page from an o:id", () => {
+    assert.equal(itemUrl(28576), "https://islam.zmo.de/s/afrique_ouest/item/28576");
+    assert.equal(itemUrl("701"), "https://islam.zmo.de/s/afrique_ouest/item/701");
+  });
 });
 
 describe("capText", () => {
@@ -157,6 +179,16 @@ describe("keywordExcerpts", () => {
     const res = keywordExcerpts("nothing here", "ramadan");
     assert.equal(res.match_count, 0);
     assert.match(String(res.note), /not found/);
+  });
+  it("reports out-of-range excerpt parameters instead of silently clamping", () => {
+    const ocr = `${"a".repeat(50)}ramadan${"b".repeat(50)}`;
+    const res = keywordExcerpts(ocr, "ramadan", { maxExcerpts: -3, contextChars: 99_999 });
+    assert.equal(res.excerpts_returned, 1);
+    assert.match(String(res.parameter_note), /max_excerpts -3 clamped to 1/);
+    assert.match(String(res.parameter_note), /context_chars 99999 clamped to 5000/);
+    // In-range values say nothing.
+    assert.equal(keywordExcerpts(ocr, "ramadan", { maxExcerpts: 5 }).parameter_note, undefined);
+    assert.equal(keywordExcerpts(ocr, "ramadan").parameter_note, undefined);
   });
 });
 
@@ -235,6 +267,47 @@ describe("tokenizedWhere (unified search)", () => {
   });
 });
 
+describe("tokenize (unified search)", () => {
+  it("keeps tokens of 2+ characters and drops the rest", () => {
+    assert.deepEqual(tokenize("pèlerinage Mecque"), ["pèlerinage", "Mecque"]);
+    assert.deepEqual(tokenize("  El   Hadj  "), ["El", "Hadj"]);
+  });
+  // The tool refuses these rather than answering count:0, which would be
+  // indistinguishable from a term that is genuinely unattested.
+  it("returns nothing for a query that is all sub-2-char words", () => {
+    assert.deepEqual(tokenize("a"), []);
+    assert.deepEqual(tokenize("a b c"), []);
+    assert.deepEqual(tokenize("   "), []);
+  });
+});
+
+describe("FAST_TEXT_COLS / HAS_HEAVY_TEXT (two-phase search)", () => {
+  it("splits the cheap search surface from the full-text blobs", () => {
+    // The fast pass must never touch OCR — that is the 1.8 s the split exists to avoid.
+    for (const s of ALL_SUBSETS) {
+      assert.ok(!FAST_TEXT_COLS[s].includes("OCR"), `${s} fast columns must exclude OCR`);
+      for (const c of FAST_TEXT_COLS[s]) assert.ok(TEXT_COLS[s].includes(c), `${c} not in TEXT_COLS.${s}`);
+    }
+    assert.deepEqual(new Set(FAST_TEXT_COLS.articles), new Set(["title", "descriptionAI"]));
+    assert.deepEqual(new Set(FAST_TEXT_COLS.publications), new Set(["title", "subject", "tableOfContents"]));
+  });
+  it("flags exactly the subsets whose deep pass is worth running", () => {
+    assert.equal(HAS_HEAVY_TEXT.articles, true);
+    assert.equal(HAS_HEAVY_TEXT.publications, true);
+    assert.equal(HAS_HEAVY_TEXT.documents, true);
+    assert.equal(HAS_HEAVY_TEXT.audiovisual, true); // transcriptions
+    // No full-text column: one pass covers everything they have.
+    assert.equal(HAS_HEAVY_TEXT.index, false);
+    assert.equal(HAS_HEAVY_TEXT.references, false);
+    assert.equal(HAS_HEAVY_TEXT.images, false);
+    for (const s of ALL_SUBSETS) {
+      if (!HAS_HEAVY_TEXT[s]) {
+        assert.deepEqual(new Set(FAST_TEXT_COLS[s]), new Set(TEXT_COLS[s]), `${s} should have no deep-only columns`);
+      }
+    }
+  });
+});
+
 describe("interleave (unified search)", () => {
   const hit = (id: string) => ({ id, title: id, url: id, category: "articles" as const });
   it("round-robins across lists up to the limit", () => {
@@ -296,6 +369,15 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
     assert.equal(TITLE_COL.articles, "title");
     assert.equal(TITLE_COL.index, "Titre"); // the one subset with a French title column
     for (const s of ALL_SUBSETS) assert.ok(TITLE_COL[s], `no title column for ${s}`);
+  });
+
+  it("gives audiovisual the transcription as its body, not the empty AI description", () => {
+    const av = new Set(["o:id", "iwac_url", "title", "descriptionAI", "OCR", "medium"]);
+    // descriptionAI is 0/47 filled in the real subset, so a `fetch` bodied on it
+    // always answered "(no full text available)".
+    assert.match(colsFor("audiovisual", av, "fetch"), /"OCR" AS "text"/);
+    assert.match(colsFor("audiovisual", av, "detail"), /"OCR" AS "transcription"/);
+    assert.ok(TEXT_COLS.audiovisual.includes("OCR"));
   });
 
   it("derives TEXT_COLS from the `searchable` tag", () => {

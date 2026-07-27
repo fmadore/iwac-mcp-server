@@ -3,7 +3,6 @@ import { ensureView, getById, q, type Bindable } from "../db.js";
 import {
   capOffset,
   COUNTRIES,
-  countryFilterIfExists,
   colsFor,
   countryParam,
   errorResult,
@@ -53,7 +52,7 @@ export function registerAudiovisualTools(server: Server): void {
       const params: Bindable[] = [];
 
       keywordFilter(schema, where, params, TEXT_COLS.audiovisual, args.keyword);
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "language", args.language);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       if (medium.canonical && schema.has("medium")) {
@@ -96,7 +95,7 @@ export function registerAudiovisualTools(server: Server): void {
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: Bindable[] = [];
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
 
       return textResult(
         await runListQuery({

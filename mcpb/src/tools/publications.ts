@@ -7,7 +7,6 @@ import {
   capText,
   colsFor,
   COUNTRIES,
-  countryFilterIfExists,
   countryParam,
   errorResult,
   extractMatchingTocEntries,
@@ -69,7 +68,7 @@ export function registerPublicationTools(server: Server): void {
       keywordFilter(schema, where, params, TEXT_COLS.publications, args.keyword);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
       // With a keyword, pull the TOC too so matching entries can be extracted
@@ -115,7 +114,7 @@ export function registerPublicationTools(server: Server): void {
       if (!schema.has("newspaper")) return structuredResult({ total_periodicals: 0, periodicals: [] });
       const where: string[] = [`NULLIF(trim(newspaper), '') IS NOT NULL`];
       const params: Bindable[] = [];
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       const dateCols = schema.has("pub_date")
         ? `, MIN(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS earliest_year,` +
           ` MAX(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS latest_year`
@@ -230,7 +229,7 @@ export function registerPublicationTools(server: Server): void {
         // similarity ranking matched against. (Empty TOCs are compacted away.)
         summaryView: "withToc",
         buildCandidateFilters: (schema, where, params) => {
-          countryFilterIfExists(schema, where, params, "country", country.canonical);
+          pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
         },
         filtersEcho: { country: country.canonical ?? null },
       });

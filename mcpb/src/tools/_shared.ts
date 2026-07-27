@@ -150,6 +150,11 @@ export function capOffset(v: number | undefined): number {
  * surface a visible cap (`requested_limit` + `limit_warning`) instead of silently
  * truncating. A list that quietly returns 200 of the 500 rows asked for reads as
  * "that's all there is" — the opposite of what happened.
+ *
+ * `capped` covers BOTH bounds. The low end matters as much as the high one:
+ * `limit: 0` used to return exactly one row with nothing saying why, which reads
+ * as "the collection holds one match" — the same silent-truncation trap in
+ * miniature.
  */
 export interface ResolvedLimit {
   value: number;
@@ -160,16 +165,20 @@ export interface ResolvedLimit {
 
 export function resolveLimit(v: number | undefined, def: number, max: number): ResolvedLimit {
   const value = Math.max(1, Math.min(v ?? def, max));
-  return { value, requested: v, capped: v !== undefined && v > max, max };
+  return { value, requested: v, capped: v !== undefined && v !== value, max };
 }
 
-/** The visible-cap fields (`requested_limit` + `limit_warning`) for a capped
- * limit, or {} when nothing was capped. Single source of the warning wording. */
+/** The visible-cap fields (`requested_limit` + `limit_warning`) for a clamped
+ * limit, or {} when nothing was clamped. Single source of the warning wording. */
 export function limitWarning(limit: ResolvedLimit): Record<string, unknown> {
-  if (!limit.capped) return {};
+  if (!limit.capped || limit.requested === undefined) return {};
+  const requested = limit.requested;
   return {
-    requested_limit: limit.requested,
-    limit_warning: `Requested limit ${limit.requested} exceeds the maximum ${limit.max}; applied ${limit.value}.`,
+    requested_limit: requested,
+    limit_warning:
+      requested > limit.max
+        ? `Requested limit ${requested} exceeds the maximum ${limit.max}; applied ${limit.value}.`
+        : `Requested limit ${requested} is below the minimum 1; applied ${limit.value}.`,
   };
 }
 
@@ -384,31 +393,15 @@ export function likeFilterIfExists(
 }
 
 /**
- * Country filter: exact match against pipe-split segments, accent/case-folded.
- * A substring filter would conflate Niger with Nigeria (references store
- * "Niger|Nigeria"; audiovisual is 100% Nigeria), so each `|`-separated value is
- * compared whole. Works identically for single-valued columns like
- * `articles.country` — which makes it the same predicate as any other
- * pipe-separated field, so it simply delegates (kept as a named alias because
- * "country" is the one filter every subset shares).
- */
-export function countryFilterIfExists(
-  schema: Set<string>,
-  where: string[],
-  params: Bindable[],
-  column: string,
-  value: string | undefined,
-): void {
-  pipeValueFilterIfExists(schema, where, params, column, value);
-}
-
-/**
  * Pipe-separated field filter: exact match against one `|`-split segment,
- * accent/case-folded. Use for controlled multi-value fields such as subject,
- * spatial, language, countries, and `Titre alternatif`. A substring predicate
- * would make `Mosquée` match `Construction mosquée`, or `state` match
- * `Islamic State in the Greater Sahara`, which turns curated filters into
- * noisy keyword searches.
+ * accent/case-folded. Use for controlled multi-value fields such as country,
+ * subject, spatial, language, countries, and `Titre alternatif`. A substring
+ * predicate would make `Mosquée` match `Construction mosquée`, or `state` match
+ * `Islamic State in the Greater Sahara`, which turns curated filters into noisy
+ * keyword searches — and, for country specifically, would conflate Niger with
+ * Nigeria (references store "Niger|Nigeria"; audiovisual is 100% Nigeria).
+ * Single-valued columns like `articles.country` behave identically, which is why
+ * country needs no predicate of its own.
  */
 export function pipeValueFilterIfExists(
   schema: Set<string>,
@@ -588,6 +581,14 @@ interface SubsetField {
   body?: boolean;
   /** Part of the subset's keyword-search surface (derives TEXT_COLS). */
   searchable?: boolean;
+  /**
+   * A full-text blob rather than a metadata field: matching it means folding and
+   * scanning hundreds of MB. Measured on the July 2026 dataset, one accent-folded
+   * LIKE over `publications.OCR` costs ~1.8 s and over `articles.OCR` ~0.46 s,
+   * versus ~30 ms for all the curated columns of a subset combined. Derives
+   * FAST_TEXT_COLS, which the unified `search` tries first (see search.ts).
+   */
+  heavy?: boolean;
 }
 
 /** Every subset leads with its id and canonical IWAC URL. */
@@ -642,7 +643,7 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
     { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], views: ["detail"] },
     { expr: '"Richesse_Lexicale_OCR"', alias: "lexical_richness", requires: ["Richesse_Lexicale_OCR"], views: ["detail"] },
     { expr: '"Lisibilite_OCR"', alias: "readability", requires: ["Lisibilite_OCR"], views: ["detail"] },
-    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true, heavy: true },
   ],
 
   publications: [
@@ -663,7 +664,7 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       views: ["detail", "fetch", "withToc"],
       searchable: true,
     },
-    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true, heavy: true },
   ],
 
   references: [
@@ -720,7 +721,7 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       searchable: true,
     },
     { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], views: ["detail"] },
-    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true },
+    { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true, heavy: true },
   ],
 
   index: [
@@ -780,9 +781,45 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       alias: "description_ai",
       requires: ["descriptionAI"],
       views: ["detail", "fetch"],
-      body: true,
       searchable: true,
     },
+    // The transcription column, added to the dataset in July 2026. It is the
+    // ONLY real text this subset has: `descriptionAI` is still empty for all 47
+    // rows, so leaving it as the body made every `fetch` on an audiovisual item
+    // answer "(no full text available)" while four transcriptions sat unread.
+    {
+      expr: '"OCR"',
+      alias: "transcription",
+      requires: ["OCR"],
+      views: ["detail", "fetch"],
+      body: true,
+      searchable: true,
+      heavy: true,
+    },
+  ],
+
+  // Photographs (July 2026). No OCR and no long text at all — `description` is
+  // the body, filled for 2 of 30 rows — so every column here is cheap to match.
+  // `embedding_image` is multimodal (the photo itself embedded into the same
+  // 768-dim space as the text vectors), which is what lets a French text query
+  // retrieve a photograph in semantic_search_images.
+  images: [
+    ...ID_URL(["detail", "fetch", "summary"]),
+    { expr: "identifier", views: ["detail"] },
+    { expr: "added_date", views: ["detail"] },
+    { expr: "image_url", views: ["detail", "fetch", "summary"] },
+    { expr: "thumbnail", views: ["detail", "fetch"] },
+    { expr: "iiif_manifest", views: ["detail", "fetch"] },
+    { expr: "title", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "type", views: ["detail"] },
+    { expr: "creator", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "pub_date", alias: "date", requires: ["pub_date"], views: ["detail", "fetch", "summary"] },
+    { expr: "country", views: ["detail", "fetch", "summary"] },
+    { expr: "spatial", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "coordinates", views: ["detail", "fetch", "summary"] },
+    { expr: "subject", views: ["detail", "fetch", "summary"], searchable: true },
+    { expr: "rights", views: ["detail"] },
+    { expr: "description", views: ["detail", "fetch"], body: true, searchable: true },
   ],
 };
 
@@ -818,6 +855,35 @@ export function colsFor(subset: Subset, schema: Set<string>, view: FieldView): s
 export const TEXT_COLS: Record<Subset, string[]> = Object.fromEntries(
   ALL_SUBSETS.map((s) => [s, SUBSET_FIELDS[s].filter((f) => f.searchable).map(baseColumn)]),
 ) as Record<Subset, string[]>;
+
+/**
+ * The CHEAP half of each subset's search surface: titles, subjects, AI abstracts,
+ * tables of contents — everything except the full-text blobs tagged `heavy`.
+ * The unified `search` matches these first and only falls back to the OCR scan
+ * when the fast pass under-fills the page, which is the difference between a
+ * ~150 ms and a ~3 s response on the tool that skill-less clients call most.
+ * The per-subset `keyword` filters deliberately keep using the full TEXT_COLS —
+ * they are the "search the full text" tools and their callers asked for that.
+ */
+export const FAST_TEXT_COLS: Record<Subset, string[]> = Object.fromEntries(
+  ALL_SUBSETS.map((s) => [s, SUBSET_FIELDS[s].filter((f) => f.searchable && !f.heavy).map(baseColumn)]),
+) as Record<Subset, string[]>;
+
+/** Subsets whose search surface has a `heavy` column worth a second pass. */
+export const HAS_HEAVY_TEXT: Record<Subset, boolean> = Object.fromEntries(
+  ALL_SUBSETS.map((s) => [s, SUBSET_FIELDS[s].some((f) => f.searchable && f.heavy)]),
+) as Record<Subset, boolean>;
+
+/**
+ * The canonical IWAC item page for an `o:id`. Every subset resolves under the
+ * same path, and `iwac_url` stores exactly this. Used as a FALLBACK when the
+ * stored value is blank: ChatGPT builds citation metadata only when `url` is a
+ * non-empty string, and the result compaction drops empty strings, so an item
+ * with an unfilled `iwac_url` would otherwise come back uncitable.
+ */
+export function itemUrl(id: string | number): string {
+  return `https://islam.zmo.de/s/afrique_ouest/item/${id}`;
+}
 
 /**
  * The column holding each subset's display title (the index subset uses the
@@ -913,8 +979,23 @@ export interface ExcerptResult {
   excerpts_returned: number;
   match_count: number;
   note?: string;
+  /** Set when `context_chars`/`max_excerpts` were clamped into their legal range. */
+  parameter_note?: string;
   truncated?: boolean;
   truncation_message?: string;
+}
+
+/** Report any argument this call silently clamped, so `max_excerpts: -3`
+ * returning one excerpt cannot be misread as "there is only one match". */
+function clampNote(opts: { contextChars?: number; maxExcerpts?: number }, applied: { contextChars: number; maxExcerpts: number }): string | undefined {
+  const notes: string[] = [];
+  if (opts.contextChars !== undefined && opts.contextChars !== applied.contextChars) {
+    notes.push(`context_chars ${opts.contextChars} clamped to ${applied.contextChars} (allowed 200–5000)`);
+  }
+  if (opts.maxExcerpts !== undefined && opts.maxExcerpts !== applied.maxExcerpts) {
+    notes.push(`max_excerpts ${opts.maxExcerpts} clamped to ${applied.maxExcerpts} (allowed 1–25)`);
+  }
+  return notes.length ? `${notes.join("; ")}.` : undefined;
 }
 
 /**
@@ -952,8 +1033,15 @@ export function keywordExcerpts(
     positions.push(idx);
     pos = idx + Math.max(1, needle.length);
   }
+  const parameterNote = clampNote(opts, { contextChars, maxExcerpts });
   if (positions.length === 0) {
-    return { excerpts: [], excerpts_returned: 0, match_count: 0, note: `Keyword '${keyword}' not found in full text` };
+    return {
+      excerpts: [],
+      excerpts_returned: 0,
+      match_count: 0,
+      note: `Keyword '${keyword}' not found in full text`,
+      ...(parameterNote ? { parameter_note: parameterNote } : {}),
+    };
   }
 
   const excerpts: string[] = [];
@@ -980,6 +1068,7 @@ export function keywordExcerpts(
     excerpts,
     excerpts_returned: excerpts.length,
     match_count: positions.length,
+    ...(parameterNote ? { parameter_note: parameterNote } : {}),
   };
   if (capped) {
     result.truncated = true;

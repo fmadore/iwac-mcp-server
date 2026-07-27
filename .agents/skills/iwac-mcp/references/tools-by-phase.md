@@ -6,9 +6,10 @@
 
 ### search
 Cross-subset search for skill-less clients and quick discovery.
-- `query` (required): one concept, name, or short phrase. Tokens are AND-ed across each subset's searchable fields; use French concepts for primary-source discovery, and French/English terms for references.
+- `query` (required): one concept, name, or short phrase. Tokens are AND-ed across each subset's searchable fields; use French concepts for primary-source discovery, and French/English terms for references. A query whose every word is under 2 characters is **refused** (it would otherwise return an empty result indistinguishable from a real absence).
 - `limit` (default 20, max 50)
-- Returns `results` with namespaced ids (`articles:28576`, `references:11045`), `title`, `url`, `category`, plus a `ranking` note. There is no numeric relevance score; for precise filters use the granular `search_*` tools.
+- Returns `results` with namespaced ids (`articles:28576`, `references:11045`, `images:12237`), `title`, `url`, `category`, plus a `ranking` note and `deep_scan`. There is no numeric relevance score; for precise filters use the granular `search_*` tools.
+- **Two passes.** Pass 1 matches curated metadata only (titles, subjects, AI abstracts, tables of contents) and answers in ~0.2 s; if that fills fewer than `limit` results, pass 2 also scans the full OCR (~2.5 s) and `deep_scan: true` says so. A common term therefore never pays for the OCR scan, and a rare one still finds everything — but treat `search` as discovery, not a census: for exhaustive counts use `search_*` or `get_temporal_distribution`.
 
 ### fetch
 Fetch one item returned by `search`.
@@ -17,8 +18,8 @@ Fetch one item returned by `search`.
 
 ## Phase 1: Scoping Tools
 
-### get_collection_stats
-Overall collection statistics: subset record counts, articles by country, date range, newspaper count.
+### get_collection_stats *(reports `fulltext_coverage` since v0.12.0)*
+Overall collection statistics: subset record counts, articles by country, date range, newspaper count, and **`fulltext_coverage`** — how many items in each subset actually carry OCR in this public dataset (~61% of articles, ~86% of publications; the rest are masked per row by `OCR_is_public`). Read it before reporting any keyword total as a corpus-wide figure.
 - No parameters. Use first to understand scale. (First call may trigger the parquet download.)
 
 ### get_country_comparison
@@ -118,15 +119,25 @@ Search the 26 archival documents (Islamic association reports, flyers, project d
 - Call with no arguments to list all 26.
 
 ### list_audiovisual
-The ~47 audiovisual items (July 2026) — all Nigeria, incl. Hausa/Arabic recordings. (AI descriptions not yet populated in the dataset.)
+The ~47 audiovisual items (July 2026) — all Nigeria, incl. Hausa/Arabic recordings. (AI descriptions still empty for all 47; **4 items now carry a transcription**.)
 - `country` (optional), `limit` (default 20, max 50), `offset`
 - Returns: id, title, creator, publisher, country, date, medium, extent, subject, spatial, language, media_url, url
 
 ### search_audiovisual
-Search the audiovisual subset by title/metadata. Useful because AI descriptions are currently empty.
-- `keyword` (optional): substring over title, creator, publisher, subject, spatial, language, source, and AI description where present
+Search the audiovisual subset by title/metadata **and transcription**. Useful because AI descriptions are still empty.
+- `keyword` (optional): substring over title, creator, publisher, subject, spatial, language, source, the transcription (`OCR`, 4/47 rows) and AI description where present
 - `country` (optional), `language` (optional exact pipe value), `medium` (audio | video), `subject` (optional exact tag), `limit` (default 20, max 50), `offset`
 - Returns the same summary fields as `list_audiovisual`
+
+### search_images *(new July 2026)*
+The 30 fieldwork photographs (mosques, radio stations, schools, signage, street scenes). Captions are almost absent (2/30), so prefer `subject`/`spatial` filters or `semantic_search_images` over keywords.
+- `keyword` (optional): substring over title, creator, subject, spatial and the rare caption
+- `country`, `subject` (exact pipe value), `spatial` (exact pipe value), `creator` (substring), `date_from`, `date_to`, `limit` (default 20, max 50), `offset`
+- Returns: id, title, creator, date, country, spatial, coordinates (`"lat, lng"`), subject, image_url, url
+
+### semantic_search_images *(optional — requires semantic search enabled + Google API key)*
+**Cross-modal.** Ranks against `embedding_image`, a multimodal embedding of the photograph *itself* in the same 768-dim space as the text vectors — so describing what an image shows works even though 28 of 30 have no caption.
+- `query` (describe the visual content, any language), `country` (optional), `limit` (default 10, max 30)
 
 ### semantic_search_publications *(optional — requires semantic search enabled + Google API key)*
 Semantic similarity over publication **tables of contents** via Gemini embeddings. TOC coverage (verified June 2026): **325/1,501 issues (~22%)**, all embedded — **complete for 17 of the 25 series** (Le Rendez-Vous 78, Plume Libre 49, L'Appel 48, Alif 32, La Preuve 28, An-Nasr Trimestriel 16, Le CERFIste 13, Al-Azan 13, ASSALAM 11, Al Mawadda 11, Al Maoulid Info 7, Le Pacific 6, Al Maoulid Magazine 5, AJMCI Infos 4, Al Muwassat Info 2, Bulletin d'information du CNI 1, Les Échos de l'AEEMCI 1), but **zero for the three largest** (Islam Info 695, An-Nasr Vendredi 318, Islam Hebdo 122) and five other small series.
@@ -162,7 +173,12 @@ Full archival-document detail (metadata, AI description, capped OCR).
 ### get_audiovisual
 Full audiovisual metadata.
 - `audiovisual_id` (int)
-- Returns id, identifier, title, creator, publisher, country, date, media_url, medium, duration (`extent`), subject, spatial, language, source, and IWAC URL.
+- Returns id, identifier, title, creator, publisher, country, date, media_url, medium, duration (`extent`), subject, spatial, language, source, `transcription` (where one exists — 4/47), and IWAC URL.
+
+### get_image *(new July 2026)*
+Full photograph record.
+- `image_id` (int)
+- Returns id, identifier, title, type, creator, date, country, spatial, coordinates, subject, caption (`description`, rarely present), rights, `iiif_manifest`, `thumbnail`, full-resolution `image_url`, and IWAC URL. URLs only — the server never returns image bytes.
 
 ### get_index_entry
 Detailed index entry. **Raw dataset columns, French names** (Titre, Titre alternatif, Type, Description, Prénom, Nom, Coordonnées, frequency, first/last_occurrence, countries…).

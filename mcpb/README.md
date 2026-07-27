@@ -41,6 +41,17 @@ npm test                                    # unit + offline fixture + HTTP roun
 npm run test:live                           # full smoke test against the real dataset
 ```
 
+> **Windows on ARM:** `npm run lint` segfaults (exit 139) on `win32-arm64` —
+> a Biome platform-binary bug, reproducible on 2.5.4 and 2.5.5 with any target,
+> including a single file and a minimal config (`biome --version` still works).
+> CI lints on `ubuntu-latest` and is unaffected. To lint locally before a commit,
+> run the x64 binary under emulation:
+>
+> ```bash
+> npm i --no-save --force --cpu=x64 --os=win32 --prefix /tmp/biome-x64 @biomejs/cli-win32-x64@2.5.5
+> /tmp/biome-x64/node_modules/@biomejs/cli-win32-x64/biome.exe lint .
+> ```
+
 `npm test` is hermetic: `test/unit.test.ts` covers the pure helpers,
 `test/fixture-server.test.mjs` spawns the built server over stdio against
 synthetic parquet fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1`,
@@ -151,7 +162,13 @@ Environment variables (all transports unless noted):
 
 - Data: parquet files from `https://huggingface.co/datasets/fmadore/islam-west-africa-collection`
   are lazily downloaded per subset (articles, publications, documents,
-  audiovisual, index, references) and registered as DuckDB views over the local cache.
+  audiovisual, images, index, references) and registered as DuckDB views over the local cache.
+- Full-text coverage: this is the **public** projection of the dataset, which
+  masks OCR per row by `OCR_is_public` (~61% of articles, ~86% of publications).
+  Titles, subjects and AI abstracts are present for every item, so nothing is
+  invisible, but a keyword count is a floor rather than a census.
+  `get_collection_stats` reports the live ratio as `fulltext_coverage`, and the
+  handshake instructions tell clients to disclose it.
 - Queries: all tools use parameterised SQL against DuckDB. The query layer
   probes each subset's column list at view-creation time so fields that are
   missing from the current dataset revision (e.g. `sentiment_label`) are silently
@@ -163,9 +180,41 @@ Environment variables (all transports unless noted):
   `searchable` for the keyword-search surface. `colsFor(subset, schema, view)`
   builds the SELECT list; `TEXT_COLS` and `TITLE_COL` are derived from the same
   table, so a dataset column rename is a one-line change.
-- Semantic search: loads the `embedding_OCR` / `embedding_tableOfContents`
-  column into a normalised `Float32Array`, encodes the query via Gemini, then
-  does a dot-product top-k in-process.
+- Two-phase `search`: full-text columns carry a `heavy` tag in the descriptor,
+  because one accent-folded `LIKE` over `publications.OCR` costs ~1.8 s and over
+  `articles.OCR` ~0.46 s, against ~30 ms for every curated column combined. The
+  unified `search` therefore matches `FAST_TEXT_COLS` first and only runs the
+  OCR scan when that under-fills the page — 3.1 s → 0.20 s for a common term,
+  with the deep pass (and identical recall) still there for a rare one. The
+  response says which happened in `deep_scan`, and `ranking` describes both
+  passes. The per-subset `search_*` tools deliberately keep scanning everything:
+  their callers explicitly asked for a full-text search.
+- MCP Apps: `get_temporal_distribution` declares `_meta.ui.resourceUri`
+  (`src/tools/appUi.ts`), so hosts that support the
+  [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview)
+  — Claude and Claude Desktop — render the counts as an interactive stacked bar
+  chart in a sandboxed iframe instead of a wall of JSON keys, and the chart can
+  call the tool back to switch year/month granularity. `_meta` is inert
+  elsewhere: every other client gets byte-identical content and
+  structuredContent, which is why this needed no second tool and no capability
+  negotiation. The UI (`src/app/coverage.ts`) is bundled to one IIFE and inlined
+  into a single self-contained HTML string by `scripts/bundle.mjs`, because app
+  resources render under a deny-by-default CSP and the `.mcpb` package expects a
+  single-file server. Its palette and type mirror the
+  [IwacVisualizations](https://github.com/fmadore/IwacVisualizations) Omeka
+  module's sanctioned chart tokens, so the same breakdown is coloured the same
+  way here as on islam.zmo.de.
+- Prompts: `iwac_research` (brief/extended) and `iwac_overview` in
+  `src/prompts.ts` carry the skill's workflow to clients that cannot install the
+  skill (ChatGPT via the remote connector). They mirror
+  `.agents/skills/iwac-mcp/SKILL.md` — update both together, as with the
+  `INSTRUCTIONS` block.
+- Semantic search: loads the `embedding_OCR` / `embedding_tableOfContents` /
+  `embedding_image` column into a normalised `Float32Array`, encodes the query
+  via Gemini, then does a dot-product top-k in-process. `embedding_image` is
+  multimodal — the photograph itself lives in the same 768-dim space as the text
+  vectors, so `semantic_search_images` answers a text query cross-modally, which
+  is the only real handle on a subset where 28 of 30 items have no caption.
 
 ## Why Node rather than Python
 

@@ -4,11 +4,11 @@ import {
   attachOcrOrExcerpts,
   capOffset,
   COUNTRIES,
-  countryFilterIfExists,
   colsFor,
   countryParam,
   errorResult,
   keywordFilter,
+  pipeValueFilterIfExists,
   pubDateOrder,
   resolveLimit,
   runListQuery,
@@ -45,7 +45,7 @@ export function registerDocumentTools(server: Server): void {
       const params: Bindable[] = [];
 
       keywordFilter(schema, where, params, TEXT_COLS.documents, args.keyword);
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
 
       return textResult(
         await runListQuery({

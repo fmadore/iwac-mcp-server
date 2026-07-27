@@ -4,7 +4,6 @@ import {
   capOffset,
   CENTRALITY_VALUES,
   COUNTRIES,
-  countryFilterIfExists,
   colsFor,
   countryParam,
   errorResult,
@@ -77,7 +76,7 @@ export function registerSentimentTools(server: Server): void {
         where.push(foldedEquals("gemini_centralite_islam_musulmans"));
         params.push(centrality.canonical);
       }
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
 
       return textResult(
@@ -113,7 +112,7 @@ export function registerSentimentTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       const where: string[] = [];
       const params: Bindable[] = [];
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

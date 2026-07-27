@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "iwac-mcp-server",
   "display_name": "Islam West Africa Collection (IWAC)",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
-  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual materials, archival documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality), per-article AI abstracts, and per-year coverage timelines. All matching is accent- and case-insensitive.\n\n**No API key is required for the 25 core tools** (cross-subset search/fetch, keyword search, filtering, statistics, timelines, item details). Two optional semantic-search tools use Gemini embeddings — covering all articles and the publication series with tables of contents — and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
+  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual recordings, fieldwork photographs, archival documents, and academic references. Includes AI sentiment analysis (Gemini polarity/centrality), per-article AI abstracts, and per-year coverage timelines. All matching is accent- and case-insensitive.\n\n**No API key is required for the 27 core tools** (cross-subset search/fetch, keyword search, filtering, statistics, timelines, item details). Three optional semantic-search tools use Gemini embeddings — over all articles, the publication series with tables of contents, and the photographs (cross-modal: describe what an image shows) — and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
   "author": {
     "name": "Frédérick Madore",
     "email": "frederick.madore@uni-bayreuth.de",
@@ -51,7 +51,7 @@
   "tools": [
     {
       "name": "search",
-      "description": "Cross-subset search across IWAC articles, publications, documents, references, index records, and audiovisual materials. Returns namespaced ids for fetch."
+      "description": "Cross-subset search across IWAC articles, publications, documents, references, index records, audiovisual materials, and photographs. Two-phase: curated metadata first, full OCR only when needed. Returns namespaced ids for fetch."
     },
     {
       "name": "fetch",
@@ -99,7 +99,7 @@
     },
     {
       "name": "get_collection_stats",
-      "description": "Overall stats for all six IWAC subsets."
+      "description": "Overall stats for all seven IWAC subsets, including how much of each carries searchable full text (fulltext_coverage)."
     },
     {
       "name": "get_newspaper_stats",
@@ -111,7 +111,7 @@
     },
     {
       "name": "get_temporal_distribution",
-      "description": "Coverage over time: counts of matching items per year or month, with the standard filters and optional grouping by country or newspaper."
+      "description": "Coverage over time: counts of matching items per year or month, with the standard filters and optional grouping by country or newspaper. Renders as an interactive chart in hosts that support MCP Apps."
     },
     {
       "name": "search_publications",
@@ -147,15 +147,27 @@
     },
     {
       "name": "search_audiovisual",
-      "description": "Search audiovisual materials by keyword and metadata (Nigeria; includes Hausa and Arabic recordings)."
+      "description": "Search audiovisual materials by keyword, transcription, and metadata (Nigeria; includes Hausa and Arabic recordings)."
     },
     {
       "name": "get_audiovisual",
-      "description": "Get full metadata and media URL for a specific audiovisual record."
+      "description": "Get full metadata, media URL, and transcription (where one exists) for a specific audiovisual record."
     },
     {
       "name": "list_audiovisual",
       "description": "List audiovisual materials (Nigeria; includes Hausa and Arabic recordings)."
+    },
+    {
+      "name": "search_images",
+      "description": "Search the fieldwork photographs by keyword, country, subject, place, photographer, and date. Returns image URLs and coordinates."
+    },
+    {
+      "name": "get_image",
+      "description": "Get full metadata, coordinates, IIIF manifest, and full-resolution image URL for a specific photograph."
+    },
+    {
+      "name": "semantic_search_images",
+      "description": "Optional. Cross-modal search: find photographs by describing what they show, ranked against a multimodal embedding of the image itself. Disabled by default — requires a free Google/Gemini API key."
     }
   ],
   "compatibility": {
@@ -179,7 +191,7 @@
     "semantic_search_enabled": {
       "type": "boolean",
       "title": "Enable semantic search (optional)",
-      "description": "Most users can leave this off. Enables two extra tools that find articles/publications by meaning rather than keywords. Requires a free Google/Gemini API key and uses network calls at query time. The other 25 tools work without this.",
+      "description": "Most users can leave this off. Enables three extra tools that find articles, publications and photographs by meaning rather than keywords. Requires a free Google/Gemini API key and uses network calls at query time. The other 27 tools work without this.",
       "default": false
     },
     "google_api_key": {

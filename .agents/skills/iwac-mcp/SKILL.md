@@ -14,13 +14,13 @@ description: |
 
 # IWAC MCP Research Workflow
 
-Structured methodology for academic research using the IWAC MCP server's 27 possible tools (25 core + 2 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.9.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below). The essentials of this guidance are mirrored in the server's MCP `instructions` string (`mcpb/src/index.ts`) for skill-less clients — when updating one, update the other.
+Structured methodology for academic research using the IWAC MCP server's 30 possible tools (27 core + 3 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.9.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below). The essentials of this guidance are mirrored in the server's MCP `instructions` string (`mcpb/src/index.ts`) for skill-less clients — when updating one, update the other.
 
 ## Prerequisites
 
 Load reference files **as needed**, not all upfront:
 
-1. **references/tools-by-phase.md** — all 27 possible tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
+1. **references/tools-by-phase.md** — all 30 possible tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
 2. **references/research-domains.md** — French search terms and transliteration variants by domain. Read when crafting search-term variants (Extended mode, or when a Brief search comes back thin).
 3. **references/biases-and-limitations.md** — collection biases, coverage gaps, sentiment caveats. Read before writing the synthesis.
 4. **references/capabilities-overview.md** — plain-language description of the collection and recommended ways into the data. Read when the user asks what you can do (see "Capability Questions" below).
@@ -29,7 +29,7 @@ For data schema and Omeka S API details, defer to the `iwac-data` skill.
 
 ## Capability Questions
 
-When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 27 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
+When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 30 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
 
 1. One short paragraph on what the collection is and covers.
 2. The main ways into the data (keyword, curated themes, people/organizations, semantic, sentiment, periodicals, scholarship) — described as research moves, not tool names.
@@ -41,7 +41,7 @@ Close by inviting a research question. Present the Brief/Extended choice only on
 
 Mirror the user's question language in the report, synthesis, capability answer, and follow-up questions. If the user asks in English, write the final answer in English; if they ask in French, write it in French; if mixed, use the dominant language.
 
-Always formulate keyword/substr search strings and concept keywords in French for press articles, publications, documents, and index searches, including when the user's question is in another language. Translate concepts before keyword searching (`pilgrimage` -> `pèlerinage`, `secularism` -> `laïcité`, `Islamic education` -> `enseignement islamique`). For academic references, run title/abstract keyword searches in French **and** English when relevant; metadata/filter labels such as `reference_type` and `language` use French values. This rule does **not** apply to `semantic_search_articles` or `semantic_search_publications`: semantic embedding queries may be written in any language. Keep proper names, quoted titles, and canonical filter values exact; do not translate item titles or citation text.
+Always formulate keyword/substr search strings and concept keywords in French for press articles, publications, documents, and index searches, including when the user's question is in another language. Translate concepts before keyword searching (`pilgrimage` -> `pèlerinage`, `secularism` -> `laïcité`, `Islamic education` -> `enseignement islamique`). For academic references, run title/abstract keyword searches in French **and** English when relevant; metadata/filter labels such as `reference_type` and `language` use French values. This rule does **not** apply to `semantic_search_articles`, `semantic_search_publications` or `semantic_search_images`: semantic embedding queries may be written in any language. Keep proper names, quoted titles, and canonical filter values exact; do not translate item titles or citation text.
 
 ## Research Depth
 
@@ -209,3 +209,4 @@ See **references/research-domains.md** for comprehensive term lists by domain.
 6. **Search incrementally.** Keep limits low, search one dimension at a time, avoid retrieving full OCR text unless needed.
 7. **Publications are mostly entire issues.** Individual articles within an issue are not separated; use the table of contents where one exists (17 of 25 series) and `get_publication_fulltext` keyword excerpts to localise content inside an issue.
 8. **Mind the 1990-91 press-system break.** Pre-1991 articles (~11% of the corpus) come almost entirely from state or single-party organs; the private press only emerges with political liberalisation. Temporal comparisons crossing 1990 compare two different press systems (see biases-and-limitations.md §6).
+9. **Full text is masked per item.** The server reads the *public* dataset, where OCR ships only for items whose content is public on islam.zmo.de — about **61% of articles** (7,480/12,287) and **86% of publications** (1,298/1,501). Titles, subjects and AI abstracts cover every item, so nothing is invisible to discovery, but the full-text half of a keyword match reaches only those shares. Read `fulltext_coverage` from `get_collection_stats`, treat keyword totals as a **floor rather than a census**, and say so whenever a count carries an argument.

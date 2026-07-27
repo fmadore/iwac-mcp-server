@@ -6,7 +6,6 @@ import {
   attachOcrOrExcerpts,
   capOffset,
   COUNTRIES,
-  countryFilterIfExists,
   colsFor,
   countryParam,
   dateRangeFilter,
@@ -57,7 +56,7 @@ export function registerArticleTools(server: Server): void {
       const where: string[] = [];
       const params: Bindable[] = [];
 
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       keywordFilter(schema, where, params, TEXT_COLS.articles, args.keyword);
@@ -135,7 +134,7 @@ export function registerArticleTools(server: Server): void {
         limit: resolveLimit(args.limit, 10, 50),
         summaryView: "summary",
         buildCandidateFilters: (schema, where, params) => {
-          countryFilterIfExists(schema, where, params, "country", country.canonical);
+          pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
           likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
           dateRangeFilter(schema, where, params, args.date_from, args.date_to);
         },

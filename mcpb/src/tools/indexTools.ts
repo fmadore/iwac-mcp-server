@@ -4,7 +4,6 @@ import {
   capOffset,
   colsFor,
   COUNTRIES,
-  countryFilterIfExists,
   countryParam,
   errorResult,
   escapeLike,
@@ -13,6 +12,7 @@ import {
   INDEX_TYPES,
   indexFreqOrder,
   pipeValueEquals,
+  pipeValueFilterIfExists,
   resolveLimit,
   runListQuery,
   textResult,
@@ -160,7 +160,7 @@ function registerIndexListTool(
     const where: string[] = [`${q("Type")} = ?`];
     const params: Bindable[] = [indexType];
     if (withCountry) {
-      countryFilterIfExists(schema, where, params, "countries", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "countries", country.canonical);
     }
     // The country-filtered lists also return `countries`, so the caller can see
     // WHY an entry matched a country it isn't located in.

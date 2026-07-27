@@ -3,7 +3,6 @@ import { ensureView, getById, type Bindable } from "../db.js";
 import {
   capOffset,
   COUNTRIES,
-  countryFilterIfExists,
   colsFor,
   countryParam,
   errorResult,
@@ -66,7 +65,7 @@ export function registerReferenceTools(server: Server): void {
       likeFilterIfExists(schema, where, params, "author", args.author);
       likeFilterIfExists(schema, where, params, "type", args.reference_type);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "language", args.language);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 

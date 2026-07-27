@@ -17,7 +17,10 @@ import {
   colsFor,
   errorResult,
   escapeLike,
+  FAST_TEXT_COLS,
   foldedLike,
+  HAS_HEAVY_TEXT,
+  itemUrl,
   limitWarning,
   resolveLimit,
   structuredResult,
@@ -35,7 +38,26 @@ const SEARCH_SUBSETS: Subset[] = [
   "documents",
   "index",
   "audiovisual",
+  "images",
 ];
+
+/** Shortest token the tokenizer keeps. One-character words carry no signal as a
+ * substring (every OCR blob contains "a") and would match the whole corpus. */
+const MIN_TOKEN_CHARS = 2;
+
+/**
+ * Split a query into the tokens that will actually be matched. Exported so the
+ * tool can REFUSE a query that tokenizes to nothing instead of returning an
+ * empty result set: `search("a")` and `search("zzzznotaterm")` used to be
+ * byte-identical, and one of them means "your query was discarded" while the
+ * other means "this term is unattested in the collection".
+ */
+export function tokenize(queryStr: string): string[] {
+  return queryStr
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= MIN_TOKEN_CHARS);
+}
 
 /**
  * Build an accent/case-insensitive predicate requiring EVERY query token to
@@ -55,10 +77,7 @@ export function tokenizedWhere(
 ): boolean {
   const present = cols.filter((c) => schema.has(c));
   if (!present.length) return false;
-  const tokens = queryStr
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2);
+  const tokens = tokenize(queryStr);
   if (!tokens.length) return false;
   for (const token of tokens) {
     where.push(`(${present.map((c) => foldedLike(q(c))).join(" OR ")})`);
@@ -74,14 +93,27 @@ interface Hit {
   category: Subset;
 }
 
-async function searchSubset(subset: Subset, queryStr: string, limit: number): Promise<Hit[]> {
+/** One subset's contribution, distinguishing "no matches" from "not searchable
+ * here" — a subset whose text columns are all missing from this dataset revision
+ * is a coverage hole, not evidence of absence. */
+interface SubsetHits {
+  hits: Hit[];
+  searchable: boolean;
+}
+
+async function searchSubset(
+  subset: Subset,
+  queryStr: string,
+  limit: number,
+  cols: string[],
+): Promise<SubsetHits> {
   const schema = await ensureView(subset);
   const titleCol = TITLE_COL[subset];
-  if (!schema.has("o:id") || !schema.has("iwac_url") || !schema.has(titleCol)) return [];
+  if (!schema.has("o:id") || !schema.has(titleCol)) return { hits: [], searchable: false };
 
   const where: string[] = [];
   const params: Bindable[] = [];
-  if (!tokenizedWhere(schema, TEXT_COLS[subset], queryStr, where, params)) return [];
+  if (!tokenizedWhere(schema, cols, queryStr, where, params)) return { hits: [], searchable: false };
 
   // Rank: most-referenced authority entries first, otherwise newest first.
   const orderBy = schema.has("frequency")
@@ -89,17 +121,26 @@ async function searchSubset(subset: Subset, queryStr: string, limit: number): Pr
     : schema.has("pub_date")
       ? "ORDER BY pub_date DESC NULLS LAST"
       : "";
+  // `iwac_url` is selected when present but never required: the id alone yields
+  // the canonical page (itemUrl), and a blank url costs the caller a citation.
+  const urlSel = schema.has("iwac_url") ? "iwac_url" : "NULL";
   const rows = await query(
-    `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title, iwac_url AS url ` +
+    `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title, ${urlSel} AS url ` +
       `FROM ${viewName(subset)} WHERE ${where.join(" AND ")} ${orderBy} LIMIT ${limit}`,
     params,
   );
-  return rows.map((r) => ({
-    id: `${subset}:${String(r.id)}`,
-    title: typeof r.title === "string" ? r.title : String(r.title ?? ""),
-    url: typeof r.url === "string" ? r.url : String(r.url ?? ""),
-    category: subset,
-  }));
+  const hits = rows.map((r) => {
+    const localId = String(r.id);
+    const title = typeof r.title === "string" ? r.title.trim() : String(r.title ?? "").trim();
+    const url = typeof r.url === "string" ? r.url.trim() : "";
+    return {
+      id: `${subset}:${localId}`,
+      title: title || `Untitled ${subset} item ${localId}`,
+      url: url || itemUrl(localId),
+      category: subset,
+    };
+  });
+  return { hits, searchable: true };
 }
 
 /** Round-robin interleave so every subset is represented, not just the largest.
@@ -160,18 +201,28 @@ const SUBSET_COL_LABELS: Partial<Record<Subset, Record<string, string>>> = {
  * match, and omitted the index's alternate names — the columns that make
  * "Dahomey" find "Bénin"). Adding a column to TEXT_COLS now updates this note.
  */
+const label = (s: Subset, c: string) => SUBSET_COL_LABELS[s]?.[c] ?? COL_LABELS[c] ?? c;
+
+/** Columns matched in the fast first pass, per subset (title always included). */
+const FAST_FIELDS = SEARCH_SUBSETS.map(
+  (s) => `${s}: title${FAST_TEXT_COLS[s].filter((c) => c !== TITLE_COL[s]).map((c) => ` + ${label(s, c)}`).join("")}`,
+).join("; ");
+
+/** Columns added only by the deep pass (the `heavy` full-text blobs). */
+const DEEP_FIELDS = SEARCH_SUBSETS.filter((s) => HAS_HEAVY_TEXT[s])
+  .map((s) => `${s}: ${TEXT_COLS[s].filter((c) => !FAST_TEXT_COLS[s].includes(c)).map((c) => label(s, c)).join(" + ")}`)
+  .join("; ");
+
 const RANKING_NOTE =
-  "Accent/case-insensitive substring match over each item's title + main text (" +
-  SEARCH_SUBSETS.map(
-    (s) =>
-      `${s}: ${TEXT_COLS[s]
-        .filter((c) => c !== TITLE_COL[s])
-        .map((c) => SUBSET_COL_LABELS[s]?.[c] ?? COL_LABELS[c] ?? c)
-        .join(" + ")}`,
-  ).join("; ") +
-  "). Results are interleaved round-robin across categories so each is represented; within a category, " +
-  "index entries are ordered by collection frequency and dated items (articles, publications, references, " +
-  "documents) newest-first. There is no numeric relevance score — for precise filtering use the search_* tools.";
+  "Accent/case-insensitive substring match, in two passes. Pass 1 matches curated metadata only (" +
+  `${FAST_FIELDS}). When that fills fewer results than the requested limit, pass 2 additionally scans the ` +
+  `full text (${DEEP_FIELDS}) and appends what it finds. So a common term is answered from titles and ` +
+  "abstracts, and only a rare one pays for the full-text scan; `deep_scan` in the response says which " +
+  "happened. Results are interleaved round-robin across categories so each is represented; within a " +
+  "category, metadata matches precede full-text-only matches, index entries are ordered by collection " +
+  "frequency, and dated items newest-first. There is no numeric relevance score, and this is a discovery " +
+  "entry point, not a census — for exhaustive full-text counts use the search_* tools or " +
+  "get_temporal_distribution.";
 
 /** Full-text tools to recommend in `fetch` when an item's text is truncated. */
 const FULLTEXT_TOOL: Partial<Record<Subset, { tool: string; idParam: string }>> = {
@@ -199,6 +250,7 @@ const SEARCH_OUTPUT = {
   count: z.number().int(),
   limit: z.number().int(),
   ranking: z.string(),
+  deep_scan: z.boolean(),
   unavailable_categories: z.array(z.string()).optional(),
   coverage_warning: z.string().optional(),
   requested_limit: z.number().int().optional(),
@@ -225,7 +277,8 @@ export function registerSearchTools(server: Server): void {
       ...toolMeta("Search IWAC"),
       description:
         "Search the Islam West Africa Collection across newspaper articles, Islamic publications, archival " +
-        "documents, academic references, and the authority index (persons/places/organisations/events/subjects). " +
+        "documents, academic references, audiovisual recordings, photographs, and the authority index " +
+        "(persons/places/organisations/events/subjects). " +
         "Pass ONE concept or name — e.g. 'Tijaniyya', 'laïcité', 'Sheikh Gumi', 'pèlerinage'. Matching is accent- " +
         "and case-insensitive; a multi-word query requires every word to appear somewhere in the item, so prefer a " +
         "single concept per call. Write query strings and concept keywords in French for press/publication/document/index discovery even when the user's report " +
@@ -244,25 +297,45 @@ export function registerSearchTools(server: Server): void {
     },
     async ({ query: queryStr, limit }) => {
       const cap = resolveLimit(limit, 20, 50);
+
+      // A query that tokenizes to nothing was never run. Returning {count: 0}
+      // for it would be indistinguishable from a genuine absence — the exact
+      // confusion validateEnum exists to prevent — so refuse it as a
+      // self-correctable tool error instead.
+      if (tokenize(queryStr).length === 0) {
+        return errorResult({
+          error:
+            `Query '${queryStr}' has no usable search term: every word is shorter than ${MIN_TOKEN_CHARS} ` +
+            "characters, so NOTHING was searched. This is an unrunnable query, not an empty collection.",
+          hint: "Pass a full concept word or name, e.g. 'Tijaniyya', 'laïcité', 'Sheikh Gumi'.",
+        });
+      }
+
       // Per-subset failure isolation. A subset's first query downloads its
       // parquet, so one Hugging Face hiccup used to reject the whole Promise.all
       // and fail `search` outright — the entry-point tool for skill-less clients
-      // — even with the other five subsets cached and queryable. Degrade to the
+      // — even with the other subsets cached and queryable. Degrade to the
       // healthy subsets instead, and NAME the missing ones: a search silently
       // missing a category reads as "nothing there", the same silent-zero trap
       // validateEnum exists to prevent. Mirrors get_collection_stats'
       // failed_subsets fan-out.
-      const settled = await Promise.all(
-        SEARCH_SUBSETS.map(async (subset) => {
-          try {
-            return { subset, hits: await searchSubset(subset, queryStr, cap.value), ok: true };
-          } catch (err) {
-            console.error(`[iwac] search: subset ${subset} unavailable — ${(err as Error).message}`);
-            return { subset, hits: [] as Hit[], ok: false };
-          }
-        }),
-      );
-      const unavailable = settled.filter((r) => !r.ok).map((r) => r.subset);
+      const runPass = (cols: (s: Subset) => string[], only?: (s: Subset) => boolean) =>
+        Promise.all(
+          SEARCH_SUBSETS.map(async (subset) => {
+            if (only && !only(subset)) return { subset, hits: [] as Hit[], ok: true, searchable: true };
+            try {
+              const { hits, searchable } = await searchSubset(subset, queryStr, cap.value, cols(subset));
+              return { subset, hits, ok: true, searchable };
+            } catch (err) {
+              console.error(`[iwac] search: subset ${subset} unavailable — ${(err as Error).message}`);
+              return { subset, hits: [] as Hit[], ok: false, searchable: false };
+            }
+          }),
+        );
+
+      // Pass 1: curated metadata only (~150 ms across all subsets).
+      const fast = await runPass((s) => FAST_TEXT_COLS[s]);
+      const unavailable = fast.filter((r) => !r.ok).map((r) => r.subset);
       // Every subset down is a failure, not an empty result set: returning
       // {count: 0} there would present a total outage as "no matches found".
       if (unavailable.length === SEARCH_SUBSETS.length) {
@@ -271,20 +344,44 @@ export function registerSearchTools(server: Server): void {
           unavailable_categories: unavailable,
         });
       }
-      const results = interleave(
-        settled.map((r) => r.hits),
-        cap.value,
-      );
+
+      const perSubset = fast.map((r) => r.hits);
+      // Pass 2: only when the cheap pass under-fills the page, and only for the
+      // subsets that actually have a full-text column to scan. This is where the
+      // seconds are: one folded LIKE over publications.OCR costs ~1.8 s.
+      const fastTotal = perSubset.reduce((n, l) => n + l.length, 0);
+      const deepScan = fastTotal < cap.value;
+      if (deepScan) {
+        const deep = await runPass(
+          (s) => TEXT_COLS[s],
+          (s) => HAS_HEAVY_TEXT[s] && fast.find((r) => r.subset === s)?.ok === true,
+        );
+        for (let i = 0; i < SEARCH_SUBSETS.length; i++) {
+          const seen = new Set(perSubset[i].map((h) => h.id));
+          // Appended, not merged: within a category the metadata matches stay
+          // ahead of the items that matched only deep inside an OCR blob.
+          for (const hit of deep[i].hits) if (!seen.has(hit.id)) perSubset[i].push(hit);
+        }
+      }
+
+      // A subset that could be loaded but has none of its text columns in this
+      // revision is a coverage hole too — report it alongside the load failures
+      // rather than letting it look like a category with no matches.
+      const notSearchable = fast.filter((r) => r.ok && !r.searchable).map((r) => r.subset);
+      const missing = [...unavailable, ...notSearchable];
+
+      const results = interleave(perSubset, cap.value);
       return structuredResult({
         results,
         count: results.length,
         limit: cap.value,
         ranking: RANKING_NOTE,
-        ...(unavailable.length
+        deep_scan: deepScan,
+        ...(missing.length
           ? {
-              unavailable_categories: unavailable,
+              unavailable_categories: missing,
               coverage_warning:
-                `Could not load ${unavailable.join(", ")}; these categories are MISSING from these results ` +
+                `Could not search ${missing.join(", ")}; these categories are MISSING from these results ` +
                 "rather than empty. Retry, or use the matching search_* tool, before concluding a term is absent.",
             }
           : {}),
@@ -301,9 +398,9 @@ export function registerSearchTools(server: Server): void {
       description:
         "Retrieve the full text and metadata of one IWAC item by an id returned from `search` (format " +
         "'<category>:<number>', e.g. 'articles:28576'). Returns {id, title, text, url, metadata}: `text` is the " +
-        "item's OCR / abstract / description, `url` is the canonical islam.zmo.de link to cite, and `metadata` " +
-        "holds the remaining fields (author, date, country, newspaper, AI sentiment, …). Categories: " +
-        "articles, publications, references, documents, index, audiovisual.",
+        "item's OCR / abstract / transcription / description, `url` is the canonical islam.zmo.de link to cite, " +
+        "and `metadata` holds the remaining fields (author, date, country, newspaper, AI sentiment, …). " +
+        "Categories: articles, publications, references, documents, index, audiovisual, images.",
       inputSchema: {
         id: z.string().describe("Item id from search, e.g. 'articles:28576' or 'references:11045'"),
       },
@@ -332,8 +429,14 @@ export function registerSearchTools(server: Server): void {
         });
       }
 
-      const title = typeof row.title === "string" ? row.title : String(row.title ?? "");
-      const url = typeof row.url === "string" ? row.url : String(row.url ?? "");
+      // Fall back to the derivable canonical page and a stable placeholder
+      // title: ChatGPT only builds a citation when `url` is a non-empty string,
+      // and the result compaction drops empty strings, so an item with a blank
+      // `iwac_url` would come back uncitable for no good reason.
+      const rawTitle = typeof row.title === "string" ? row.title.trim() : String(row.title ?? "").trim();
+      const rawUrl = typeof row.url === "string" ? row.url.trim() : "";
+      const title = rawTitle || `Untitled ${subset} item ${localId}`;
+      const url = rawUrl || itemUrl(localId);
       const rawText = typeof row.text === "string" ? row.text : row.text == null ? "" : String(row.text);
       const capped = capText(rawText);
       const text = capped.text.trim() ? capped.text : "(no full text available for this item)";

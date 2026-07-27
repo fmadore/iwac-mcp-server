@@ -42,9 +42,52 @@ if (instructions.includes("semantic_search"))
 if (!instructions.includes("get_temporal_distribution"))
   fail("instructions do not mention get_temporal_distribution");
 
+// Prompts are the only workflow channel a skill-less client (ChatGPT) gets.
+const prompts = await client.listPrompts();
+const promptNames = prompts.prompts.map((p) => p.name);
+for (const n of ["iwac_research", "iwac_overview"]) {
+  if (!promptNames.includes(n)) fail(`prompt ${n} not registered (got ${promptNames.join(", ") || "none"})`);
+}
+{
+  const brief = await client.getPrompt({ name: "iwac_research", arguments: { question: "laïcité au Togo" } });
+  const briefText = brief.messages.map((m) => m.content.text ?? "").join("\n");
+  if (!briefText.includes("laïcité au Togo")) fail("iwac_research did not interpolate the question");
+  if (!briefText.includes("BRIEF")) fail("iwac_research should default to brief depth");
+  const ext = await client.getPrompt({
+    name: "iwac_research",
+    arguments: { question: "laïcité au Togo", depth: "extended" },
+  });
+  if (!ext.messages.map((m) => m.content.text ?? "").join("\n").includes("EXTENDED"))
+    fail("iwac_research depth=extended did not select the extended workflow");
+}
+
+// MCP Apps: get_temporal_distribution declares a ui:// view that hosts with the
+// extension render as a chart. The resource must exist and be self-contained —
+// app resources load under a deny-by-default CSP.
+{
+  const resources = await client.listResources();
+  const ui = resources.resources.find((r) => r.uri === "ui://iwac/coverage.html");
+  if (!ui) fail(`coverage chart resource not registered (got ${resources.resources.map((r) => r.uri).join(", ") || "none"})`);
+  else {
+    const read = await client.readResource({ uri: ui.uri });
+    const html = read.contents[0]?.text ?? "";
+    if (!html.includes("<!DOCTYPE html>")) fail("coverage UI resource is not an HTML document");
+    if (html.includes("run `npm run build`")) fail("coverage UI fell back to the dev placeholder — rebuild before testing");
+    // A remote src/href would be blocked by the host CSP at render time.
+    if (/<(?:script|link)[^>]+(?:src|href)=["']?https?:/i.test(html))
+      fail("coverage UI loads an external asset; it must be fully inlined");
+    if (read.contents[0]?.mimeType !== "text/html+mcp") fail(`UI resource mimeType ${read.contents[0]?.mimeType}`);
+  }
+}
+
 const tools = await client.listTools();
 const names = tools.tools.map((t) => t.name);
-if (tools.tools.length !== 25) fail(`expected 25 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
+{
+  const temporal = tools.tools.find((t) => t.name === "get_temporal_distribution");
+  if (temporal?._meta?.ui?.resourceUri !== "ui://iwac/coverage.html")
+    fail(`get_temporal_distribution should declare its UI in _meta, got ${JSON.stringify(temporal?._meta)}`);
+}
+if (tools.tools.length !== 27) fail(`expected 27 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
 if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");
 for (const t of tools.tools) {
   if (!t.title && !t.annotations?.title) fail(`tool ${t.name} has no title`);
@@ -109,6 +152,44 @@ await call("fetch", { id: "garbage" }, {
   checkBody: (b) => (b.includes("valid_categories") ? null : "malformed id should list valid_categories"),
 });
 
+// A query whose every token is under the 2-char floor is never RUN. Returning
+// count:0 for it would be indistinguishable from a real absence, so it must be
+// a self-correctable error instead.
+await call("search", { query: "a" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("no usable search term") ? null : "sub-2-char query should be refused, not silently empty"),
+});
+// …whereas a real term with no matches IS a successful, empty search.
+await call("search", { query: "zzzznotaterm" }, {
+  structured: true,
+  check: (p) => (p.count === 0 && !p.error ? null : "an unattested term should be an empty success, not an error"),
+});
+// Two-phase search: a term that lives only in an OCR blob still has to surface,
+// which means the deep pass ran and said so.
+await call("search", { query: "pédagogique" }, {
+  structured: true,
+  check: (p) => {
+    if (!p.results?.length) return "OCR/abstract-only term found nothing (deep pass regressed)";
+    if (p.deep_scan !== true) return "deep_scan should be true when the fast pass under-fills";
+    return null;
+  },
+});
+// Photographs are searchable through the unified entry point too.
+await call("search", { query: "mosquée" }, {
+  structured: true,
+  check: (p) => (p.results?.some((r) => r.category === "images") ? null : "images subset missing from unified search"),
+});
+// Audiovisual items have no descriptionAI at all (0/47 in the real subset); the
+// transcription is their only text, so fetch must return it as `text`.
+await call("fetch", { id: "audiovisual:601" }, {
+  structured: true,
+  check: (p) => {
+    if (!p.text?.includes("Tafsirin")) return `audiovisual fetch should return the transcription, got: ${String(p.text).slice(0, 60)}`;
+    if (!p.url) return "audiovisual fetch missing url";
+    return null;
+  },
+});
+
 // --- articles ------------------------------------------------------------------
 await call("search_articles", { country: "Bénin" }, {
   check: (p) => (p.total_matches === 2 ? null : `accented Bénin should match 2 fixture articles, got ${p.total_matches}`),
@@ -134,6 +215,23 @@ await call("get_article", { article_id: 105, keyword: "pelerinage" }, {
   },
 });
 await call("get_article", { article_id: 99999 }, { expectError: true });
+// A limit under the floor is clamped to 1 — say so, exactly as an over-large
+// one is. Silently returning a single row reads as "that is all there is".
+await call("search_articles", { limit: 0 }, {
+  check: (p) => {
+    if (p.limit !== 1) return `limit 0 should clamp to 1, got ${p.limit}`;
+    if (p.requested_limit !== 0 || !String(p.limit_warning ?? "").includes("below the minimum"))
+      return "low-end clamp must surface requested_limit + limit_warning";
+    return null;
+  },
+});
+// Same rule for the excerpt caps.
+await call("get_article", { article_id: 105, keyword: "pelerinage", max_excerpts: -3 }, {
+  check: (p) =>
+    p.excerpts_returned === 1 && String(p.parameter_note ?? "").includes("max_excerpts")
+      ? null
+      : "clamped max_excerpts should be reported in parameter_note",
+});
 
 // --- references (pipe country trap) --------------------------------------------
 await call("search_references", { country: "Niger" }, {
@@ -193,12 +291,19 @@ await call("get_index_entry", { entry_id: 99999 }, { expectError: true });
 await call("get_collection_stats", {}, {
   structured: true,
   check: (p) => {
-    const expected = { articles: 6, publications: 3, references: 4, documents: 2, audiovisual: 2, index: 7 };
+    const expected = { articles: 6, publications: 3, references: 4, documents: 2, audiovisual: 2, images: 3, index: 7 };
     for (const [k, v] of Object.entries(expected)) {
       if (p.subset_counts?.[k] !== v) return `subset_counts.${k} = ${p.subset_counts?.[k]}, expected ${v}`;
     }
     if (p.failed_subsets) return `unexpected failed_subsets: ${p.failed_subsets}`;
     if (p.date_range?.earliest !== "1987-03-02") return `date_range.earliest ${p.date_range?.earliest}`;
+    // The public dataset masks full text per row; a keyword count is a floor,
+    // not a census, and the stats tool is where that gets stated.
+    const cov = p.fulltext_coverage?.articles;
+    if (!cov) return "fulltext_coverage missing for articles";
+    if (cov.with_fulltext !== 5 || cov.total !== 6) return `articles coverage ${JSON.stringify(cov)}, expected 5/6`;
+    if (!String(p.fulltext_note ?? "").includes("public")) return "fulltext_note missing";
+    if (p.fulltext_coverage.index) return "index has no OCR column and must not claim coverage";
     return null;
   },
 });
@@ -312,8 +417,43 @@ await call("list_audiovisual", {}, {
   check: (p) => (p.total_matches === 2 && p.results?.[0]?.media_url ? null : `expected 2 audiovisual items with media_url, got ${p.total_matches}`),
 });
 await call("get_audiovisual", { audiovisual_id: 601 }, {
-  check: (p) => (p.media_url && p.medium === "audio" ? null : "get_audiovisual missing media_url/medium"),
+  check: (p) => {
+    if (!p.media_url || p.medium !== "audio") return "get_audiovisual missing media_url/medium";
+    if (!p.transcription) return "get_audiovisual should expose the OCR transcription";
+    return null;
+  },
 });
+await call("search_audiovisual", { keyword: "Tafsirin" }, {
+  check: (p) => (p.total_matches === 1 ? null : `transcription text should be searchable, got ${p.total_matches}`),
+});
+
+// --- images (photographs) ------------------------------------------------------
+await call("search_images", {}, {
+  check: (p) => {
+    if (p.total_matches !== 3) return `expected 3 photographs, got ${p.total_matches}`;
+    const first = p.results?.[0];
+    if (!first?.image_url) return "image results must carry image_url";
+    if (!first?.coordinates) return "image results must carry coordinates";
+    return null;
+  },
+});
+await call("search_images", { country: "Togo" }, {
+  check: (p) => (p.total_matches === 1 ? null : `Togo should match 1 photograph, got ${p.total_matches}`),
+});
+await call("search_images", { spatial: "Ouagadougou" }, {
+  check: (p) => (p.total_matches === 1 ? null : `place filter should match 1, got ${p.total_matches}`),
+});
+await call("search_images", { keyword: "ecole" }, {
+  check: (p) => (p.total_matches === 1 ? null : `unaccented keyword should reach 'École', got ${p.total_matches}`),
+});
+await call("search_images", { country: "Atlantis" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "invalid country should error with valid_values"),
+});
+await call("get_image", { image_id: 702 }, {
+  check: (p) => (p.image_url && p.description ? null : "get_image missing image_url/description"),
+});
+await call("get_image", { image_id: 99999 }, { expectError: true });
 
 // LIKE metacharacters in a keyword must match literally, not as wildcards: an
 // unescaped '_' is a single-char wildcard and would match EVERY article.

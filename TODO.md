@@ -61,6 +61,11 @@
   already implemented, no resources (error-code change N/A), no roots/sampling/
   logging capabilities (deprecations N/A), static bearer auth (OAuth hardening
   N/A), single-backend proxy (routing headers N/A), read-only tools (MRTR N/A).
+  **One gap that audit did not cover:** the stateless core removes the
+  `initialize` handshake in favour of `server/discover`, and the handshake
+  `instructions` string is this server's ENTIRE guidance floor for skill-less
+  clients (ChatGPT). Confirm where `instructions` surface under `server/discover`
+  — and that prompts (`src/prompts.ts`) still list — before migrating.
 
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 
@@ -102,12 +107,24 @@
   table/subset, so users can search *within* periodicals without loading a
   full (up to ~278k-token) OCR blob.
 
-### Audiovisual (45 rows)
+### Audiovisual (47 rows)
 
 - [ ] **Populate `descriptionAI`** — the column exists but is empty for all
-  45 rows (`length(trim(...)) = 0`; a bare `COUNT()` claims 45/45 because the
-  parquet stores empty strings, not NULLs). The recordings are Hausa/Arabic
-  content, so per-item AI descriptions are the only browsable surface.
+  47 rows (`length(trim(...)) = 0`; a bare `COUNT()` claims 47/47 because the
+  parquet stores empty strings, not NULLs). Partly mitigated since July 2026:
+  the subset gained an `OCR` transcription column, which the server now serves
+  as the item body (`transcription` on `get_audiovisual`, `text` on `fetch`) and
+  searches — but only **4 of 47** rows have one, so AI descriptions remain the
+  browsable surface this subset needs.
+- [ ] **Transcribe the remaining 43 recordings** — Hausa/Arabic audio; the 4
+  existing transcriptions prove the column and the server path work end to end.
+
+### Images (30 rows, new July 2026)
+
+- [ ] **Populate `description`** — 2 of 30 photographs have a caption. Discovery
+  currently leans on title/subject/place plus the multimodal `embedding_image`
+  (`semantic_search_images`), which works without captions but cannot be quoted
+  in a write-up.
 
 ### Server tools that light up once the columns land
 
@@ -115,7 +132,8 @@
 - `semantic_search_publications` — ✅ now useful for the 17 TOC-covered series;
   corpus-wide once Islam Info / An-Nasr Vendredi / Islam Hebdo TOCs land.
 - `search_publications` — returns AI summaries once `descriptionAI` is populated
-  (add a description column to `publicationSummaryCols`).
+  (add a `descriptionAI` field to `SUBSET_FIELDS.publications` in
+  `src/tools/_shared.ts`, tagged `searchable` and in the `summary` view).
 
 ## Skill Improvements
 

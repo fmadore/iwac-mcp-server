@@ -2,6 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerTools } from "./tools/register.js";
+import { registerPrompts } from "./prompts.js";
 import { startHttpServer } from "./http.js";
 import { config } from "./config.js";
 
@@ -24,9 +25,9 @@ const VERSION = typeof __IWAC_VERSION__ === "string" ? __IWAC_VERSION__ : "0.0.0
  */
 const INSTRUCTIONS =
   "The Islam West Africa Collection (IWAC) archives francophone West African newspaper " +
-  "articles, Islamic publications, archival documents, audiovisual records, and academic " +
-  "references on Islam and Muslim societies in Benin, Burkina Faso, Côte d'Ivoire, Niger, " +
-  "Nigeria, and Togo.\n\n" +
+  "articles, Islamic publications, archival documents, audiovisual records, fieldwork " +
+  "photographs, and academic references on Islam and Muslim societies in Benin, Burkina Faso, " +
+  "Côte d'Ivoire, Niger, Nigeria, and Togo.\n\n" +
   "WORKFLOW: start with `search` (a concept or name), then `fetch` an id from the results to read " +
   "the full text. The unified `search` matches each word of a multi-word query independently — " +
   "every word must appear somewhere in the item — so 'pèlerinage Mecque' narrows results rather " +
@@ -40,6 +41,12 @@ const INSTRUCTIONS =
   "the same filters) instead of paging through search results. All matching is accent- and " +
   "case-insensitive; country filters take exact names (Benin, " +
   "Burkina Faso, Côte d'Ivoire, Niger, Nigeria, Togo).\n\n" +
+  "FULL-TEXT COVERAGE: this is the public dataset, and OCR full text ships only for items whose " +
+  "content is public on islam.zmo.de — about 61% of articles (7,480/12,287) and 86% of " +
+  "publications (1,298/1,501). Titles, subjects and AI abstracts are searchable for ALL items, so " +
+  "nothing is invisible, but the full-text half of a keyword match covers only those shares. Call " +
+  "get_collection_stats for the live `fulltext_coverage` figures, treat keyword totals as a floor " +
+  "rather than a corpus-wide census, and disclose this whenever a count carries an argument.\n\n" +
   "RESULTS & ERRORS: list/search tools return a pagination envelope — read `total_matches` to gauge " +
   "scale without paging, and request a sane `limit` (an over-large one is capped visibly via " +
   "`requested_limit` + `limit_warning`, never silently dropped). Enumerated filters (`country`, " +
@@ -99,6 +106,7 @@ export function createServer(): McpServer {
     { instructions: buildInstructions() },
   );
   registerTools(server);
+  registerPrompts(server);
   return server;
 }
 

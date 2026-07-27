@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
+import { COVERAGE_UI_META } from "./appUi.js";
 import {
   COUNTRIES,
-  countryFilterIfExists,
   countryParam,
   dateRangeFilter,
   errorResult,
@@ -25,7 +25,7 @@ const DATE_EXPR = `NULLIF(trim(CAST(pub_date AS VARCHAR)), '')`;
 
 // Subsets get_temporal_distribution accepts: everything with a pub_date column.
 // (The index subset's first/last_occurrence mean something else entirely.)
-const TEMPORAL_SUBSETS = ["articles", "publications", "references", "documents", "audiovisual"] as const;
+const TEMPORAL_SUBSETS = ["articles", "publications", "references", "documents", "audiovisual", "images"] as const;
 const GRANULARITIES = ["year", "month"] as const;
 const GROUP_FIELDS = ["country", "newspaper"] as const;
 
@@ -40,6 +40,8 @@ const COLLECTION_STATS_OUTPUT = {
   subset_counts: z.record(z.string(), z.number()),
   failed_subsets: z.array(z.string()).optional(),
   total_records: z.number(),
+  fulltext_coverage: z.record(z.string(), z.looseObject({})).optional(),
+  fulltext_note: z.string().optional(),
   articles_by_country: z.record(z.string(), z.number()).optional(),
   newspaper_count: z.number().optional(),
   date_range: z.looseObject({ earliest: z.string(), latest: z.string() }).optional(),
@@ -76,7 +78,10 @@ export function registerStatsTools(server: Server): void {
     "get_collection_stats",
     {
       ...toolMeta("Collection statistics"),
-      description: "Overall statistics for all six IWAC subsets.",
+      description:
+        "Overall statistics for every IWAC subset, including `fulltext_coverage` — how many items in each " +
+        "subset actually carry searchable full text in this public dataset. Read that before treating any " +
+        "keyword count as a full-text census.",
       inputSchema: {},
       outputSchema: COLLECTION_STATS_OUTPUT,
     },
@@ -91,20 +96,38 @@ export function registerStatsTools(server: Server): void {
         ALL_SUBSETS.map(async (s) => {
           try {
             const schema = await ensureView(s);
-            const n = Number(
-              (await queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName(s)}`)) ?? 0,
+            // Row count and full-text coverage in ONE pass. `OCR_is_public` is a
+            // boolean column, so counting it costs 1-7 ms; the equivalent
+            // `length(trim(OCR)) > 0` has to decompress the OCR column itself
+            // (344 ms on publications) for an identical answer.
+            const hasFlag = schema.has("OCR_is_public");
+            const row = await queryOne(
+              `SELECT COUNT(*) AS n${hasFlag ? `, COUNT(*) FILTER (WHERE "OCR_is_public") AS ft` : ""} FROM ${viewName(s)}`,
             );
-            return [s, n, schema] as const;
+            const n = Number(row?.n ?? 0);
+            const ft = hasFlag ? Number(row?.ft ?? 0) : null;
+            return [s, n, schema, ft] as const;
           } catch {
-            return [s, null, null] as const;
+            return [s, null, null, null] as const;
           }
         }),
       );
       const counts: Record<string, number> = {};
       const failed: string[] = [];
-      for (const [s, n] of entries) {
-        if (n === null) failed.push(s);
-        else counts[s] = n;
+      const coverage: Record<string, unknown> = {};
+      for (const [s, n, , ft] of entries) {
+        if (n === null) {
+          failed.push(s);
+          continue;
+        }
+        counts[s] = n;
+        // The public dataset masks full text per row (the `OCR_is_public` flag
+        // mirrors whether the source content is public on islam.zmo.de). Stating
+        // the ratio is the difference between "1,200 articles mention charia"
+        // meaning "of the whole corpus" and "of the 61% that are searchable".
+        if (ft !== null && n > 0) {
+          coverage[s] = { with_fulltext: ft, total: n, percent: Math.round((ft / n) * 100) };
+        }
       }
 
       // Empty set when articles failed to load: the article-specific extras
@@ -116,6 +139,16 @@ export function registerStatsTools(server: Server): void {
         subset_counts: counts,
         ...(failed.length ? { failed_subsets: failed } : {}),
         total_records: Object.values(counts).reduce<number>((a, b) => a + b, 0),
+        ...(Object.keys(coverage).length
+          ? {
+              fulltext_coverage: coverage,
+              fulltext_note:
+                "This is the PUBLIC dataset: full text (OCR) ships only for items whose content is public on " +
+                "islam.zmo.de, per item. Keyword search still reaches every item's title, subjects and AI " +
+                "abstract, but the full-text half of a keyword match only covers the counts above — so report " +
+                "keyword totals as a floor, not a corpus-wide census, and say so when the ratio matters.",
+            }
+          : {}),
       };
       if (schema.has("country")) {
         const rows = await query(
@@ -165,7 +198,7 @@ export function registerStatsTools(server: Server): void {
       }
       const where: string[] = [];
       const params: Bindable[] = [];
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       // The parquet stores missing newspapers as "" — exclude them from the
       // per-newspaper grouping so a phantom empty-name row doesn't inflate
@@ -271,10 +304,14 @@ export function registerStatsTools(server: Server): void {
       description:
         "Counts of matching items per year (or month) — the direct way to chart coverage trends over time " +
         "instead of paging through search results. Defaults to articles; also works on publications, references, " +
-        "documents, and audiovisual. Accepts the same filters as the corresponding search_* tool " +
+        "documents, audiovisual, and images. Accepts the same filters as the corresponding search_* tool " +
         "(keyword = ONE substring over the subset's text fields, country, newspaper/series, subject, date range). " +
         "Optional group_by=country|newspaper returns one distribution per group. Items dated only to a year keep " +
         "a bare-year key even at month granularity; undated items are counted in undated_count, never dropped silently.",
+      // MCP Apps: hosts that support the extension render the counts as an
+      // interactive chart (see tools/appUi.ts); everyone else ignores `_meta`
+      // and gets the identical JSON.
+      _meta: COVERAGE_UI_META,
       inputSchema: {
         subset: z
           .string()
@@ -341,7 +378,7 @@ export function registerStatsTools(server: Server): void {
       const where: string[] = [];
       const params: Bindable[] = [];
       keywordFilter(schema, where, params, TEXT_COLS[subset], args.keyword);
-      countryFilterIfExists(schema, where, params, "country", country.canonical);
+      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       // Articles carry day-precision ISO dates; the other subsets store year-ish

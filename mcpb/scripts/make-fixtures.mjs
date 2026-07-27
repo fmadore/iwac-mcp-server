@@ -19,6 +19,9 @@ const fixturesDir = path.join(root, "test", "fixtures");
 
 const IWAC = "https://islam.zmo.de/s/afrique_ouest/item/";
 
+/** Subsets that carry an `OCR` column, and therefore the per-row public flag. */
+const OCR_SUBSETS = ["articles", "publications", "documents", "audiovisual"];
+
 /** One CREATE + INSERT block per subset (plain SQL keeps the data reviewable). */
 const SUBSET_SQL = {
   articles: `
@@ -137,15 +140,43 @@ const SUBSET_SQL = {
       creator VARCHAR, publisher VARCHAR, country VARCHAR, pub_date VARCHAR,
       "descriptionAI" VARCHAR, volume VARCHAR, issue VARCHAR, is_part_of VARCHAR,
       extent VARCHAR, medium VARCHAR, subject VARCHAR, spatial VARCHAR,
-      language VARCHAR, source VARCHAR
+      language VARCHAR, source VARCHAR, "OCR" VARCHAR
     );
+    -- descriptionAI is empty for BOTH rows, mirroring the real subset (0/47
+    -- filled); the transcription in "OCR" is the only text these items have.
     INSERT INTO audiovisual VALUES
       ('601', 'av-601', '2023-05-01', '${IWAC}601', '', 'https://example.org/media/601.mp3', '',
        'Tafsir du Ramadan à Kano', 'Sheikh Abubakar', 'Radio Kano', 'Nigeria', '2020-04-25',
-       '', '', '', 'Série Tafsir', '58 min', 'audio', 'Ramadan|Tafsir', 'Kano', 'Haoussa', 'Radio Kano'),
+       '', '', '', 'Série Tafsir', '58 min', 'audio', 'Ramadan|Tafsir', 'Kano', 'Haoussa', 'Radio Kano',
+       'Bismillah. Sannu da zuwa. Tafsirin yau yana magana kan azumin Ramadan da sadaka.'),
       ('602', 'av-602', '2023-06-12', '${IWAC}602', '', 'https://example.org/media/602.mp4', '',
        'Friday sermon in Abuja', 'Imam Yusuf', '', 'Nigeria', '2021-06-11',
-       '', '', '', '', '41 min', 'video', 'Prêche', 'Abuja', 'Arabe|Anglais', '');
+       '', '', '', '', '41 min', 'video', 'Prêche', 'Abuja', 'Arabe|Anglais', '', '');
+  `,
+
+  images: `
+    CREATE TABLE images (
+      "o:id" VARCHAR, identifier VARCHAR, added_date VARCHAR, iwac_url VARCHAR,
+      iiif_manifest VARCHAR, image_url VARCHAR, thumbnail VARCHAR, title VARCHAR,
+      type VARCHAR, creator VARCHAR, pub_date VARCHAR, description VARCHAR,
+      rights VARCHAR, subject VARCHAR, spatial VARCHAR, coordinates VARCHAR, country VARCHAR
+    );
+    -- description is empty for 2 of 3 rows, as in the real subset (2/30 filled):
+    -- discovery here runs on title/creator/subject/place, not on captions.
+    INSERT INTO images VALUES
+      ('701', 'iwac-image-0000001', '2024-03-16', '${IWAC}701',
+       'https://islam.zmo.de/iiif/3/701/manifest', 'https://example.org/files/701.jpeg',
+       'https://example.org/files/medium/701.jpg', 'Radio Ridwane', 'Photographie',
+       'Frédérick Madore', '2015-04-16', '', 'In Copyright - Educational Use Permitted',
+       'Radio Ridwane', 'Ouagadougou', '12.3367681, -1.5436187', 'Burkina Faso'),
+      ('702', 'iwac-image-0000002', '2024-03-16', '${IWAC}702',
+       '', 'https://example.org/files/702.jpeg', '', 'Grande mosquée de Lomé', 'Photographie',
+       'Frédérick Madore', '2018-11-02', 'Façade de la grande mosquée un vendredi.',
+       'In Copyright - Educational Use Permitted', 'Mosquée', 'Lomé', '6.1319, 1.2228', 'Togo'),
+      ('703', 'iwac-image-0000003', '2024-05-20', '${IWAC}703',
+       '', 'https://example.org/files/703.jpeg', '', 'École coranique de Cotonou', 'Photographie',
+       'A. Dossou', '2019-02-11', '', 'In Copyright - Educational Use Permitted',
+       'Éducation|Enseignement islamique', 'Cotonou', '6.3703, 2.3912', 'Benin');
   `,
 
   index: `
@@ -172,10 +203,22 @@ async function main() {
 
   for (const [subset, sql] of Object.entries(SUBSET_SQL)) {
     await conn.run(sql);
+    const table = subset === "index" || subset === "references" ? `"${subset}"` : subset;
+    // The PUBLIC dataset masks full text per row: `OCR_is_public` mirrors
+    // whether the source content is public on islam.zmo.de, and `OCR` is blank
+    // wherever it is false. Derive the flag from the fixture text so the two can
+    // never disagree, then mask one article so `fulltext_coverage` has something
+    // to report other than a flat 100%.
+    if (OCR_SUBSETS.includes(subset)) {
+      if (subset === "articles") {
+        await conn.run(`UPDATE articles SET "OCR" = '' WHERE "o:id" = '104'`);
+      }
+      await conn.run(`ALTER TABLE ${table} ADD COLUMN "OCR_is_public" BOOLEAN`);
+      await conn.run(`UPDATE ${table} SET "OCR_is_public" = length(trim(coalesce("OCR", ''))) > 0`);
+    }
     const dir = path.join(fixturesDir, subset);
     await fs.mkdir(dir, { recursive: true });
     const dest = path.join(dir, "train-00000-of-00001.parquet").replaceAll("\\", "/");
-    const table = subset === "index" || subset === "references" ? `"${subset}"` : subset;
     await conn.run(`COPY (SELECT * FROM ${table}) TO '${dest.replace(/'/g, "''")}' (FORMAT PARQUET)`);
   }
   console.log(`fixtures written to ${fixturesDir}`);

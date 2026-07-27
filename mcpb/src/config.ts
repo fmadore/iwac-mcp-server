@@ -10,6 +10,7 @@ export type Subset =
   | "publications"
   | "documents"
   | "audiovisual"
+  | "images"
   | "index"
   | "references";
 
@@ -18,6 +19,7 @@ export const ALL_SUBSETS: Subset[] = [
   "publications",
   "documents",
   "audiovisual",
+  "images",
   "index",
   "references",
 ];
