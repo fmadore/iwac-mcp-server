@@ -684,6 +684,48 @@ await renderPayload(BASE);
   }
 }
 
+// A view option switches the rendering with NO server round trip: the network
+// is a second reading of the co-occurrence payload already on screen.
+{
+  await renderPayload({
+    view: "cooccurrence",
+    subset: "articles",
+    field: "subject",
+    filters: {},
+    total_matches: 12287,
+    values: [
+      { value: "Prière", count: 2139 },
+      { value: "Hadj", count: 1917 },
+      { value: "Paix", count: 1894 },
+    ],
+    matrix: [
+      [2139, 354, 796],
+      [354, 1917, 214],
+      [796, 214, 1894],
+    ],
+    top_pairs: [{ a: "Prière", b: "Paix", count: 796 }],
+  });
+  if (rootEl.innerHTML.includes("Co-mention network")) fail("the matrix should be the default rendering");
+
+  outbound.length = 0;
+  elements.get("act-layout")?.click();
+  await flush();
+  if (take((m) => m.method === "tools/call")) fail("switching layout must not call the server");
+  const markup = rootEl.innerHTML;
+  if (!markup.includes("Co-mention network")) fail("the layout toggle did not switch to the network");
+  if ((markup.match(/<circle/g) ?? []).length !== 3) fail("expected one node per value");
+  if (!markup.includes("NOT a layout of")) fail("the network must disclose that it covers only the top values");
+
+  // And back again, so the option is a toggle rather than a one-way door.
+  elements.get("act-layout")?.click();
+  await flush();
+  if (rootEl.innerHTML.includes("Co-mention network")) fail("the layout toggle did not switch back");
+}
+
+// A different view must not inherit the previous one's options.
+await renderPayload(BASE);
+if (rootEl.innerHTML.includes("Co-mention network")) fail("view options leaked across a view change");
+
 // The CSV action only appears when the host advertised downloadFile — which
 // this harness did.
 {

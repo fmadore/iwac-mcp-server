@@ -131,6 +131,9 @@ svg{display:block;width:100%;height:auto}
 .neighbour{stroke:var(--line);stroke-width:.6;opacity:.5}
 .bubble{fill:var(--bubble);fill-opacity:.55;stroke:var(--bubble);stroke-width:.8;cursor:pointer}
 .bubble:hover{fill-opacity:.85}
+.link{stroke:var(--line);stroke-opacity:.85}
+.node{stroke:var(--btn);stroke-width:1.2;cursor:pointer}
+.node:hover{stroke:var(--fg)}
 .hit{cursor:pointer}
 .hit:hover{opacity:.78}
 .legend{list-style:none;display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 0;padding:0;font-size:12px}

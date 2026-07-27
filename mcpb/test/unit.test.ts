@@ -5,7 +5,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { bubbleMap, columns, donut, gantt, heatmapMatrix, horizontalBar, squarify, ticks, treemap } from "../src/app/svg.js";
+import { bubbleMap, columns, donut, forceGraph, gantt, heatmapMatrix, horizontalBar, squarify, ticks, treemap } from "../src/app/svg.js";
 import { BASEMAP, BASEMAP_BOUNDS } from "../src/app/basemap.js";
 import { csv, csvCell } from "../src/app/shell.js";
 import { fmtInt, THOUSANDS_SEP } from "../src/app/theme.js";
@@ -640,5 +640,47 @@ describe("place map", () => {
     const radii = [...svg.matchAll(/r="([\d.]+)"/g)].map((m) => Number(m[1]));
     const [big, small] = radii;
     assert.ok(Math.abs((big - 3) / (small - 3) - 2) < 0.05, `radii ${radii} are not area-proportional`);
+  });
+});
+
+describe("co-mention network", () => {
+  const NODES = Array.from({ length: 12 }, (_, i) => ({ label: `n${i}`, weight: 100 - i * 5 }));
+  // Two tight clusters, plus one bridge between them.
+  const EDGES = [
+    ...[0, 1, 2].flatMap((i) => [0, 1, 2].filter((j) => j > i).map((j) => ({ source: i, target: j, weight: 50 }))),
+    ...[6, 7, 8].flatMap((i) => [6, 7, 8].filter((j) => j > i).map((j) => ({ source: i, target: j, weight: 50 }))),
+    { source: 2, target: 6, weight: 5 },
+  ];
+
+  it("is deterministic — the same data always draws the same picture", () => {
+    // A graph that reshuffles on every re-render cannot be read as evidence.
+    const a = forceGraph({ nodes: NODES, edges: EDGES });
+    const b = forceGraph({ nodes: NODES, edges: EDGES });
+    assert.equal(a, b);
+  });
+
+  it("places tightly-linked nodes closer than unlinked ones", () => {
+    const svg = forceGraph({ nodes: NODES, edges: EDGES });
+    const at = (i) => {
+      const circles = [...svg.matchAll(/<circle cx="([\d.-]+)" cy="([\d.-]+)"/g)];
+      return { x: Number(circles[i][1]), y: Number(circles[i][2]) };
+    };
+    const d = (i, j) => Math.hypot(at(i).x - at(j).x, at(i).y - at(j).y);
+    // Within-cluster distance must beat the across-cluster distance, or the
+    // layout is telling the reader nothing.
+    assert.ok(d(0, 1) < d(0, 7), `cluster mates ${d(0, 1).toFixed(0)} apart, rivals ${d(0, 7).toFixed(0)}`);
+    assert.ok(d(6, 7) < d(6, 1));
+    assert.ok(!svg.includes("NaN"));
+  });
+
+  it("survives degenerate inputs", () => {
+    assert.equal(forceGraph({ nodes: [], edges: [] }), "");
+    // One node, no edges: no division by zero, no NaN geometry.
+    const solo = forceGraph({ nodes: [{ label: "only", weight: 1 }], edges: [] });
+    assert.ok(solo.includes("<circle"));
+    assert.ok(!solo.includes("NaN"));
+    // Zero weights everywhere must not produce infinite radii.
+    const flat = forceGraph({ nodes: [{ label: "a", weight: 0 }, { label: "b", weight: 0 }], edges: [{ source: 0, target: 1, weight: 0 }] });
+    assert.ok(!flat.includes("NaN") && !flat.includes("Infinity"));
   });
 });

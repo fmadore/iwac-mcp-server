@@ -26,9 +26,23 @@ export interface BasePayload {
   [key: string]: unknown;
 }
 
+/**
+ * View-local UI state — which of several readings of the SAME payload is on
+ * screen (matrix or network, ranking or timeline).
+ *
+ * Kept out of the tool arguments deliberately: how a result is drawn is not
+ * something the server should be asked about, and re-calling a tool to change
+ * a rendering would burn a round trip to get an identical payload back.
+ * charts.ts owns the bag and discards it when the view changes, so a key set
+ * by one chart cannot leak into another.
+ */
+export type ViewOptions = Record<string, unknown>;
+
 export interface ViewContext {
   /** Call a server tool and render whatever payload comes back. */
   run(name: string, args: Record<string, unknown>): Promise<void>;
+  /** Re-render the current payload with one view option changed. No round trip. */
+  setOption(key: string, value: unknown): void;
   /** Whether the host advertised `downloadFile`; actions gate themselves on it. */
   canDownload: boolean;
   /** Hand the user a file (CSV export). */
@@ -61,7 +75,7 @@ export interface ViewResult {
   wire?(root: HTMLElement, ctx: ViewContext): void;
 }
 
-export type View = (payload: BasePayload) => ViewResult;
+export type View = (payload: BasePayload, options: ViewOptions) => ViewResult;
 
 /** Filter chips, skipping empty values; renders a muted placeholder if none. */
 export function chips(values: Record<string, unknown> | undefined): string {

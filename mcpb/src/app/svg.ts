@@ -614,6 +614,154 @@ export function bubbleMap(o: BubbleMapOptions): string {
   });
 }
 
+export interface NetworkNode {
+  label: string;
+  /** Drives node size — the value's own item count. */
+  weight: number;
+}
+
+export interface NetworkEdge {
+  source: number;
+  target: number;
+  weight: number;
+}
+
+export interface NetworkOptions extends Partial<Frame> {
+  nodes: NetworkNode[];
+  edges: NetworkEdge[];
+  clickable?: boolean;
+  format?: (v: number) => string;
+  /** Iterations of the layout. 300 converges a ~30-node graph in ~10 ms. */
+  iterations?: number;
+}
+
+/**
+ * Force-directed co-mention graph, laid out IN THE BROWSER.
+ *
+ * The IwacVisualizations module precomputes a ForceAtlas2 layout offline over
+ * the whole graph; nothing precomputed ships with this dataset, so the layout
+ * has to happen here. That is only viable for a filtered top-N — this is an
+ * O(n²) repulsion pass, fine at 30 nodes and hopeless at 3,000 — so callers
+ * must cap the node count and say in the UI that they did.
+ *
+ * Deterministic on purpose: nodes start on a circle rather than at random
+ * positions, so the same data always draws the same picture. A graph that
+ * reshuffles itself on every re-render is unreadable as evidence.
+ */
+export function forceGraph(o: NetworkOptions): string {
+  const nodes = o.nodes;
+  if (!nodes.length) return "";
+  const width = o.width ?? 760;
+  const height = o.height ?? 460;
+  const fmt = o.format ?? fmtInt;
+  const iterations = o.iterations ?? 300;
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) * 0.36;
+  // Seeded on the circle, largest first, so the hubs start spread apart.
+  const order = nodes.map((_, i) => i).sort((a, b) => nodes[b].weight - nodes[a].weight);
+  const px = new Array<number>(nodes.length);
+  const py = new Array<number>(nodes.length);
+  order.forEach((idx, rank) => {
+    const angle = (rank / nodes.length) * Math.PI * 2;
+    px[idx] = cx + radius * Math.cos(angle);
+    py[idx] = cy + radius * Math.sin(angle);
+  });
+
+  const maxEdge = Math.max(1, ...o.edges.map((e) => e.weight));
+  const k = Math.sqrt((width * height) / Math.max(1, nodes.length)) * 0.55;
+
+  for (let step = 0; step < iterations; step++) {
+    // Cooling schedule: big moves early, fine adjustment late.
+    const temperature = k * 0.12 * (1 - step / iterations) ** 1.5;
+    const dx = new Array<number>(nodes.length).fill(0);
+    const dy = new Array<number>(nodes.length).fill(0);
+
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        let ax = px[i] - px[j];
+        let ay = py[i] - py[j];
+        let d2 = ax * ax + ay * ay;
+        if (d2 < 1e-4) {
+          // Coincident nodes have no direction to separate along; nudge them
+          // apart deterministically by index rather than randomly.
+          ax = (i - j) * 1e-3;
+          ay = 1e-3;
+          d2 = ax * ax + ay * ay;
+        }
+        const force = (k * k) / d2;
+        dx[i] += ax * force;
+        dy[i] += ay * force;
+        dx[j] -= ax * force;
+        dy[j] -= ay * force;
+      }
+    }
+    for (const e of o.edges) {
+      const ax = px[e.source] - px[e.target];
+      const ay = py[e.source] - py[e.target];
+      const d = Math.max(0.01, Math.hypot(ax, ay));
+      // Attraction scales with the pair's co-mention strength, so strongly
+      // linked values end up adjacent — which is the whole point of the chart.
+      const force = ((d * d) / k) * (0.25 + (0.75 * e.weight) / maxEdge) * 0.02;
+      dx[e.source] -= (ax / d) * force * d;
+      dy[e.source] -= (ay / d) * force * d;
+      dx[e.target] += (ax / d) * force * d;
+      dy[e.target] += (ay / d) * force * d;
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      const d = Math.hypot(dx[i], dy[i]) || 1;
+      px[i] += (dx[i] / d) * Math.min(d, temperature);
+      py[i] += (dy[i] / d) * Math.min(d, temperature);
+      // Gentle pull to the centre keeps loosely-connected nodes in frame.
+      px[i] += (cx - px[i]) * 0.008;
+      py[i] += (cy - py[i]) * 0.008;
+    }
+  }
+
+  // Rescale to fill the frame: the simulation's absolute scale is arbitrary.
+  const pad = 34;
+  const minX = Math.min(...px);
+  const maxX = Math.max(...px);
+  const minY = Math.min(...py);
+  const maxY = Math.max(...py);
+  const sx = (maxX - minX) < 1 ? 1 : (width - 2 * pad) / (maxX - minX);
+  const sy = (maxY - minY) < 1 ? 1 : (height - 2 * pad) / (maxY - minY);
+  const X = (i: number): number => pad + (px[i] - minX) * sx;
+  const Y = (i: number): number => pad + (py[i] - minY) * sy;
+
+  const peak = Math.max(1, ...nodes.map((n2) => n2.weight));
+  const colors = palette();
+
+  const links = o.edges
+    .map(
+      (e) =>
+        `<line x1="${n(X(e.source))}" y1="${n(Y(e.source))}" x2="${n(X(e.target))}" y2="${n(Y(e.target))}" ` +
+        `class="link" stroke-width="${n(0.5 + (3 * e.weight) / maxEdge)}">` +
+        `<title>${esc(nodes[e.source].label)} + ${esc(nodes[e.target].label)}: ${esc(fmt(e.weight))}</title></line>`,
+    )
+    .join("");
+
+  const dots = nodes
+    .map((node, i) => {
+      const r = 4 + 13 * Math.sqrt(node.weight / peak);
+      return (
+        `<circle cx="${n(X(i))}" cy="${n(Y(i))}" r="${n(r)}" fill="${colors[i % colors.length]}" class="node"` +
+        `${o.clickable ? ` data-key="${esc(node.label)}"` : ""}>` +
+        `<title>${esc(node.label)}: ${esc(fmt(node.weight))}</title></circle>` +
+        `<text x="${n(X(i))}" y="${n(Y(i) - r - 4)}" class="tick" text-anchor="middle">${esc(clip(node.label, 18))}</text>`
+      );
+    })
+    .join("");
+
+  return frame(links + dots, {
+    width,
+    height,
+    minWidth: o.minWidth ?? 460,
+    ariaLabel: o.ariaLabel ?? "Co-mention network",
+  });
+}
+
 export interface GaugeOptions {
   /** 0..1 */
   value: number;

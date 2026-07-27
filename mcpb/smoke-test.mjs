@@ -14,8 +14,10 @@ const EXPECTED = {
   audiovisualTotal: 47, // 45 -> 47 in the July 2026 dataset refresh
   imagesTotal: 30, // images subset added in the July 2026 refresh
   nigerArticles: 1061,
-  toolsCore: 27, // semantic disabled (3 semantic tools are dropped entirely)
-  toolsWithSemantic: 30,
+  // 27 -> 32 in v0.13.0: get_topic_distribution, get_field_distribution,
+  // get_cooccurrence, get_lexical_metrics, get_place_distribution.
+  toolsCore: 32, // semantic disabled (3 semantic tools are dropped entirely)
+  toolsWithSemantic: 35,
   subsets: 7, // + images
   // Full text is masked per row in the PUBLIC dataset (OCR_is_public). These are
   // the July 2026 ratios; a change here means the upstream publication policy

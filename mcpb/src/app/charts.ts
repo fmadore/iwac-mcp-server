@@ -16,7 +16,7 @@
 // (scripts/bundle.mjs) because MCP App resources render under a deny-by-default
 // CSP: no external stylesheet, font, or script may load.
 import { App } from "@modelcontextprotocol/ext-apps";
-import { chips, empty, type BasePayload, type ViewContext, type ViewResult } from "./shell.js";
+import { chips, empty, type BasePayload, type ViewContext, type ViewOptions, type ViewResult } from "./shell.js";
 import { esc } from "./theme.js";
 import { setTheme } from "./theme.js";
 import { VIEWS } from "./views/index.js";
@@ -28,6 +28,9 @@ const root = document.getElementById("root") as HTMLElement;
 let current: BasePayload = {};
 /** Message from the most recent failed re-call, shown above the retained chart. */
 let transientError: string | null = null;
+/** View-local UI state (see shell.ts), discarded whenever the view changes. */
+let options: ViewOptions = {};
+let optionsView: string | undefined;
 
 // -----------------------------------------------------------------------------
 // Payload plumbing
@@ -68,6 +71,10 @@ const ctx: ViewContext = {
     transientError = null;
     render(next);
   },
+  setOption(key, value) {
+    options = { ...options, [key]: value };
+    render(current);
+  },
   canDownload: false,
   canOpenLink: false,
   async download(filename, mimeType, text) {
@@ -92,6 +99,12 @@ function render(payload: BasePayload): void {
     return;
   }
 
+  // A new view means the previous one's options are meaningless.
+  if (payload.view !== optionsView) {
+    optionsView = payload.view;
+    options = {};
+  }
+
   const view = payload.view ? VIEWS[payload.view] : undefined;
   if (!view) {
     // A tool declared this resource but its payload carries no view this bundle
@@ -106,7 +119,7 @@ function render(payload: BasePayload): void {
 
   let result: ViewResult;
   try {
-    result = view(payload);
+    result = view(payload, options);
   } catch (err) {
     root.innerHTML = empty(`Could not draw this chart: ${(err as Error).message}`);
     return;
