@@ -126,6 +126,10 @@
       "description": "How often the top values of a multi-valued field appear on the same item — a subject or place co-mention matrix. Renders as an interactive heatmap in hosts that support MCP Apps."
     },
     {
+      "name": "get_place_distribution",
+      "description": "Places named by a filtered set, joined to the index's geocoded 'Lieux' authority records. Renders as an interactive choropleth-and-bubble map of West Africa in hosts that support MCP Apps."
+    },
+    {
       "name": "get_lexical_metrics",
       "description": "Readability, lexical richness (MATTR) and length of the press text by year, newspaper or country. Renders as interactive charts in hosts that support MCP Apps."
     },

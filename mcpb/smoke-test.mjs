@@ -333,6 +333,22 @@ await call("get_lexical_metrics", { group_by: "country" }, {
     return null;
   },
 });
+await call("get_place_distribution", { top_n: 40 }, {
+  structured: true,
+  check: (p) => {
+    if (p.items_with_place < 10_000) return `spatial fill dropped to ${p.items_with_place} (was 10,634)`;
+    const geo = p.places?.filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng)) ?? [];
+    if (geo.length < 20) return `only ${geo.length} places carry coordinates`;
+    // Mecca is among the most-named places in the corpus and sits far outside
+    // West Africa: it must arrive geocoded so the view can disclose it rather
+    // than draw it at the frame's edge.
+    const mecca = p.places.find((x) => x.place === "La Mecque");
+    if (!mecca?.lat) return "La Mecque should come back geocoded";
+    if (!(p.ungeocoded_mentions > 0)) return "no ungeocoded places reported — the join has stopped missing";
+    if (!p.items_by_country?.["Burkina Faso"]) return "per-country totals missing for the choropleth";
+    return null;
+  },
+});
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,
   check: (p) => {

@@ -84,6 +84,7 @@ for (const n of [
   "get_field_distribution",
   "get_cooccurrence",
   "get_lexical_metrics",
+  "get_place_distribution",
   "get_collection_stats",
   "get_newspaper_stats",
   "get_country_comparison",
@@ -94,7 +95,7 @@ for (const n of [
   if (t?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
     fail(`${n} should declare the chart UI in _meta, got ${JSON.stringify(t?._meta)}`);
 }
-if (tools.tools.length !== 31) fail(`expected 31 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
+if (tools.tools.length !== 32) fail(`expected 32 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
 if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");
 for (const t of tools.tools) {
   if (!t.title && !t.annotations?.title) fail(`tool ${t.name} has no title`);
@@ -111,6 +112,7 @@ for (const n of [
   "get_field_distribution",
   "get_cooccurrence",
   "get_lexical_metrics",
+  "get_place_distribution",
 ]) {
   const t = tools.tools.find((x) => x.name === n);
   if (!t?.outputSchema) fail(`${n} should declare an outputSchema`);

@@ -54,6 +54,7 @@ export const VIEW = {
   field: "field",
   cooccurrence: "cooccurrence",
   lexical: "lexical",
+  places: "places",
 } as const;
 
 export function registerAppResources(server: Server): void {

@@ -550,6 +550,38 @@ CASES.push([
 ]);
 
 CASES.push([
+  "places",
+  {
+    view: "places",
+    subset: "articles",
+    filters: {},
+    total_matches: 12287,
+    items_with_place: 10634,
+    items_by_country: { "Côte d'Ivoire": 3994, "Burkina Faso": 3659, Benin: 2003 },
+    places: [
+      // Country-level, geocoded to a centroid: must NOT become a bubble.
+      { place: "Côte d'Ivoire", count: 2761, lat: 8, lng: -5.5 },
+      { place: "Ouagadougou", count: 1624, lat: 12.36566, lng: -1.53388 },
+      { place: "Lomé", count: 406, lat: 6.13, lng: 1.22 },
+      // Outside the West African frame: counted and disclosed, never drawn.
+      { place: "La Mecque", count: 1649, lat: 21.4225, lng: 39.826111 },
+    ],
+    ungeocoded: [{ place: "Riviera Golf", count: 153 }],
+    ungeocoded_mentions: 1497,
+  },
+  (markup) => {
+    if ((markup.match(/<circle/g) ?? []).length !== 2) return "expected exactly the two in-frame settlements";
+    if (markup.includes("<circle") && markup.includes(">Côte d'Ivoire: 2")) return "a country was drawn as a bubble";
+    if (!markup.includes("Named at country level")) return "country-level panel missing";
+    if (!markup.includes("La Mecque (off map)")) return "off-frame place not surfaced in the ranking";
+    if (!markup.includes("Riviera Golf (not geocoded)")) return "ungeocoded place not surfaced";
+    if (!markup.includes("1 geocoded place falls outside")) return "off-frame count not disclosed";
+    if (!markup.includes("Natural Earth")) return "basemap provenance missing";
+    return null;
+  },
+]);
+
+CASES.push([
   "temporal (empty)",
   {
     view: "temporal",

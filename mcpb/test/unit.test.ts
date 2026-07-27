@@ -5,7 +5,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { columns, donut, gantt, heatmapMatrix, horizontalBar, squarify, ticks, treemap } from "../src/app/svg.js";
+import { bubbleMap, columns, donut, gantt, heatmapMatrix, horizontalBar, squarify, ticks, treemap } from "../src/app/svg.js";
+import { BASEMAP, BASEMAP_BOUNDS } from "../src/app/basemap.js";
 import { csv, csvCell } from "../src/app/shell.js";
 import { fmtInt, THOUSANDS_SEP } from "../src/app/theme.js";
 import { carryFilters, temporalView } from "../src/app/views/temporal.js";
@@ -575,5 +576,69 @@ describe("chart kernel", () => {
       assert.equal(typeof view, "function", `view ${tag} is not a function`);
     }
     assert.deepEqual(Object.keys(VIEWS).sort(), Object.values(VIEW).sort());
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The place map's geometry. A projection bug is invisible in a rendered chart
+// unless you already know where these cities are, so it is asserted instead.
+// -----------------------------------------------------------------------------
+
+describe("place map", () => {
+  /** Ray casting in lon/lat space — the basemap rings are plain [lng, lat]. */
+  function inRing(lng: number, lat: number, ring: [number, number][]): boolean {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i];
+      const [xj, yj] = ring[j];
+      if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  const countryAt = (lng: number, lat: number): string | undefined =>
+    BASEMAP.find((c) => c.rings.some((r) => inRing(lng, lat, r)))?.name;
+
+  it("the simplified outline still puts real cities in the right country", () => {
+    // Coordinates as the IWAC index geocodes them.
+    const cities: [string, number, number, string][] = [
+      ["Ouagadougou", -1.53388, 12.36566, "Burkina Faso"],
+      ["Abidjan", -4.0083, 5.3364, "Côte d'Ivoire"],
+      ["Cotonou", 2.4183, 6.3654, "Benin"],
+      ["Niamey", 2.1098, 13.5116, "Niger"],
+      ["Lagos", 3.3792, 6.5244, "Nigeria"],
+      ["Bamako", -8.0029, 12.6392, "Mali"],
+    ];
+    for (const [name, lng, lat, expected] of cities) {
+      assert.equal(countryAt(lng, lat), expected, `${name} fell in the wrong country`);
+    }
+  });
+
+  it("the basemap covers the six IWAC countries and stays small", () => {
+    const iwac = BASEMAP.filter((c) => c.iwac).map((c) => c.name).sort();
+    assert.deepEqual(iwac, ["Benin", "Burkina Faso", "Côte d'Ivoire", "Niger", "Nigeria", "Togo"]);
+    // It is inlined into every .mcpb; the simplification is what makes a map
+    // possible under the app CSP at all.
+    const points = BASEMAP.reduce((a, c) => a + c.rings.reduce((x, r) => x + r.length, 0), 0);
+    assert.ok(points < 1200, `basemap has ${points} points; re-run scripts/make-basemap.mjs with a coarser tolerance`);
+  });
+
+  it("bubbles are area-proportional and clipped to the frame", () => {
+    const svg = bubbleMap({
+      countries: BASEMAP,
+      bounds: BASEMAP_BOUNDS,
+      points: [
+        { label: "Ouagadougou", lat: 12.37, lng: -1.53, value: 1624 },
+        { label: "Lomé", lat: 6.13, lng: 1.22, value: 406 },
+        // Mecca is one of the most-named places in the corpus and is nowhere
+        // near this frame; it must be dropped, not drawn at the edge.
+        { label: "La Mecque", lat: 21.42, lng: 39.83, value: 1649 },
+      ],
+    });
+    assert.equal((svg.match(/<circle/g) ?? []).length, 2, "an out-of-frame point was drawn");
+    assert.ok(!svg.includes("La Mecque"));
+    // 4x the count => 2x the radius, because area carries the value.
+    const radii = [...svg.matchAll(/r="([\d.]+)"/g)].map((m) => Number(m[1]));
+    const [big, small] = radii;
+    assert.ok(Math.abs((big - 3) / (small - 3) - 2) < 0.05, `radii ${radii} are not area-proportional`);
   });
 });

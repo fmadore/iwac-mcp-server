@@ -103,10 +103,10 @@ const uiHtml = `<!DOCTYPE html>
    Theming keys off [data-theme], which src/app/theme.ts stamps on <html> from
    the host's declared theme; the prefers-color-scheme block is only the
    fallback for a host that sends none. */
-:root{color-scheme:light dark;--fg:#13161c;--muted:#66696e;--line:#ced1d6;--chip:#f7f5f3;--btn:#faf8f6;--track:#e8e4e0;--warn:#a33b12}
-@media (prefers-color-scheme:dark){:root{--fg:#e7e4df;--muted:#8a8580;--line:#352f28;--chip:#1a1510;--btn:#1a1510;--track:#2a231c;--warn:#ec8b6a}}
-:root[data-theme=light]{color-scheme:light;--fg:#13161c;--muted:#66696e;--line:#ced1d6;--chip:#f7f5f3;--btn:#faf8f6;--track:#e8e4e0;--warn:#a33b12}
-:root[data-theme=dark]{color-scheme:dark;--fg:#e7e4df;--muted:#8a8580;--line:#352f28;--chip:#1a1510;--btn:#1a1510;--track:#2a231c;--warn:#ec8b6a}
+:root{color-scheme:light dark;--fg:#13161c;--muted:#66696e;--line:#ced1d6;--chip:#f7f5f3;--btn:#faf8f6;--track:#e8e4e0;--warn:#a33b12;--land:#e3ded8;--bubble:#ce4115}
+@media (prefers-color-scheme:dark){:root{--fg:#e7e4df;--muted:#8a8580;--line:#352f28;--chip:#1a1510;--btn:#1a1510;--track:#2a231c;--warn:#ec8b6a;--land:#2b241d;--bubble:#ec653f}}
+:root[data-theme=light]{color-scheme:light;--fg:#13161c;--muted:#66696e;--line:#ced1d6;--chip:#f7f5f3;--btn:#faf8f6;--track:#e8e4e0;--warn:#a33b12;--land:#e3ded8;--bubble:#ce4115}
+:root[data-theme=dark]{color-scheme:dark;--fg:#e7e4df;--muted:#8a8580;--line:#352f28;--chip:#1a1510;--btn:#1a1510;--track:#2a231c;--warn:#ec8b6a;--land:#2b241d;--bubble:#ec653f}
 *{box-sizing:border-box}
 body{margin:0;padding:14px;font:14px/1.45 "Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);background:transparent}
 h1{margin:0 0 2px;font-size:15px;font-weight:600;text-transform:capitalize}
@@ -127,6 +127,10 @@ svg{display:block;width:100%;height:auto}
 .cell{fill:#fff;font-size:12px;font-weight:600;paint-order:stroke;stroke:rgba(0,0,0,.28);stroke-width:2.5px}
 .cell.dim{font-weight:400;opacity:.85}
 .track{fill:var(--track)}
+.land{stroke:var(--line);stroke-width:.6}
+.neighbour{stroke:var(--line);stroke-width:.6;opacity:.5}
+.bubble{fill:var(--bubble);fill-opacity:.55;stroke:var(--bubble);stroke-width:.8;cursor:pointer}
+.bubble:hover{fill-opacity:.85}
 .hit{cursor:pointer}
 .hit:hover{opacity:.78}
 .legend{list-style:none;display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 0;padding:0;font-size:12px}

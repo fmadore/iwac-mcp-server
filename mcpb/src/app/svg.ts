@@ -526,6 +526,94 @@ export function heatmapMatrix(o: MatrixOptions): string {
   });
 }
 
+export interface MapPoint {
+  label: string;
+  lat: number;
+  lng: number;
+  value: number;
+}
+
+export interface BubbleMapOptions extends Partial<Frame> {
+  /** Country outlines, from the generated basemap. */
+  countries: { name: string; iwac: boolean; rings: [number, number][][] }[];
+  bounds: { west: number; east: number; south: number; north: number };
+  points: MapPoint[];
+  /** Per-country totals, for the choropleth fill. */
+  choropleth?: Record<string, number>;
+  format?: (v: number) => string;
+  clickable?: boolean;
+}
+
+/**
+ * Choropleth plus proportional bubbles, on an equirectangular projection with
+ * a cos(lat) correction so West Africa is not visibly stretched.
+ *
+ * No basemap and no tiles, ever — MCP App resources render under a
+ * deny-by-default CSP, so nothing can be fetched. The coastline is the vendored,
+ * simplified Natural Earth geometry in src/app/basemap.ts. Points outside
+ * `bounds` are NOT plotted; the caller is responsible for saying how many,
+ * because the collection names plenty of places (La Mecque above all) that fall
+ * outside West Africa.
+ */
+export function bubbleMap(o: BubbleMapOptions): string {
+  const { bounds } = o;
+  const width = o.width ?? 900;
+  const fmt = o.format ?? fmtInt;
+  // Equirectangular with the standard parallel at the middle of the frame:
+  // one degree of longitude is cos(lat) of one degree of latitude.
+  const midLat = ((bounds.north + bounds.south) / 2) * (Math.PI / 180);
+  const lonSpan = (bounds.east - bounds.west) * Math.cos(midLat);
+  const latSpan = bounds.north - bounds.south;
+  const height = o.height ?? Math.round((width * latSpan) / Math.max(0.001, lonSpan));
+  const x = (lng: number): number => ((lng - bounds.west) * Math.cos(midLat) * width) / lonSpan;
+  const y = (lat: number): number => ((bounds.north - lat) * height) / latSpan;
+
+  const peakCountry = Math.max(1, ...Object.values(o.choropleth ?? {}));
+  const shapes = o.countries
+    .map((c) => {
+      const d = c.rings
+        .map((ring) => `M${ring.map(([lng, lat]) => `${n(x(lng))} ${n(y(lat))}`).join("L")}Z`)
+        .join("");
+      const total = o.choropleth?.[c.name];
+      const fill = c.iwac
+        ? total === undefined
+          ? "var(--land)"
+          : ramp(0.15 + 0.85 * (total / peakCountry))
+        : "none";
+      return (
+        `<path d="${d}" fill="${fill}" class="${c.iwac ? "land" : "neighbour"}"` +
+        `${o.clickable && c.iwac ? ` data-key="${esc(c.name)}"` : ""}>` +
+        `<title>${esc(c.name)}${total === undefined ? "" : `: ${esc(fmt(total))}`}</title></path>`
+      );
+    })
+    .join("");
+
+  // Area-proportional radii: encoding a count as radius exaggerates the top of
+  // the range by its square, which on a map reads as a much bigger claim.
+  const inFrame = o.points.filter(
+    (p) => p.lng >= bounds.west && p.lng <= bounds.east && p.lat >= bounds.south && p.lat <= bounds.north,
+  );
+  const peak = Math.max(1, ...inFrame.map((p) => p.value));
+  const bubbles = [...inFrame]
+    .sort((a, b) => b.value - a.value)
+    .map((p) => {
+      const r = 3 + 19 * Math.sqrt(p.value / peak);
+      return (
+        `<circle cx="${n(x(p.lng))}" cy="${n(y(p.lat))}" r="${n(r)}" class="bubble"` +
+        `${o.clickable ? ` data-key="${esc(p.label)}"` : ""}>` +
+        `<title>${esc(p.label)}: ${esc(fmt(p.value))}</title></circle>`
+      );
+    })
+    .join("");
+
+  return frame(shapes + bubbles, {
+    width,
+    height,
+    minWidth: o.minWidth ?? 420,
+    ariaLabel: o.ariaLabel ?? "Places named, on a map of West Africa",
+  });
+}
+
 export interface GaugeOptions {
   /** 0..1 */
   value: number;
