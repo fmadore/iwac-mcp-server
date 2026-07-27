@@ -189,21 +189,39 @@ Environment variables (all transports unless noted):
   response says which happened in `deep_scan`, and `ranking` describes both
   passes. The per-subset `search_*` tools deliberately keep scanning everything:
   their callers explicitly asked for a full-text search.
-- MCP Apps: `get_temporal_distribution` declares `_meta.ui.resourceUri`
-  (`src/tools/appUi.ts`), so hosts that support the
+- MCP Apps: eleven tools declare `_meta.ui.resourceUri` (`src/tools/appUi.ts`),
+  so hosts that support the
   [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview)
-  — Claude and Claude Desktop — render the counts as an interactive stacked bar
-  chart in a sandboxed iframe instead of a wall of JSON keys, and the chart can
-  call the tool back to switch year/month granularity. `_meta` is inert
-  elsewhere: every other client gets byte-identical content and
-  structuredContent, which is why this needed no second tool and no capability
-  negotiation. The UI (`src/app/coverage.ts`) is bundled to one IIFE and inlined
-  into a single self-contained HTML string by `scripts/bundle.mjs`, because app
-  resources render under a deny-by-default CSP and the `.mcpb` package expects a
-  single-file server. Its palette and type mirror the
-  [IwacVisualizations](https://github.com/fmadore/IwacVisualizations) Omeka
-  module's sanctioned chart tokens, so the same breakdown is coloured the same
-  way here as on islam.zmo.de.
+  — Claude and Claude Desktop — render their results as interactive charts in a
+  sandboxed iframe instead of a wall of JSON, and the charts can call tools back
+  to change granularity, grouping or drill-down. `_meta` is inert elsewhere:
+  every other client gets byte-identical content and structuredContent, which is
+  why this needed no second tool and no capability negotiation.
+
+  All of them point at **one** resource, `ui://iwac/charts.html`. Each `ui://`
+  resource is a standalone document that shares nothing with its siblings, so a
+  resource per chart would carry its own ~190 kb copy of the MCP SDK and zod for
+  a ~4 kb chart; pointing them all at one URI costs a single copy. The app
+  dispatches on a `view` tag in the payload (`ontoolresult` gives it a bare
+  CallToolResult with no tool name, and the app also makes its own follow-up
+  calls, where no host notification exists at all). `src/app/` is split into a
+  theme, an SVG kernel of hand-rolled primitives — no charting library survives
+  the deny-by-default CSP — a page shell, and one pure function per view;
+  `scripts/bundle.mjs` inlines the whole thing into one self-contained HTML
+  string, because the `.mcpb` package expects a single-file server. The palette
+  mirrors the [IwacVisualizations](https://github.com/fmadore/IwacVisualizations)
+  Omeka module's sanctioned chart tokens, so the same breakdown is coloured the
+  same way here as on islam.zmo.de.
+
+  `scripts/make-basemap.mjs` regenerates `src/app/basemap.ts`, the simplified
+  Natural Earth outline the place map draws on — vendored rather than fetched
+  because the CSP forbids tiles and runtime GeoJSON alike.
+
+  `test/app.test.mjs` reads the resource out of the BUILT server exactly as a
+  host would, evaluates the bundle in a Node vm behind a DOM shim, and drives
+  the real postMessage handshake, so the payload shapes, the CSP rules, the size
+  budget and the interactive round trip are all covered without a browser.
+  The plan this grew from is [`../docs/mcp-apps-roadmap.md`](../docs/mcp-apps-roadmap.md).
 - Prompts: `iwac_research` (brief/extended) and `iwac_overview` in
   `src/prompts.ts` carry the skill's workflow to clients that cannot install the
   skill (ChatGPT via the remote connector). They mirror

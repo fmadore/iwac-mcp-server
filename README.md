@@ -71,13 +71,13 @@ Download `iwac-mcp-skill.zip` from the same release, then:
 
 ## What it gives Claude
 
-27 possible read-only tools across six IWAC subsets. **25 work out of the box**;
-the 2 `semantic_search_*` tools are optional and require a free Google/Gemini API
-key (disabled by default). All keyword and filter matching is accent- and
-case-insensitive. The unified `search`/`fetch` pair, the stats tools,
-`list_periodicals`, and `get_sentiment_distribution` also return MCP structured
-content (`outputSchema` + `structuredContent`), which the ChatGPT connector
-contract requires.
+37 possible read-only tools across seven IWAC subsets. **34 work out of the
+box**; the 3 `semantic_search_*` tools are optional and require a free
+Google/Gemini API key (disabled by default). All keyword and filter matching is
+accent- and case-insensitive. The unified `search`/`fetch` pair, the stats
+tools, the aggregates, `list_periodicals`, and `get_sentiment_distribution` also
+return MCP structured content (`outputSchema` + `structuredContent`), which the
+ChatGPT connector contract requires.
 
 | Group        | Tools                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------- |
@@ -86,9 +86,19 @@ contract requires.
 | Sentiment    | `search_by_sentiment`, `get_sentiment_distribution`                                         |
 | Index        | `search_index`, `get_index_entry`, `list_subjects`, `list_locations`, `list_persons`        |
 | Stats        | `get_collection_stats`, `get_newspaper_stats`, `get_country_comparison`, `get_temporal_distribution` |
+| Aggregates   | `get_topic_distribution`, `get_field_distribution`, `get_cooccurrence`, `get_lexical_metrics`, `get_place_distribution`, `get_semantic_map`, `get_similar_items` |
 | Publications | `search_publications`, `list_periodicals`, `get_publication_fulltext`, `semantic_search_publications` |
 | References   | `search_references`, `get_reference`                                                        |
+| Images       | `search_images`, `get_image`, `semantic_search_images`                                      |
 | Other        | `search_documents`, `get_document`, `search_audiovisual`, `list_audiovisual`, `get_audiovisual` |
+
+The **aggregates** answer questions about a whole set rather than returning its
+items: how it spreads across the 30 precomputed LDA topics, which subjects,
+places or bylines dominate it, what gets discussed alongside what, how its prose
+reads, where on a map it points, how it lays out in embedding space, and what a
+given item's nearest neighbours are. Eleven tools in all — the stats family plus
+these — declare an MCP App view, so in Claude they render as interactive charts
+rather than JSON.
 
 The three full-text tools — `get_article`, `get_document`, and
 `get_publication_fulltext` — optionally take a `keyword` to return ~2000-char

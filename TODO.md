@@ -9,6 +9,19 @@
 
 ## Distribution & Roadmap
 
+- [x] **MCP App visualizations** — Phases 0–3 of
+  [`docs/mcp-apps-roadmap.md`](docs/mcp-apps-roadmap.md) are implemented. One
+  chart became twelve on a single shared `ui://iwac/charts.html`, and the
+  shipped UI resource is *smaller* than the one chart it replaced (390.1 →
+  251.4 kb) because stubbing zod's non-English locales paid for the whole
+  suite; `server/index.js` fell 1665.4 → 1191.3 kb with it. Seven new tools
+  (`get_topic_distribution`, `get_field_distribution`, `get_cooccurrence`,
+  `get_lexical_metrics`, `get_place_distribution`, `get_semantic_map`,
+  `get_similar_items`) plus `model` on `get_sentiment_distribution`. §7 of that
+  document lists what is still open (PNG export, a wordcloud primitive,
+  region drill-down) and §8 records where the plan turned out to be wrong.
+  **Not yet released** — the version is still 0.12.0.
+
 - [x] **Publish to the official MCP Registry** — automated since v0.9.0: the
   tag workflow generates `server.json` (`mcpb/scripts/make-server-json.mjs`)
   and publishes `io.github.fmadore/iwac-mcp-server` (2 `.mcpb` packages + the
