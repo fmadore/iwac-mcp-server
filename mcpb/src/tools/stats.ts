@@ -14,6 +14,7 @@ import {
   structuredResult,
   TEXT_COLS,
   toolMeta,
+  validateDateBounds,
   validateEnum,
   yearRangeFilter,
   type Server,
@@ -390,6 +391,8 @@ export function registerStatsTools(server: Server): void {
         });
       }
 
+      const dates = validateDateBounds(args.date_from, args.date_to);
+      if (dates.err) return errorResult(dates.err);
       const where: string[] = [];
       const params: Bindable[] = [];
       keywordFilter(schema, where, params, TEXT_COLS[subset], args.keyword);

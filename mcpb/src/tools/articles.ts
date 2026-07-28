@@ -19,6 +19,7 @@ import {
   TEXT_COLS,
   textResult,
   toolMeta,
+  validateDateBounds,
   validateEnum,
   type Server,
 } from "./_shared.js";
@@ -51,6 +52,8 @@ export function registerArticleTools(server: Server): void {
       const schema = await ensureView("articles");
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
+      const dates = validateDateBounds(args.date_from, args.date_to);
+      if (dates.err) return errorResult(dates.err);
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
@@ -127,6 +130,8 @@ export function registerArticleTools(server: Server): void {
     async (args) => {
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
+      const dates = validateDateBounds(args.date_from, args.date_to);
+      if (dates.err) return errorResult(dates.err);
       return runSemanticSearchTool({
         subset: "articles",
         embeddingColumn: "embedding_OCR",

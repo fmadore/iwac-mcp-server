@@ -457,15 +457,58 @@ export function yearRangeFilter(
   }
 }
 
-/** Pad a partial date bound ("1995", "1995-06") to a full YYYY-MM-DD day. */
-function normalizeDateBound(v: string | undefined, kind: "from" | "to"): string | undefined {
-  if (!v) return undefined;
+/**
+ * Pad a partial date bound ("1995", "1995-06") to a full YYYY-MM-DD day.
+ *
+ * Three-way result: `undefined` = no bound given, `null` = given but
+ * unparseable, string = usable. The null case exists so callers can REJECT a
+ * bad bound — see `validateDateBounds`.
+ */
+function normalizeDateBound(v: string | undefined, kind: "from" | "to"): string | undefined | null {
+  if (!v?.trim()) return undefined;
   const m = v.trim().match(/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?/);
-  if (!m) return undefined;
+  if (!m) return null;
   const pad = (s: string) => s.padStart(2, "0");
   const mo = m[2] ? pad(m[2]) : kind === "from" ? "01" : "12";
   const d = m[3] ? pad(m[3]) : kind === "from" ? "01" : "31";
+  // An out-of-range month or day would compare lexicographically against real
+  // dates and quietly select the wrong rows, so it is a bad bound, not a bound.
+  if (Number(mo) < 1 || Number(mo) > 12 || Number(d) < 1 || Number(d) > 31) return null;
   return `${m[1]}-${mo}-${d}`;
+}
+
+export interface DateValidation {
+  err?: { error: string; valid_format: string };
+}
+
+/**
+ * Reject unparseable `date_from` / `date_to` instead of dropping them.
+ *
+ * Dropping was the old behaviour and it was the dangerous kind of wrong: a
+ * typo'd bound widened the query to the WHOLE corpus while the payload's
+ * `filters` still echoed the bad value back, so the answer read as filtered to
+ * anything consuming it. An enum typo has always failed loudly with
+ * `valid_values`; dates now fail the same way.
+ *
+ * Callers run this BEFORE building filters, so both the day-granularity
+ * (`dateRangeFilter`) and year-granularity (`yearRangeFilter`) paths are
+ * covered by one check and cannot disagree about what parses.
+ */
+export function validateDateBounds(dateFrom?: string, dateTo?: string): DateValidation {
+  for (const [field, raw, kind] of [
+    ["date_from", dateFrom, "from"],
+    ["date_to", dateTo, "to"],
+  ] as const) {
+    if (normalizeDateBound(raw, kind) === null) {
+      return {
+        err: {
+          error: `Invalid ${field}: ${raw}`,
+          valid_format: "YYYY, YYYY-MM or YYYY-MM-DD (a full ISO timestamp is also accepted)",
+        },
+      };
+    }
+  }
+  return {};
 }
 
 /**

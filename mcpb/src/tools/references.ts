@@ -15,6 +15,7 @@ import {
   TEXT_COLS,
   textResult,
   toolMeta,
+  validateDateBounds,
   validateEnum,
   yearRangeFilter,
   type Server,
@@ -58,6 +59,8 @@ export function registerReferenceTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
+      const dates = validateDateBounds(args.date_from, args.date_to);
+      if (dates.err) return errorResult(dates.err);
       const where: string[] = [];
       const params: Bindable[] = [];
 

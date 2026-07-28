@@ -22,6 +22,7 @@ import {
   TEXT_COLS,
   textResult,
   toolMeta,
+  validateDateBounds,
   validateEnum,
   yearRangeFilter,
   type Server,
@@ -62,6 +63,8 @@ export function registerPublicationTools(server: Server): void {
       const schema = await ensureView("publications");
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
+      const dates = validateDateBounds(args.date_from, args.date_to);
+      if (dates.err) return errorResult(dates.err);
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
 

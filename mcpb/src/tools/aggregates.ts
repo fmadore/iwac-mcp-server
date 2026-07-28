@@ -31,6 +31,7 @@ import {
   TEXT_COLS,
   TITLE_COL,
   toolMeta,
+  validateDateBounds,
   validateEnum,
   yearRangeFilter,
   type Server,
@@ -182,27 +183,58 @@ function aggregateFilters(
     date_from?: string;
     date_to?: string;
   },
-): { where: string[]; params: Bindable[]; echo: Record<string, unknown> } {
+): {
+  where: string[];
+  params: Bindable[];
+  echo: Record<string, unknown>;
+  err?: { error: string; valid_values?: string[]; valid_format?: string };
+} {
   const where: string[] = [];
   const params: Bindable[] = [];
+  const echo = {
+    keyword: args.keyword ?? null,
+    country: args.country ?? null,
+    newspaper: args.newspaper ?? null,
+    subject: args.subject ?? null,
+    date_from: args.date_from ?? null,
+    date_to: args.date_to ?? null,
+  };
+
+  const dates = validateDateBounds(args.date_from, args.date_to);
+  if (dates.err) return { where, params, echo, err: dates.err };
+
+  // A filter the subset cannot honour is an error, not a no-op. The `*IfExists`
+  // helpers skip a missing column silently, which on `references` (no
+  // `newspaper`) returned the ENTIRE subset while still echoing the filter —
+  // the same silent-widening trap as a bad date bound. Ranking that column
+  // already errors, so this just makes filtering agree with it.
+  for (const [field, value] of [
+    ["newspaper", args.newspaper],
+    ["country", args.country],
+    ["subject", args.subject],
+  ] as const) {
+    if (value && !schema.has(field)) {
+      return {
+        where,
+        params,
+        echo,
+        err: {
+          error: `Filter '${field}' is not available on subset '${subset}', so it cannot be applied`,
+          valid_values: ["keyword", "date_from", "date_to"].concat(
+            ["newspaper", "country", "subject"].filter((f) => schema.has(f)),
+          ),
+        },
+      };
+    }
+  }
+
   keywordFilter(schema, where, params, TEXT_COLS[subset], args.keyword);
   pipeValueFilterIfExists(schema, where, params, "country", args.country);
   likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
   pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
   if (subset === "articles") dateRangeFilter(schema, where, params, args.date_from, args.date_to);
   else yearRangeFilter(schema, where, params, args.date_from, args.date_to);
-  return {
-    where,
-    params,
-    echo: {
-      keyword: args.keyword ?? null,
-      country: args.country ?? null,
-      newspaper: args.newspaper ?? null,
-      subject: args.subject ?? null,
-      date_from: args.date_from ?? null,
-      date_to: args.date_to ?? null,
-    },
-  };
+  return { where, params, echo };
 }
 
 /** Shared input shape, so the four tools stay interchangeable to callers. */
@@ -224,8 +256,10 @@ export function registerAggregateTools(server: Server): void {
     {
       ...toolMeta("Topic distribution"),
       description:
-        "How a filtered set of articles distributes across the 30 precomputed LDA topics, each labelled by its " +
-        "top terms. Topics are assigned offline over the full text, so they describe what a piece is ABOUT rather " +
+        "How a filtered set distributes across the precomputed LDA topics, each labelled by its top terms " +
+        "(articles carry 30 topics and are ~99.5% classified; references have their own 33-topic model and only " +
+        "~46% carry an assignment, so read its `classified` against `total_matches`). Topics are assigned offline " +
+        "over the full text, so they describe what a piece is ABOUT rather " +
         "than which words it contains — use this instead of keyword counting to map a corpus. " +
         "Optional over_time returns per-year counts for the leading topics. " +
         "min_prob keeps only articles where the topic is at least that dominant (mean assignment probability is " +
@@ -255,7 +289,9 @@ export function registerAggregateTools(server: Server): void {
         });
       }
 
-      const { where, params, echo } = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      if (filters.err) return errorResult(filters.err);
+      const { where, params, echo } = filters;
       const total = Number(
         (await queryScalarSingle<number | bigint>(
           `SELECT COUNT(*) FROM ${viewName(subset)} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
@@ -384,7 +420,9 @@ export function registerAggregateTools(server: Server): void {
       }
       const topN = Math.max(1, Math.min(100, args.top_n ?? 25));
 
-      const { where, params, echo } = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      if (filters.err) return errorResult(filters.err);
+      const { where, params, echo } = filters;
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const totals = await queryOne(
         `SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE NULLIF(trim(${q(field)}), '') IS NOT NULL) AS filled
@@ -481,7 +519,9 @@ export function registerAggregateTools(server: Server): void {
       // starts being a payload.
       const topN = Math.max(2, Math.min(30, args.top_n ?? 15));
 
-      const { where, params, echo } = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      if (filters.err) return errorResult(filters.err);
+      const { where, params, echo } = filters;
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const total = Number(
         (await queryScalarSingle<number | bigint>(
@@ -583,7 +623,9 @@ export function registerAggregateTools(server: Server): void {
       const geocoded = indexSchema.has("Coordonnées") && indexSchema.has("Titre");
       const topN = Math.max(1, Math.min(200, args.top_n ?? 60));
 
-      const { where, params, echo } = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      if (filters.err) return errorResult(filters.err);
+      const { where, params, echo } = filters;
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const totals = await queryOne(
         `SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE NULLIF(trim(spatial), '') IS NOT NULL) AS filled
@@ -713,7 +755,9 @@ export function registerAggregateTools(server: Server): void {
       // every point costs payload, and 300 already fills a 760px frame.
       const limit = Math.max(10, Math.min(2000, args.limit ?? 300));
 
-      const { where, params, echo } = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      if (filters.err) return errorResult(filters.err);
+      const { where, params, echo } = filters;
       const whereSql = [...where, `${q(embeddingCol)} IS NOT NULL`].join(" AND ");
       const total = Number(
         (await queryScalarSingle<number | bigint>(
@@ -810,7 +854,9 @@ export function registerAggregateTools(server: Server): void {
         "offline.",
       _meta: CHARTS_UI_META,
       inputSchema: {
-        id: z.string().describe("The o:id of the item to find neighbours for"),
+        id: z
+          .string()
+          .describe("Item id — either a bare o:id ('3064') or the namespaced form search returns ('articles:3064')"),
         subset: z.string().optional().describe("articles (default) | publications | references"),
         limit: z.number().int().optional().describe("Neighbours returned (default 12, max 50)"),
         min_score: z.number().optional().describe("Drop neighbours below this cosine similarity (0-1)"),
@@ -818,9 +864,26 @@ export function registerAggregateTools(server: Server): void {
       outputSchema: SIMILAR_OUTPUT,
     },
     async (args) => {
-      const subsetV = validateEnum(args.subset, AGG_SUBSETS, "subset");
+      // `search` emits — and `fetch` requires — the namespaced `<subset>:<o:id>`
+      // form, so accept it here rather than making the caller strip it: piping a
+      // search result straight in is the obvious move and used to fail. The
+      // prefix also NAMES the subset, and o:ids are not unique across subsets,
+      // so honour it instead of dropping it and looking the number up in the
+      // wrong table.
+      const rawId = String(args.id ?? "").trim();
+      const prefixed = /^([a-z_]+):(.+)$/i.exec(rawId);
+      const subsetFromId = prefixed?.[1].toLowerCase();
+
+      const askedV = validateEnum(args.subset, AGG_SUBSETS, "subset");
+      if (askedV.err) return errorResult(askedV.err);
+      const subsetV = askedV.canonical ? askedV : validateEnum(subsetFromId, AGG_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
       const subset = (subsetV.canonical ?? "articles") as Subset;
+      if (subsetFromId && askedV.canonical && askedV.canonical !== subsetFromId) {
+        return errorResult({
+          error: `id '${rawId}' names subset '${subsetFromId}' but subset '${args.subset}' was also given`,
+        });
+      }
       const schema = await ensureView(subset);
       const embeddingCol = EMBEDDING_COLS[subset];
       if (!embeddingCol || !schema.has(embeddingCol)) {
@@ -829,7 +892,7 @@ export function registerAggregateTools(server: Server): void {
           valid_values: AGG_SUBSETS.filter((s) => EMBEDDING_COLS[s]),
         });
       }
-      const id = String(args.id ?? "").trim();
+      const id = prefixed ? prefixed[2].trim() : rawId;
       if (!id) return errorResult({ error: "id is required" });
       const limit = Math.max(1, Math.min(50, args.limit ?? 12));
 
@@ -954,7 +1017,9 @@ export function registerAggregateTools(server: Server): void {
       }
       const topN = Math.max(1, Math.min(60, args.top_n ?? 20));
 
-      const { where, params, echo } = aggregateFilters("articles", schema, { ...args, country: country.canonical });
+      const filters = aggregateFilters("articles", schema, { ...args, country: country.canonical });
+      if (filters.err) return errorResult(filters.err);
+      const { where, params, echo } = filters;
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const groupExpr =
         groupBy === "year" ? `NULLIF(substr(CAST(pub_date AS VARCHAR), 1, 4), '')` : `NULLIF(trim(${q(groupBy)}), '')`;

@@ -538,6 +538,74 @@ await call("get_similar_items", { id: "does-not-exist" }, {
   checkBody: (b) => (b.includes("No articles item") ? null : `unknown id should say so: ${b.slice(0, 120)}`),
 });
 
+// --- id shapes: `search`/`fetch` speak `<subset>:<o:id>`, so this must too ----
+await call("get_similar_items", { id: "articles:101", limit: 3 }, {
+  structured: true,
+  check: (p) => {
+    if (p.source?.id !== "101") return "a namespaced id should resolve to the bare o:id";
+    if (p.neighbours?.[0]?.id !== "105") return "namespaced id must give the same neighbours as the bare one";
+    return null;
+  },
+});
+await call("get_similar_items", { id: "articles:101", subset: "articles" }, {
+  structured: true,
+  check: (p) => (p.source?.id === "101" ? null : "an id whose prefix AGREES with subset is not a conflict"),
+});
+await call("get_similar_items", { id: "references:301", subset: "articles" }, {
+  expectError: true,
+  checkBody: (b) =>
+    b.includes("names subset") ? null : `a prefix contradicting subset should say so: ${b.slice(0, 140)}`,
+});
+await call("get_similar_items", { id: "index:900" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : `an unsupported id prefix should list valid subsets: ${b.slice(0, 140)}`),
+});
+
+// --- bad date bounds are rejected, never silently dropped --------------------
+// The regression this guards: an unparseable bound used to be discarded, so the
+// query widened to the WHOLE corpus while `filters` still echoed the bad value.
+const fullCorpus = (await call("get_field_distribution", { field: "subject" }, { structured: true }))?.total_matches;
+for (const [tool, args] of [
+  ["get_field_distribution", { field: "subject", date_from: "not-a-date" }],
+  ["get_field_distribution", { field: "subject", date_to: "yesterday" }],
+  ["get_field_distribution", { field: "subject", date_from: "2001-13-01" }],
+  ["get_topic_distribution", { date_from: "n/a" }],
+  ["get_cooccurrence", { date_from: "n/a" }],
+  ["get_place_distribution", { date_from: "n/a" }],
+  ["get_semantic_map", { date_from: "n/a" }],
+  ["get_lexical_metrics", { date_from: "n/a" }],
+  // the same helper backs every date-filtering tool, not just the aggregates
+  ["search_articles", { date_from: "not-a-date" }],
+  ["search_references", { date_to: "circa 1990" }],
+  ["search_publications", { date_from: "?" }],
+  ["get_temporal_distribution", { date_from: "not-a-date" }],
+]) {
+  await call(tool, args, {
+    expectError: true,
+    checkBody: (b) =>
+      b.includes("valid_format") ? null : `${tool} should reject a bad date bound, not drop it: ${b.slice(0, 160)}`,
+  });
+}
+// ...while every documented shape still parses
+for (const args of [{ date_from: "2001" }, { date_from: "2001-06" }, { date_from: "2001-06-15" }, { date_from: "2001-06-15T09:30:00Z" }]) {
+  await call("get_field_distribution", { field: "subject", ...args }, {
+    structured: true,
+    check: (p) => (p.total_matches <= fullCorpus ? null : `${JSON.stringify(args)} should still parse and filter`),
+  });
+}
+
+// --- a filter the subset cannot honour is an error, not a no-op -------------
+// `references` has no `newspaper` column: this used to return the whole subset.
+await call("get_field_distribution", { field: "subject", subset: "references", newspaper: "Sidwaya" }, {
+  expectError: true,
+  checkBody: (b) =>
+    b.includes("not available on subset") ? null : `an unhonourable filter should error: ${b.slice(0, 160)}`,
+});
+await call("get_field_distribution", { field: "newspaper", subset: "references" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("not available") ? null : "ranking a missing column should still error"),
+});
+
 await call("get_lexical_metrics", {}, {
   structured: true,
   check: (p) => {

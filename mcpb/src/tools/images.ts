@@ -27,6 +27,7 @@ import {
   TEXT_COLS,
   textResult,
   toolMeta,
+  validateDateBounds,
   validateEnum,
   type Server,
 } from "./_shared.js";
@@ -64,6 +65,8 @@ export function registerImageTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       const limit = resolveLimit(args.limit, 20, 50);
       const offset = capOffset(args.offset);
+      const dates = validateDateBounds(args.date_from, args.date_to);
+      if (dates.err) return errorResult(dates.err);
       const where: string[] = [];
       const params: Bindable[] = [];
 
