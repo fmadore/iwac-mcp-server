@@ -30,12 +30,12 @@ import {
 
 // Small, stable envelope → worth a structured-output contract. Rows stay loose
 // (earliest/latest_year depend on the pub_date column being present).
-const PERIODICALS_OUTPUT = {
+const PERIODICALS_OUTPUT = z.object({
   view: z.string(),
   country_filter: z.string().optional(),
   total_periodicals: z.number(),
   periodicals: z.array(z.looseObject({})),
-};
+});
 
 export function registerPublicationTools(server: Server): void {
   // === search_publications ================================================
@@ -48,7 +48,7 @@ export function registerPublicationTools(server: Server): void {
         "(TOC hits come back as matching_toc_entries); use French concept keywords regardless of the user's report language. " +
         "Filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
         "get_publication_fulltext for keyword excerpts from a single issue.",
-      inputSchema: {
+      inputSchema: z.object({
         keyword: z.string().optional().describe("French concept keyword; substring match on title + subject + table of contents + OCR (accent-insensitive)"),
         newspaper: z.string().optional().describe("Periodical/series title (see list_periodicals)"),
         subject: z.string().optional().describe("Subject tag (~87% of issues are tagged)"),
@@ -57,7 +57,7 @@ export function registerPublicationTools(server: Server): void {
         date_to: z.string().optional().describe("Latest year, YYYY"),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("publications");
@@ -108,9 +108,9 @@ export function registerPublicationTools(server: Server): void {
         "List the Islamic periodical/series titles in the publications subset, with issue counts and year ranges. " +
         "Use the returned newspaper value as the `newspaper` filter on search_publications.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         country: countryParam(),
-      },
+      }),
       outputSchema: PERIODICALS_OUTPUT,
     },
     async (args) => {
@@ -151,12 +151,12 @@ export function registerPublicationTools(server: Server): void {
       description:
         "Full OCR text of a publication, optionally returning ~2000-char excerpts around keyword matches " +
         "(accent-insensitive; capped — see match_count vs excerpts_returned).",
-      inputSchema: {
+      inputSchema: z.object({
         publication_id: z.number().int(),
         keyword: z.string().optional(),
         context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
         max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("publications");
@@ -219,11 +219,11 @@ export function registerPublicationTools(server: Server): void {
         "TOC coverage: ~22% of issues — complete for 17 of the 25 series (the smaller magazines), but absent " +
         "for the three largest (Islam Info, An-Nasr Vendredi, Islam Hebdo); use search_publications for those. " +
         "The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
-      inputSchema: {
+      inputSchema: z.object({
         query: z.string().describe("Natural-language query, any language"),
         country: countryParam(),
         limit: z.number().int().optional().describe("Default 10, max 50"),
-      },
+      }),
     },
     async (args) => {
       const country = validateEnum(args.country, COUNTRIES, "country");

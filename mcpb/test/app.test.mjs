@@ -13,8 +13,8 @@
 //     claims to, with the filters carried forward.
 //
 // Run via `npm run test:app`. Requires a prior `npm run build`.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";

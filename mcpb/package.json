@@ -1,6 +1,6 @@
 {
   "name": "iwac-mcp-server-bundle",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Node MCP server for the Islam West Africa Collection, packaged as a Claude Desktop extension (.mcpb).",
   "private": true,
   "type": "module",
@@ -32,7 +32,8 @@
   "dependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
     "@google/genai": "^2.9.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
@@ -47,6 +48,7 @@
   "devDependencies": {
     "@anthropic-ai/mcpb": "^2.1.2",
     "@biomejs/biome": "^2.5.5",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@types/node": "^26.0.0",
     "esbuild": "^0.28.1",

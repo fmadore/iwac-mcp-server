@@ -30,7 +30,7 @@ export function registerIndexTools(server: Server): void {
       description:
         "Search the IWAC authority index (persons, places, organisations, events, subjects) by name. " +
         "Accent/case-insensitive.",
-      inputSchema: {
+      inputSchema: z.object({
         keyword: z.string().describe("Search term matched against the entry title"),
         index_type: z
           .string()
@@ -41,7 +41,7 @@ export function registerIndexTools(server: Server): void {
           ),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("index");
@@ -92,7 +92,7 @@ export function registerIndexTools(server: Server): void {
       ...toolMeta("Get index entry details"),
       description:
         "Get full details of an index entry by id (raw dataset columns, French names — Titre, Prénom, Coordonnées…).",
-      inputSchema: { entry_id: z.number().int() },
+      inputSchema: z.object({ entry_id: z.number().int() }),
     },
     async ({ entry_id }) => {
       await ensureView("index");
@@ -188,13 +188,13 @@ function registerIndexListTool(
       name,
       {
         ...meta,
-        inputSchema: {
+        inputSchema: z.object({
           ...commonSchema,
           country: countryParam({
             nigeria: true,
             note: `Selects ${typeLower} MENTIONED IN records from that country, not entities located there`,
           }),
-        },
+        }),
       },
       handler,
     );

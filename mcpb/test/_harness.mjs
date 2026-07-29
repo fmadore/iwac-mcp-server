@@ -29,7 +29,12 @@ export function createHarness(client, { verbose = false, timeoutMs = 60_000 } = 
    *     assert the shape of an expected error, e.g. valid_values / valid_categories)
    */
   async function call(name, args, opts = {}) {
-    const res = await client.callTool({ name, arguments: args }, undefined, { timeout: timeoutMs });
+    // SDK v2 dropped the result-schema parameter: the signature is
+    // `callTool(params, options)`, not v1's `(params, resultSchema, options)`.
+    // Left as three arguments, `undefined` IS the options object and `timeoutMs`
+    // is silently ignored — which capped the live smoke test at the 60s default
+    // instead of the 5 minutes it asks for, and read as a dataset hang.
+    const res = await client.callTool({ name, arguments: args }, { timeout: timeoutMs });
     const body = res.content?.[0]?.text ?? "";
     const isErr = res.isError === true;
     if (verbose) {

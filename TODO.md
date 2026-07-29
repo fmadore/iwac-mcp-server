@@ -59,26 +59,33 @@
 - [ ] **Add `screenshots/`** showing a research query in Claude Desktop — the
   directory listing surfaces these.
 
-- [ ] **Migrate to MCP TypeScript SDK v2** — wait for `2.0.0` stable. Verified
-  2026-07-23 (blog.modelcontextprotocol.io "SDK betas"): the *spec* finalizes
-  July 28, 2026, but SDK stables follow a ~4-week beta feedback window, so
-  stable lands ~late Aug 2026 (`@modelcontextprotocol/server` is at
-  `2.0.0-beta.5`; v1 `sdk` 1.29.0 remains latest, critical fixes ≥6 months).
-  Breaking for this server: scoped packages, raw Zod shapes → Standard Schema
-  objects (`z.object(...)` — zod 4 already in use), `serveStdio()` /
-  `createMcpHandler()` replacing the v1 stdio + StreamableHTTP transports
-  (stateless core), ESM-only + Node 20+ (both already true). Start with the
-  official codemod (`npx @modelcontextprotocol/codemod@beta v1-to-v2 .`), then
-  re-run the fixture + live test suites. The 2026-07-28 *protocol* changes were
-  audited against this server 2026-07-23 and need no action: stateless HTTP
-  already implemented, no resources (error-code change N/A), no roots/sampling/
-  logging capabilities (deprecations N/A), static bearer auth (OAuth hardening
-  N/A), single-backend proxy (routing headers N/A), read-only tools (MRTR N/A).
-  **One gap that audit did not cover:** the stateless core removes the
-  `initialize` handshake in favour of `server/discover`, and the handshake
-  `instructions` string is this server's ENTIRE guidance floor for skill-less
-  clients (ChatGPT). Confirm where `instructions` surface under `server/discover`
-  — and that prompts (`src/prompts.ts`) still list — before migrating.
+- [x] **Migrate to MCP TypeScript SDK v2 / protocol 2026-07-28** — done
+  2026-07-29. `@modelcontextprotocol/server` 2.0.0 went stable 2026-07-27, four
+  weeks earlier than the ~late-Aug estimate this entry carried; v1 `sdk` topped
+  out at 1.30.0 and never implements 2026-07-28.
+
+  The codemod (`npx @modelcontextprotocol/codemod@latest v1-to-v2 .`) did the
+  package split and import rewrites, but it is a *mechanical* tool and left the
+  server in the 2025 era: it renames `StreamableHTTPServerTransport` →
+  `NodeStreamableHTTPServerTransport` and keeps `server.connect(new
+  StdioServerTransport())`, and per the SDK's era matrix those are precisely the
+  legacy-era entry points. Speaking 2026-07-28 required hand-rewriting both
+  entries to `serveStdio()` / `createMcpHandler()`, which own era negotiation.
+  Both default to serving 2025 clients too, so the server is dual-era.
+
+  Also done by hand: wrapping every `inputSchema` / `outputSchema` / `argsSchema`
+  raw shape in `z.object()` (the codemod only wraps shapes it converts from
+  `.tool()`, and this server already used `registerTool`; raw shapes are
+  converted by the SDK's *bundled* zod, which drops `.describe()` text), and
+  `cacheHints` for the new `CacheableResult` fields.
+
+  **The flagged gap is closed:** `instructions` survives the loss of the
+  `initialize` handshake — the SDK carries it on `server/discover`, byte-identical
+  on both eras (asserted in `test/fixture-server.test.mjs`), and prompts still
+  list. The remaining 2026-07-28 changes still need no action here, with one
+  correction to the 2026-07-23 audit: it recorded "no resources", which stopped
+  being true in v0.12.0 when the `ui://` chart resource landed. The error-code
+  change is emitted by the SDK either way, so nothing to write.
 
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 

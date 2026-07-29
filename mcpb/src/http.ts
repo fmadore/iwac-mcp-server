@@ -1,18 +1,28 @@
 // Remote Streamable HTTP transport for the IWAC MCP server.
 //
 // Activated by `node server/index.js --http`; the stdio transport in index.ts
-// stays the default for Claude Desktop. Stateless JSON mode (sessionIdGenerator:
-// undefined, enableJsonResponse: true) — a fresh McpServer + transport per
-// request, so there is no per-session state to leak on a public, read-only
-// server. A bearer token (config.bearerToken) gates every /mcp request; an
+// stays the default for Claude Desktop. `createMcpHandler` is the 2026-07-28
+// HTTP entry point: it builds a fresh McpServer per request out of the factory,
+// so there is still no per-session state to leak on a public, read-only server,
+// and its default `legacy: "stateless"` posture keeps answering 2025-era
+// clients from that same factory. (Hand-wiring a StreamableHTTPServerTransport,
+// as this did under SDK v1, serves the legacy era only.) `responseMode: "json"`
+// preserves the old `enableJsonResponse: true` behaviour — never stream.
+//
+// A bearer token (config.bearerToken) gates every /mcp request; an
 // unauthenticated GET /health is exposed for the container health check.
 //
 // TLS termination, rate limiting, and the public `/mcp` path mount are handled
 // upstream by nginx — see docs/iwac-mcp-roadmap.md in the IWAC-docker repo.
+// The SDK's localhostHostValidation/localhostOriginValidation guards are
+// deliberately NOT mounted: they defend a loopback bind against DNS rebinding,
+// and this process binds 0.0.0.0 behind nginx, where they would reject every
+// legitimate public Host header.
+import { createMcpHandler } from "@modelcontextprotocol/server";
+import type { McpServer } from "@modelcontextprotocol/server";
+import { toNodeHandler } from "@modelcontextprotocol/node";
 import http from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { config } from "./config.js";
 
 /** Cap on request body size — MCP JSON-RPC payloads are tiny; larger is abuse. */
@@ -74,6 +84,15 @@ export function startHttpServer(createServer: () => McpServer): void {
     typeof header === "string" &&
     timingSafeEqual(createHash("sha256").update(header).digest(), expectedDigest);
 
+  // One handler for the process; it builds a server per request from the factory.
+  const mcpHandler = createMcpHandler(createServer, {
+    responseMode: "json",
+    onerror: (err) => console.error("[iwac] mcp handler error:", err),
+  });
+  const nodeHandler = toNodeHandler(mcpHandler, {
+    onerror: (err) => console.error("[iwac] node adapter error:", err),
+  });
+
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const path = (req.url ?? "/").split("?")[0];
 
@@ -94,24 +113,17 @@ export function startHttpServer(createServer: () => McpServer): void {
       return;
     }
 
+    // Read and cap the body here rather than letting the adapter drain the
+    // stream, so an oversized payload still gets a 413 instead of being
+    // buffered whole. The parsed value is handed to the adapter as its
+    // pre-parsed third argument, exactly as an Express body parser would.
     let body: unknown;
     if (req.method === "POST") {
       const raw = await readBody(req);
       body = raw.length ? JSON.parse(raw) : undefined;
     }
 
-    // Stateless: one server + transport per request (no session id).
-    const mcp = createServer();
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    res.on("close", () => {
-      void transport.close();
-      void mcp.close();
-    });
-    await mcp.connect(transport);
-    await transport.handleRequest(req, res, body);
+    await nodeHandler(req, res, body);
   }
 
   const server = http.createServer((req, res) => {
@@ -127,6 +139,15 @@ export function startHttpServer(createServer: () => McpServer): void {
       }
     });
   });
+
+  // The handler owns the in-flight per-request instances now, so it has to be
+  // closed alongside the listener for the container to stop cleanly.
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      server.close();
+      void mcpHandler.close().finally(() => process.exit(0));
+    });
+  }
 
   server.listen(port, () => {
     console.error(

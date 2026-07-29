@@ -33,7 +33,7 @@ export function registerArticleTools(server: Server): void {
       description:
         "Search IWAC newspaper articles by keyword (title + OCR + AI abstract), country, newspaper, subject, " +
         "and date range. Use French concept keywords regardless of the user's report language. Matching is accent- and case-insensitive.",
-      inputSchema: {
+      inputSchema: z.object({
         keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR text, and AI abstract"),
         country: countryParam(),
         newspaper: z.string().optional(),
@@ -46,7 +46,7 @@ export function registerArticleTools(server: Server): void {
           .describe("Include each article's ~500-char AI abstract (description_ai) for triage without get_article. Adds ~125 tokens/row, so pass a smaller limit (≤10) when enabling it."),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("articles");
@@ -88,7 +88,7 @@ export function registerArticleTools(server: Server): void {
       description:
         "Get one article (by id): full metadata, the AI abstract (description_ai), Gemini sentiment, and OCR text. " +
         "Pass a `keyword` to get ~2000-char excerpts around each match instead of the full (capped) OCR.",
-      inputSchema: {
+      inputSchema: z.object({
         article_id: z.number().int(),
         keyword: z
           .string()
@@ -96,7 +96,7 @@ export function registerArticleTools(server: Server): void {
           .describe("Return excerpts around matches instead of the full OCR (accent-insensitive)"),
         context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
         max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
-      },
+      }),
     },
     async ({ article_id, keyword, context_chars, max_excerpts }) => {
       const schema = await ensureView("articles");
@@ -118,14 +118,14 @@ export function registerArticleTools(server: Server): void {
       ...toolMeta("Semantic search for articles"),
       description:
         "Semantic similarity search over article OCR using Gemini embeddings. The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
-      inputSchema: {
+      inputSchema: z.object({
         query: z.string().describe("Natural-language query, any language"),
         country: countryParam(),
         newspaper: z.string().optional(),
         date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         limit: z.number().int().optional().describe("Default 10, max 50"),
-      },
+      }),
     },
     async (args) => {
       const country = validateEnum(args.country, COUNTRIES, "country");

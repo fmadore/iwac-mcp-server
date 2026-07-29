@@ -66,13 +66,13 @@ export function registerPrompts(server: Server): void {
       description:
         "Run a structured, source-cited investigation of the IWAC archive at a chosen depth (brief or " +
         "extended), following the five-phase method: scope, search, read, triangulate, synthesise.",
-      argsSchema: {
+      argsSchema: z.object({
         question: z.string().describe("The research question, in any language"),
         depth: z
           .string()
           .optional()
           .describe("brief (default: counts, key titles, 2-3 close readings) | extended (full five-phase analysis)"),
-      },
+      }),
     },
     ({ question, depth }) => {
       const extended = (depth ?? "").trim().toLowerCase().startsWith("e");
@@ -105,7 +105,7 @@ export function registerPrompts(server: Server): void {
       description:
         "A plain-language tour of what the Islam West Africa Collection holds and the kinds of questions it " +
         "can answer — no research run, no tool enumeration.",
-      argsSchema: {},
+      argsSchema: z.object({}),
     },
     () => ({
       messages: [

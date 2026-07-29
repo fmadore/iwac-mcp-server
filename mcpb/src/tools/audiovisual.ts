@@ -28,7 +28,7 @@ export function registerAudiovisualTools(server: Server): void {
       ...toolMeta("Search audiovisual materials"),
       description:
         "Search audiovisual materials by keyword and metadata. Keyword matches title, creator, publisher, subject, spatial, language, source, and AI description where present.",
-      inputSchema: {
+      inputSchema: z.object({
         keyword: z.string().optional().describe("Substring match across audiovisual title/metadata fields"),
         country: countryParam({ nigeria: true, note: "The subset is currently all Nigeria" }),
         language: z.string().optional().describe("Exact language value, e.g. Haoussa | Arabe | Anglais"),
@@ -36,7 +36,7 @@ export function registerAudiovisualTools(server: Server): void {
         subject: z.string().optional().describe("Exact subject tag"),
         limit: z.number().int().optional().describe("Default 20, max 50"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("audiovisual");
@@ -81,11 +81,11 @@ export function registerAudiovisualTools(server: Server): void {
       ...toolMeta("List audiovisual materials"),
       description:
         "List audiovisual materials (Nigerian recordings, incl. Hausa/Arabic content).",
-      inputSchema: {
+      inputSchema: z.object({
         country: countryParam({ nigeria: true, note: "The subset is currently all Nigeria" }),
         limit: z.number().int().optional().describe("Default 20, max 50"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("audiovisual");
@@ -118,7 +118,7 @@ export function registerAudiovisualTools(server: Server): void {
       ...toolMeta("Get audiovisual details"),
       description:
         "Get one audiovisual record by id, including creator/publisher, media URL, duration, medium, subjects, places, language, source, and IWAC URL.",
-      inputSchema: { audiovisual_id: z.number().int() },
+      inputSchema: z.object({ audiovisual_id: z.number().int() }),
     },
     async ({ audiovisual_id }) => {
       const schema = await ensureView("audiovisual");

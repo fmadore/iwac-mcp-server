@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { registerTools } from "./tools/register.js";
 import { registerPrompts } from "./prompts.js";
 import { startHttpServer } from "./http.js";
@@ -101,37 +101,71 @@ function buildInstructions(): string {
 }
 
 /**
- * Build a fully-configured MCP server. Called once for stdio, and once per
- * request in stateless HTTP mode.
+ * How long a client may cache this server's list results (2026-07-28
+ * `CacheableResult`; ignored on 2025-era connections). Every list here is fixed
+ * at BUILD time — the tool, prompt and resource sets are literal registrations,
+ * and the one `ui://` resource is a string baked into the bundle — so they
+ * cannot change without a redeploy, which reconnects stdio hosts anyway. An
+ * hour is the spec's own worked example, and caching the tool list is what
+ * keeps a host's prompt cache warm across calls. `public` because nothing in
+ * the lists varies per caller: the factory reads no `authInfo`, and the only
+ * thing that changes the tool set (semantic search) is a process-level env var.
+ */
+const CACHE_HINTS = {
+  "tools/list": { ttlMs: 3_600_000, cacheScope: "public" },
+  "prompts/list": { ttlMs: 3_600_000, cacheScope: "public" },
+  "resources/list": { ttlMs: 3_600_000, cacheScope: "public" },
+  "resources/read": { ttlMs: 3_600_000, cacheScope: "public" },
+  "server/discover": { ttlMs: 3_600_000, cacheScope: "public" },
+} as const;
+
+/**
+ * Build a fully-configured MCP server. This is the SDK's server *factory*:
+ * `serveStdio` calls it once per stdio connection, `createMcpHandler` once per
+ * HTTP request. The same factory serves both protocol eras — the entry point
+ * decides which era a given connection speaks, not this function.
  */
 export function createServer(): McpServer {
   const server = new McpServer(
     { name: "iwac-mcp-server", version: VERSION },
-    { instructions: buildInstructions() },
+    { instructions: buildInstructions(), cacheHints: CACHE_HINTS },
   );
   registerTools(server);
   registerPrompts(server);
   return server;
 }
 
-async function runStdio(): Promise<void> {
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+function runStdio(): void {
+  // `serveStdio` owns the transport AND the era decision: the opening exchange
+  // decides whether the connection speaks 2026-07-28 (`server/discover`, no
+  // handshake) or a 2025-era `initialize`, then pins one instance from the
+  // factory for the connection's lifetime. Its default `legacy: "serve"` is
+  // what keeps existing hosts working — hand-wiring StdioServerTransport, as
+  // this did under SDK v1, would serve the legacy era only.
+  const handle = serveStdio(createServer, {
+    onerror: (err) => console.error("[iwac] stdio error:", err),
+  });
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      void handle.close().finally(() => process.exit(0));
+    });
+  }
   console.error(
     `[iwac] IWAC MCP server running on stdio (cache: ${config.cacheDir}, semantic: ${config.semanticSearchEnabled})`,
   );
 }
 
-async function main(): Promise<void> {
+function main(): void {
   if (process.argv.includes("--http")) {
     startHttpServer(createServer);
   } else {
-    await runStdio();
+    runStdio();
   }
 }
 
-main().catch((err) => {
+try {
+  main();
+} catch (err) {
   console.error("[iwac] fatal:", err);
   process.exit(1);
-});
+}

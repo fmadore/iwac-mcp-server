@@ -44,7 +44,7 @@ export function registerImageTools(server: Server): void {
         "Each result carries `image_url` (the full-resolution file), `coordinates` ('lat, lng' where known) and " +
         "the canonical IWAC page. Call with no arguments to list all. Captions are almost never present, so " +
         "prefer subject/place filters over keywords, or semantic_search_images when it is enabled.",
-      inputSchema: {
+      inputSchema: z.object({
         keyword: z
           .string()
           .optional()
@@ -57,7 +57,7 @@ export function registerImageTools(server: Server): void {
         date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         limit: z.number().int().optional().describe("Default 20, max 50"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("images");
@@ -100,7 +100,7 @@ export function registerImageTools(server: Server): void {
       description:
         "Get one photograph by id: title, photographer, capture date, place and coordinates, subjects, rights, " +
         "the IIIF manifest, and the full-resolution `image_url`. The server returns URLs, not image bytes.",
-      inputSchema: { image_id: z.number().int() },
+      inputSchema: z.object({ image_id: z.number().int() }),
     },
     async ({ image_id }) => {
       const schema = await ensureView("images");
@@ -124,11 +124,11 @@ export function registerImageTools(server: Server): void {
         "signage in Arabic'). This is cross-modal: the ranking runs against a multimodal embedding of the " +
         "photograph itself, not against a caption, so it works even though only 2 of the 30 images have one. " +
         "Requires semantic search to be enabled and a Google API key.",
-      inputSchema: {
+      inputSchema: z.object({
         query: z.string().describe("Description of the visual content, any language"),
         country: countryParam({ nigeria: true }),
         limit: z.number().int().optional().describe("Default 10, max 30"),
-      },
+      }),
     },
     async (args) => {
       const country = validateEnum(args.country, COUNTRIES, "country");

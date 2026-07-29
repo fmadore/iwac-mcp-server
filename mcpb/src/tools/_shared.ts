@@ -16,7 +16,7 @@ import {
 import { ALL_SUBSETS, type Subset } from "../config.js";
 
 /** The McpServer type, aliased once so tool modules don't repeat the import path. */
-export type Server = import("@modelcontextprotocol/sdk/server/mcp.js").McpServer;
+export type Server = import("@modelcontextprotocol/server").McpServer;
 
 /** Maximum length of any single free-text field returned to the model. */
 export const CHARACTER_LIMIT = 25000;

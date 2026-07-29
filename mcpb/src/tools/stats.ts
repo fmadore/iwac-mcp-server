@@ -35,7 +35,7 @@ const GROUP_FIELDS = ["country", "newspaper"] as const;
 // programmatic clients a real contract. Row objects stay loose because visible
 // columns vary with the dataset revision. NOTE: result compaction strips null
 // values, so anything that can be null is `optional` here rather than nullable.
-const COLLECTION_STATS_OUTPUT = {
+const COLLECTION_STATS_OUTPUT = z.object({
   view: z.string(),
   collection_name: z.string(),
   dataset_url: z.string(),
@@ -47,23 +47,23 @@ const COLLECTION_STATS_OUTPUT = {
   articles_by_country: z.record(z.string(), z.number()).optional(),
   newspaper_count: z.number().optional(),
   date_range: z.looseObject({ earliest: z.string(), latest: z.string() }).optional(),
-};
+});
 
-const NEWSPAPER_STATS_OUTPUT = {
+const NEWSPAPER_STATS_OUTPUT = z.object({
   view: z.string(),
   country_filter: z.string().optional(),
   total_newspapers: z.number(),
   total_articles: z.number(),
   newspapers: z.array(z.looseObject({})),
-};
+});
 
-const COUNTRY_COMPARISON_OUTPUT = {
+const COUNTRY_COMPARISON_OUTPUT = z.object({
   view: z.string(),
   total_countries: z.number(),
   countries: z.array(z.looseObject({})),
-};
+});
 
-const TEMPORAL_OUTPUT = {
+const TEMPORAL_OUTPUT = z.object({
   view: z.string(),
   subset: z.string(),
   granularity: z.string(),
@@ -75,7 +75,7 @@ const TEMPORAL_OUTPUT = {
   distribution: z.record(z.string(), z.number()).optional(),
   distribution_by_group: z.record(z.string(), z.record(z.string(), z.number())).optional(),
   note: z.string().optional(),
-};
+});
 
 export function registerStatsTools(server: Server): void {
   // === get_collection_stats ===============================================
@@ -88,7 +88,7 @@ export function registerStatsTools(server: Server): void {
         "subset actually carry searchable full text in this public dataset. Read that before treating any " +
         "keyword count as a full-text census.",
       _meta: CHARTS_UI_META,
-      inputSchema: {},
+      inputSchema: z.object({}),
       outputSchema: COLLECTION_STATS_OUTPUT,
     },
     async () => {
@@ -192,9 +192,9 @@ export function registerStatsTools(server: Server): void {
       ...toolMeta("Newspaper statistics"),
       description: "Per-newspaper article counts and date ranges.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         country: countryParam(),
-      },
+      }),
       outputSchema: NEWSPAPER_STATS_OUTPUT,
     },
     async (args) => {
@@ -254,7 +254,7 @@ export function registerStatsTools(server: Server): void {
       description:
         "Compare article counts, newspaper counts, date ranges, and Gemini polarity across countries.",
       _meta: CHARTS_UI_META,
-      inputSchema: {},
+      inputSchema: z.object({}),
       outputSchema: COUNTRY_COMPARISON_OUTPUT,
     },
     async () => {
@@ -328,7 +328,7 @@ export function registerStatsTools(server: Server): void {
       // interactive chart (see tools/appUi.ts); everyone else ignores `_meta`
       // and gets the identical JSON.
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         subset: z
           .string()
           .optional()
@@ -344,7 +344,7 @@ export function registerStatsTools(server: Server): void {
         date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         group_by: z.string().optional().describe("country | newspaper — one distribution per group value"),
-      },
+      }),
       outputSchema: TEMPORAL_OUTPUT,
     },
     async (args) => {

@@ -7,8 +7,8 @@
 //
 // Run via `npm run test:fixture` (regenerates fixtures first). Requires a prior
 // `npm run build`.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { cpSync, readFileSync, rmSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -782,6 +782,92 @@ await transport.close();
   rmSync(degradedDir, { recursive: true, force: true });
 }
 
-const total = failures() + failuresFromDegraded;
+// --- the 2026-07-28 era over stdio -------------------------------------------
+// Everything above ran on the default `versionNegotiation` — the 2025
+// `initialize` handshake — so it proves only the legacy leg. `serveStdio` is
+// supposed to serve both eras from one factory; pin the modern revision so
+// there is no fallback to mask a regression.
+let failuresFromModern = 0;
+{
+  const modernTransport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.join(root, "server", "index.js")],
+    stderr: "inherit",
+    env: {
+      ...process.env,
+      IWAC_CACHE_DIR: path.join(root, "test", "fixtures"),
+      IWAC_OFFLINE: "1",
+      IWAC_SEMANTIC_SEARCH_ENABLED: "false",
+    },
+  });
+  const modern = new Client(
+    { name: "fixture-test-modern", version: "0.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  await modern.connect(modernTransport);
+  const { call: modernCall, fail: modernFail, failures: modernFailures } = createHarness(modern, { timeoutMs: 60_000 });
+
+  if (modern.getProtocolEra() !== "modern") {
+    modernFail(`pinned 2026-07-28 over stdio should negotiate the modern era, got ${modern.getProtocolEra()}`);
+  }
+
+  // The handshake `instructions` block is the ENTIRE guidance floor for a
+  // skill-less client (ChatGPT via the remote connector). The modern era has no
+  // `initialize` result to carry it — it rides `server/discover` instead — so
+  // assert it arrives intact rather than trusting that it does.
+  const modernInstructions = modern.getInstructions?.() ?? "";
+  if (modernInstructions !== instructions) {
+    modernFail(
+      `instructions differ between eras (legacy ${instructions.length} chars, modern ${modernInstructions.length}) — skill-less clients lose their guidance floor`,
+    );
+  }
+
+  const modernTools = await modern.listTools();
+  if (modernTools.tools.length !== names.length) {
+    modernFail(`modern era advertises ${modernTools.tools.length} tools, legacy era ${names.length} — the eras must serve the same factory`);
+  }
+  // CacheableResult (SEP-2549). The SDK's own default is ttlMs 0 / private, so
+  // a 0 here means our cacheHints were dropped, not that the field is missing.
+  if (modernTools.ttlMs !== 3_600_000 || modernTools.cacheScope !== "public") {
+    modernFail(`tools/list should carry our cache hints, got ttlMs=${modernTools.ttlMs} cacheScope=${modernTools.cacheScope}`);
+  }
+
+  // Argument descriptions come from `.describe()` on the Zod schemas. Raw shapes
+  // get converted by the SDK's BUNDLED zod, which drops them; explicit
+  // z.object() wrapping is what keeps them. They are the only documentation the
+  // model gets for an argument, so assert one survived the conversion.
+  const searchTool = modernTools.tools.find((t) => t.name === "search");
+  if (!searchTool?.inputSchema?.properties?.query?.description) {
+    modernFail("search.query lost its .describe() text in the advertised JSON Schema");
+  }
+
+  // The MCP App resource and the prompts must be reachable on the modern wire too.
+  const modernResources = await modern.listResources();
+  if (!modernResources.resources.some((r) => r.uri === "ui://iwac/charts.html")) {
+    modernFail("the ui:// chart resource is missing on the modern era");
+  }
+  const modernPrompts = await modern.listPrompts();
+  if (modernPrompts.prompts.length !== promptNames.length) {
+    modernFail(`modern era advertises ${modernPrompts.prompts.length} prompts, legacy era ${promptNames.length}`);
+  }
+
+  await modernCall("search_articles", { country: "Bénin" }, {
+    check: (p) => (p.total_matches === 2 ? null : `accented Bénin on the modern era should match 2, got ${p.total_matches}`),
+  });
+  await modernCall("get_collection_stats", {}, {
+    structured: true,
+    check: (p) => (p.subset_counts?.articles === 6 ? null : "collection stats wrong on the modern era"),
+  });
+  await modernCall("search_articles", { country: "Atlantis" }, {
+    expectError: true,
+    checkBody: (b) => (b.includes("valid_values") ? null : "invalid country should still error with valid_values on the modern era"),
+  });
+
+  failuresFromModern = modernFailures();
+  await modern.close();
+  await modernTransport.close();
+}
+
+const total = failures() + failuresFromDegraded + failuresFromModern;
 console.log(`\n${total === 0 ? "ALL FIXTURE CHECKS PASSED" : `${total} FIXTURE CHECK(S) FAILED`}`);
 process.exitCode = total === 0 ? 0 : 1;

@@ -86,7 +86,7 @@ function explode(field: string): string {
     : `${q(field)} AS raw`;
 }
 
-const TOPIC_OUTPUT = {
+const TOPIC_OUTPUT = z.object({
   view: z.string(),
   subset: z.string(),
   filters: z.looseObject({}),
@@ -96,9 +96,9 @@ const TOPIC_OUTPUT = {
   periods: z.array(z.string()).optional(),
   series_by_topic: z.record(z.string(), z.record(z.string(), z.number())).optional(),
   note: z.string().optional(),
-};
+});
 
-const FIELD_OUTPUT = {
+const FIELD_OUTPUT = z.object({
   view: z.string(),
   subset: z.string(),
   field: z.string(),
@@ -110,9 +110,9 @@ const FIELD_OUTPUT = {
   other_values: z.number().optional(),
   coverage_by_year: z.record(z.string(), z.looseObject({})).optional(),
   note: z.string().optional(),
-};
+});
 
-const COOCCURRENCE_OUTPUT = {
+const COOCCURRENCE_OUTPUT = z.object({
   view: z.string(),
   subset: z.string(),
   field: z.string(),
@@ -122,9 +122,9 @@ const COOCCURRENCE_OUTPUT = {
   matrix: z.array(z.array(z.number())),
   top_pairs: z.array(z.looseObject({})),
   note: z.string().optional(),
-};
+});
 
-const PLACES_OUTPUT = {
+const PLACES_OUTPUT = z.object({
   view: z.string(),
   subset: z.string(),
   filters: z.looseObject({}),
@@ -135,9 +135,9 @@ const PLACES_OUTPUT = {
   ungeocoded: z.array(z.looseObject({})).optional(),
   ungeocoded_mentions: z.number().optional(),
   note: z.string().optional(),
-};
+});
 
-const SEMANTIC_MAP_OUTPUT = {
+const SEMANTIC_MAP_OUTPUT = z.object({
   view: z.string(),
   subset: z.string(),
   filters: z.looseObject({}),
@@ -147,17 +147,17 @@ const SEMANTIC_MAP_OUTPUT = {
   explained_variance: z.array(z.number()),
   points: z.array(z.looseObject({})),
   note: z.string(),
-};
+});
 
-const SIMILAR_OUTPUT = {
+const SIMILAR_OUTPUT = z.object({
   view: z.string(),
   subset: z.string(),
   source: z.looseObject({}),
   neighbours: z.array(z.looseObject({})),
   note: z.string(),
-};
+});
 
-const LEXICAL_OUTPUT = {
+const LEXICAL_OUTPUT = z.object({
   view: z.string(),
   group_by: z.string(),
   filters: z.looseObject({}),
@@ -166,7 +166,7 @@ const LEXICAL_OUTPUT = {
   metrics: z.record(z.string(), z.looseObject({})),
   readability_excluded: z.number().optional(),
   note: z.string().optional(),
-};
+});
 
 /**
  * The filter set every aggregate here accepts, applied identically to all of
@@ -265,13 +265,13 @@ export function registerAggregateTools(server: Server): void {
         "min_prob keeps only articles where the topic is at least that dominant (mean assignment probability is " +
         "0.34, so 0.5 is already a strong filter).",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         subset: z.string().optional().describe("articles (default) | references"),
         ...filterInputs(),
         min_prob: z.number().optional().describe("0-1; keep only assignments at or above this probability"),
         over_time: z.boolean().optional().describe("Also return per-year counts for the leading topics"),
         top_n: z.number().int().optional().describe("Topics given their own band in over_time (default 8, max 15)"),
-      },
+      }),
       outputSchema: TOPIC_OUTPUT,
     },
     async (args) => {
@@ -392,13 +392,13 @@ export function registerAggregateTools(server: Server): void {
         "once for each. Optional over_time adds the per-year share of items that carry ANY value for the field, " +
         "which is how you see e.g. bylines appearing as the press professionalises.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         field: z.string().describe(RANKABLE_FIELDS.join(" | ")),
         subset: z.string().optional().describe("articles (default) | publications | references"),
         ...filterInputs(),
         top_n: z.number().int().optional().describe("Values returned (default 25, max 100)"),
         over_time: z.boolean().optional().describe("Also return the per-year share of items carrying a value"),
-      },
+      }),
       outputSchema: FIELD_OUTPUT,
     },
     async (args) => {
@@ -493,12 +493,12 @@ export function registerAggregateTools(server: Server): void {
         "structure of the tagging. Returns the top values, the full symmetric matrix (diagonal = each value's own " +
         "count) and the strongest pairs.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         field: z.string().optional().describe("subject (default) | spatial | author | language"),
         subset: z.string().optional().describe("articles (default) | publications | references"),
         ...filterInputs(),
         top_n: z.number().int().optional().describe("Values on each axis (default 15, max 30)"),
-      },
+      }),
       outputSchema: COOCCURRENCE_OUTPUT,
     },
     async (args) => {
@@ -601,11 +601,11 @@ export function registerAggregateTools(server: Server): void {
         "coordinates and never will, and any named place with no index entry comes back under `ungeocoded` " +
         "rather than being dropped.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         subset: z.string().optional().describe("articles (default) | publications | references"),
         ...filterInputs(),
         top_n: z.number().int().optional().describe("Geocoded places returned (default 60, max 200)"),
-      },
+      }),
       outputSchema: PLACES_OUTPUT,
     },
     async (args) => {
@@ -724,12 +724,12 @@ export function registerAggregateTools(server: Server): void {
         "text-only client can read, so for those the useful part is the explained-variance summary rather than " +
         "the coordinates. Keep `limit` low unless a chart is going to be drawn.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         subset: z.string().optional().describe("articles (default) | publications | references"),
         ...filterInputs(),
         color_by: z.string().optional().describe("country | newspaper | subject | lda_topic_label | gemini_polarite"),
         limit: z.number().int().optional().describe("Items projected (default 300, max 2000)"),
-      },
+      }),
       outputSchema: SEMANTIC_MAP_OUTPUT,
     },
     async (args) => {
@@ -853,14 +853,14 @@ export function registerAggregateTools(server: Server): void {
         "This is per-item, NOT the corpus-wide near-duplicate sweep — that is an all-pairs job and belongs " +
         "offline.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .string()
           .describe("Item id — either a bare o:id ('3064') or the namespaced form search returns ('articles:3064')"),
         subset: z.string().optional().describe("articles (default) | publications | references"),
         limit: z.number().int().optional().describe("Neighbours returned (default 12, max 50)"),
         min_score: z.number().optional().describe("Drop neighbours below this cosine similarity (0-1)"),
-      },
+      }),
       outputSchema: SIMILAR_OUTPUT,
     },
     async (args) => {
@@ -985,11 +985,11 @@ export function registerAggregateTools(server: Server): void {
         "word count need no lexicon and cover everything. Only items whose full text ships in this public " +
         "dataset carry these columns at all.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         group_by: z.string().optional().describe("year (default) | newspaper | country"),
         ...filterInputs(),
         top_n: z.number().int().optional().describe("Groups returned when grouping by newspaper (default 20, max 60)"),
-      },
+      }),
       outputSchema: LEXICAL_OUTPUT,
     },
     async (args) => {

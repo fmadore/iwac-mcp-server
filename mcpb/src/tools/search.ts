@@ -238,7 +238,7 @@ const FULLTEXT_TOOL: Partial<Record<Subset, { tool: string; idParam: string }>> 
 // columns) — a strict schema would turn a dataset refresh into a runtime error.
 // `title`/`url` are optional because the result compaction drops empty-string
 // fields — a rare untitled item must not turn into a validation throw.
-const SEARCH_OUTPUT = {
+const SEARCH_OUTPUT = z.object({
   results: z.array(
     z.looseObject({
       id: z.string(),
@@ -255,9 +255,9 @@ const SEARCH_OUTPUT = {
   coverage_warning: z.string().optional(),
   requested_limit: z.number().int().optional(),
   limit_warning: z.string().optional(),
-};
+});
 
-const FETCH_OUTPUT = {
+const FETCH_OUTPUT = z.object({
   id: z.string(),
   title: z.string().optional(),
   text: z.string(),
@@ -267,7 +267,7 @@ const FETCH_OUTPUT = {
   text_truncated: z.boolean().optional(),
   recommended_tool: z.string().optional(),
   recommended_usage: z.looseObject({}).optional(),
-};
+});
 
 export function registerSearchTools(server: Server): void {
   // === search (OpenAI Deep Research contract) ==============================
@@ -286,13 +286,13 @@ export function registerSearchTools(server: Server): void {
         "not 'sharia', Maouloud not 'Mawlid'). Returns {results:[{id,title,url,category}], ranking}; each result's " +
         "`category` names its subset and the `ranking` field documents the ordering. Pass an id to `fetch` to read " +
         "the full text. For filtered queries (by country, date, or newspaper) use the search_* tools instead.",
-      inputSchema: {
+      inputSchema: z.object({
         query: z
           .string()
           .min(1)
           .describe("One concept, name, or short phrase; use French concept terms for primary sources, and French/English terms for references"),
         limit: z.number().int().optional().describe("Max results across all categories. Default 20, max 50."),
-      },
+      }),
       outputSchema: SEARCH_OUTPUT,
     },
     async ({ query: queryStr, limit }) => {
@@ -401,9 +401,9 @@ export function registerSearchTools(server: Server): void {
         "item's OCR / abstract / transcription / description, `url` is the canonical islam.zmo.de link to cite, " +
         "and `metadata` holds the remaining fields (author, date, country, newspaper, AI sentiment, …). " +
         "Categories: articles, publications, references, documents, index, audiovisual, images.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().describe("Item id from search, e.g. 'articles:28576' or 'references:11045'"),
-      },
+      }),
       outputSchema: FETCH_OUTPUT,
     },
     async ({ id: rawId }) => {

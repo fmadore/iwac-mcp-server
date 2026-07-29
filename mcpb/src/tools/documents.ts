@@ -28,12 +28,12 @@ export function registerDocumentTools(server: Server): void {
       description:
         "Search the small archival-documents subset (~26 items: Islamic association reports, flyers, project " +
         "documents — mostly Burkina Faso). Use French concept keywords regardless of the user's report language. Most have OCR text and an AI description. Call with no arguments to list all.",
-      inputSchema: {
+      inputSchema: z.object({
         keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR, AI description and subject (accent-insensitive)"),
         country: countryParam({ nigeria: true, note: "Corpus is mostly Burkina Faso/Togo/Benin" }),
         limit: z.number().int().optional().describe("Default 15, max 50"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("documents");
@@ -70,7 +70,7 @@ export function registerDocumentTools(server: Server): void {
         "Get one archival document (by id): full metadata, AI description, and OCR text. " +
         "Pass a `keyword` to get ~2000-char excerpts around each match instead of the full (capped) OCR — " +
         "useful for long documents.",
-      inputSchema: {
+      inputSchema: z.object({
         document_id: z.number().int(),
         keyword: z
           .string()
@@ -78,7 +78,7 @@ export function registerDocumentTools(server: Server): void {
           .describe("Return excerpts around matches instead of the full OCR (accent-insensitive)"),
         context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
         max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
-      },
+      }),
     },
     async ({ document_id, keyword, context_chars, max_excerpts }) => {
       const schema = await ensureView("documents");

@@ -26,7 +26,7 @@ import {
 
 // Small, stable envelope → worth a structured-output contract. Distributions
 // are optional because the sentiment columns may be absent from a revision.
-const SENTIMENT_DISTRIBUTION_OUTPUT = {
+const SENTIMENT_DISTRIBUTION_OUTPUT = z.object({
   view: z.string(),
   model: z.string(),
   total_articles: z.number(),
@@ -38,7 +38,7 @@ const SENTIMENT_DISTRIBUTION_OUTPUT = {
   by_model: z.record(z.string(), z.looseObject({})).optional(),
   agreement: z.looseObject({}).optional(),
   agreement_matrix: z.looseObject({}).optional(),
-};
+});
 
 export function registerSentimentTools(server: Server): void {
   // === search_by_sentiment =================================================
@@ -48,7 +48,7 @@ export function registerSentimentTools(server: Server): void {
       ...toolMeta("Filter articles by AI sentiment"),
       description:
         "Filter articles by Gemini sentiment labels (accent/case-insensitive exact match).",
-      inputSchema: {
+      inputSchema: z.object({
         polarity: z
           .string()
           .optional()
@@ -61,7 +61,7 @@ export function registerSentimentTools(server: Server): void {
         subject: z.string().optional(),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("articles");
@@ -114,7 +114,7 @@ export function registerSentimentTools(server: Server): void {
         "alone. Scores cover every article whether or not its full text ships, so these shares are not subject " +
         "to the OCR coverage limit.",
       _meta: CHARTS_UI_META,
-      inputSchema: {
+      inputSchema: z.object({
         country: countryParam(),
         newspaper: z.string().optional(),
         subject: z.string().optional(),
@@ -122,7 +122,7 @@ export function registerSentimentTools(server: Server): void {
           .string()
           .optional()
           .describe('gemini (default) | chatgpt | mistral | all — "all" adds the cross-model agreement'),
-      },
+      }),
       outputSchema: SENTIMENT_DISTRIBUTION_OUTPUT,
     },
     async (args) => {

@@ -3,8 +3,8 @@
 // errors or regressions of known bugs (broken date filters, uncapped keyword
 // excerpts, accent-sensitive matching, empty-string date aggregates). The
 // offline structural twin is test/fixture-server.test.mjs.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { readFileSync } from "node:fs";
 import { checkManifestParity, createHarness } from "./test/_harness.mjs";
 
@@ -23,7 +23,12 @@ const EXPECTED = {
   // Full text is masked per row in the PUBLIC dataset (OCR_is_public). These are
   // the July 2026 ratios; a change here means the upstream publication policy
   // or the masking pipeline moved, not that the server broke.
-  articlesWithFulltext: 7480,
+  // 2026-07-29 refresh: articles 12,287 -> 12,356 and with_fulltext 7,480 ->
+  // 7,549 — the same +69, so the whole increment ships public OCR and the share
+  // stays 61%. Publications did not move. The user-facing copies of these
+  // figures (INSTRUCTIONS in src/index.ts and its mirror in the iwac-mcp skill)
+  // still say 7,480/12,287 and want re-measuring together.
+  articlesWithFulltext: 7549,
   publicationsWithFulltext: 1298,
 };
 

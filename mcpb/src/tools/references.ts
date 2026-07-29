@@ -32,7 +32,7 @@ export function registerReferenceTools(server: Server): void {
         "`keyword` is a single substring match over title + abstract, so search ONE term per call " +
         "(combined terms like 'pèlerinage Mecque' miss results). References are multilingual: try French and English title/abstract keywords when relevant; metadata/filter values such as `reference_type` and `language` use French labels. " +
         "Results include a short abstract snippet — use get_reference for the full abstract and bibliographic detail.",
-      inputSchema: {
+      inputSchema: z.object({
         keyword: z.string().optional().describe("One French or English concept keyword; substring match on title + abstract (one term per call, accent-insensitive)"),
         author: z.string().optional(),
         reference_type: z
@@ -51,7 +51,7 @@ export function registerReferenceTools(server: Server): void {
         date_to: z.string().optional().describe("Latest year, YYYY"),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
-      },
+      }),
     },
     async (args) => {
       const schema = await ensureView("references");
@@ -94,7 +94,7 @@ export function registerReferenceTools(server: Server): void {
       description:
         "Full bibliographic record for one academic reference (by id), including the complete abstract " +
         "(present for ~51% of references), subjects, DOI/URL, and host-work details (book, volume, issue, pages).",
-      inputSchema: { reference_id: z.number().int() },
+      inputSchema: z.object({ reference_id: z.number().int() }),
     },
     async ({ reference_id }) => {
       const schema = await ensureView("references");

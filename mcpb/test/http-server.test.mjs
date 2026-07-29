@@ -7,8 +7,7 @@
 //
 // Run via `npm run test:http` (regenerates fixtures first). Requires a prior
 // `npm run build`.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -122,6 +121,46 @@ try {
 
   await client.close();
   await transport.close();
+
+  // --- 5. The 2026-07-28 era over the same endpoint -----------------------------
+  // The client above used the default `versionNegotiation` — the 2025
+  // `initialize` handshake — so it proves only the legacy leg. `createMcpHandler`
+  // is supposed to serve BOTH eras from one factory; pin the modern revision so
+  // there is no fallback to hide a regression, then re-run the legacy leg above
+  // to prove the endpoint is still dual-era.
+  const modernTransport = new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
+    requestInit: { headers: { Authorization: `Bearer ${TOKEN}` } },
+  });
+  const modern = new Client(
+    { name: "http-test-modern", version: "0.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  await modern.connect(modernTransport);
+
+  if (modern.getProtocolEra() !== "modern") {
+    fail(`pinned 2026-07-28 over HTTP should negotiate the modern era, got ${modern.getProtocolEra()}`);
+  }
+
+  const modernTools = await modern.listTools();
+  if (modernTools.tools.length !== 34) {
+    fail(`expected 34 tools on the modern era, got ${modernTools.tools.length}`);
+  }
+  // CacheableResult (SEP-2549): required on list results from 2026-07-28. The
+  // SDK defaults to ttlMs 0 / private, so a 0 here means our cacheHints were
+  // dropped, not that the field is missing.
+  if (modernTools.ttlMs !== 3_600_000 || modernTools.cacheScope !== "public") {
+    fail(`tools/list should carry our cache hints, got ttlMs=${modernTools.ttlMs} cacheScope=${modernTools.cacheScope}`);
+  }
+
+  const { call: modernCall, failures: modernFailures } = createHarness(modern, { timeoutMs: 60_000 });
+  await modernCall("get_collection_stats", {}, {
+    structured: true,
+    check: (p) => (p.subset_counts?.articles === 6 ? null : "collection stats wrong on the modern era"),
+  });
+  failures += modernFailures();
+
+  await modern.close();
+  await modernTransport.close();
 } finally {
   server.kill("SIGTERM");
 }
