@@ -11,11 +11,14 @@ import {
   countryParam,
   errorResult,
   extractMatchingTocEntries,
+  hijriFilter,
   keywordExcerpts,
   keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
+  requireHijriColumns,
+  resolveHijriMonth,
   resolveLimit,
   runListQuery,
   structuredResult,
@@ -55,6 +58,14 @@ export function registerPublicationTools(server: Server): void {
         country: countryParam(),
         date_from: z.string().optional().describe("Earliest year, YYYY"),
         date_to: z.string().optional().describe("Latest year, YYYY"),
+        hijri_month: z
+          .string()
+          .optional()
+          .describe(
+            "Islamic lunar month: 1-12, or a name (Ramadan, Chaabane, Chawwal, Dhu al-Hijja). Matches only " +
+              "issues with a full YYYY-MM-DD date — ~83% of them.",
+          ),
+        hijri_year: z.number().int().optional().describe("Islamic (Umm al-Qura) year, e.g. 1445"),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       }),
@@ -65,6 +76,12 @@ export function registerPublicationTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       const dates = validateDateBounds(args.date_from, args.date_to);
       if (dates.err) return errorResult(dates.err);
+      const hijriMonth = resolveHijriMonth(args.hijri_month);
+      if (hijriMonth.err) return errorResult(hijriMonth.err);
+      if (hijriMonth.n !== undefined || args.hijri_year !== undefined) {
+        const missing = requireHijriColumns(schema, "publications");
+        if (missing) return errorResult(missing);
+      }
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
 
@@ -75,6 +92,7 @@ export function registerPublicationTools(server: Server): void {
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
+      hijriFilter(where, params, hijriMonth.n, args.hijri_year);
 
       // With a keyword, pull the TOC too so matching entries can be extracted
       // below; without one it is dead weight on every row.

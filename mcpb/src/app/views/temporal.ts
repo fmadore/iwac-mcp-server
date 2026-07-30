@@ -9,11 +9,13 @@ import { esc, fmtInt } from "../theme.js";
 export interface TemporalPayload extends BasePayload {
   subset?: string;
   granularity?: string;
+  calendar?: string;
   group_by?: string;
   filters?: Record<string, unknown>;
   total_matches?: number;
   dated_count?: number;
   undated_count?: number;
+  imprecise_date_count?: number;
   distribution?: Record<string, number>;
   distribution_by_group?: Record<string, Record<string, number>>;
 }
@@ -43,6 +45,10 @@ export function temporalView(payload: BasePayload): ViewResult {
   const granularity = p.granularity ?? "year";
   const subset = p.subset ?? "articles";
   const other = granularity === "year" ? "month" : "year";
+  // "1445" beside "per year" would read as a Gregorian year; name the calendar
+  // wherever the axis is Hijri.
+  const hijri = p.calendar === "hijri";
+  const axis = hijri ? `Hijri ${granularity}` : granularity;
 
   const body = buckets.length
     ? stackedBar({
@@ -51,7 +57,7 @@ export function temporalView(payload: BasePayload): ViewResult {
           label,
           values: buckets.map((b) => maps[i][b] ?? 0),
         })),
-        ariaLabel: `${subset} per ${granularity}`,
+        ariaLabel: `${subset} per ${axis}`,
       }) + (grouped ? legend(groups) : "")
     : empty("No dated items match these filters.");
 
@@ -59,19 +65,23 @@ export function temporalView(payload: BasePayload): ViewResult {
     ? `${fmtInt(p.undated_count)} matching item${p.undated_count === 1 ? "" : "s"} carry no usable date and ` +
       `are not plotted (they are still counted in the total).`
     : null;
+  const imprecise = p.imprecise_date_count
+    ? `${fmtInt(p.imprecise_date_count)} matching item${p.imprecise_date_count === 1 ? "" : "s"} carry a date too ` +
+      "imprecise to convert to a lunar date and are not plotted."
+    : null;
 
   // Cycles none → country → newspaper → none, so one button covers all three
   // states without a second control.
   const nextGroup = p.group_by === "country" ? "newspaper" : p.group_by === "newspaper" ? null : "country";
 
   return {
-    title: `${subset} per ${granularity}`,
+    title: `${subset} per ${axis}`,
     subtitle:
       `${fmtInt(p.total_matches ?? 0)} matching · ${fmtInt(p.dated_count ?? 0)} dated` +
       (p.group_by ? ` · grouped by ${esc(p.group_by)}` : ""),
     chips: p.filters,
     body,
-    notes: [undated, p.note],
+    notes: [undated, imprecise, p.note],
     actions: [
       {
         id: "gran",
@@ -80,7 +90,20 @@ export function temporalView(payload: BasePayload): ViewResult {
           ctx.run("get_temporal_distribution", {
             subset,
             granularity: other,
+            ...(hijri ? { calendar: "hijri" } : {}),
             ...(p.group_by ? { group_by: p.group_by } : {}),
+            ...carryFilters(p),
+          }),
+      },
+      {
+        // The lunar cycle is the reason the Hijri columns exist; one click from
+        // any time series reaches it.
+        id: "lunar",
+        label: hijri ? "Pool by lunar month" : "Switch to the lunar cycle",
+        run: (ctx) =>
+          ctx.run("get_temporal_distribution", {
+            subset,
+            granularity: "lunar_month",
             ...carryFilters(p),
           }),
       },

@@ -45,6 +45,16 @@ const INSTRUCTIONS =
   "alongside what), and get_lexical_metrics (readability, lexical richness, length). All matching is accent- and " +
   "case-insensitive; country filters take exact names (Benin, " +
   "Burkina Faso, Côte d'Ivoire, Niger, Nigeria, Togo).\n\n" +
+  "ISLAMIC CALENDAR: coverage driven by observances is invisible on a Gregorian axis — the lunar year " +
+  "drifts ~11 days a year, so over 1961-2025 each observance smears across all twelve Gregorian months. " +
+  "For that question call get_temporal_distribution with granularity=lunar_month, which pools every year " +
+  "into the twelve lunar months (Ramadan, Dhu al-Hijja/hajj and Shawwal/Korité all run well above the " +
+  "even split). calendar=hijri with granularity=year|month gives a Hijri time series instead. To read the " +
+  "items behind a peak, search_articles / search_publications take hijri_month (1-12, or a name in either " +
+  "transliteration — Ramadan, Chaabane, Dhou al-hijja) and hijri_year. Lunar dates are precomputed with " +
+  "the Umm al-Qura tables and need a full YYYY-MM-DD, so items dated only to a year or month are reported " +
+  "in imprecise_date_count and are ABSENT from lunar counts, not zero. They do not exist for references " +
+  "(an academic imprint date has no meaningful lunar reading).\n\n" +
   "FULL-TEXT COVERAGE: this is the public dataset, and OCR full text ships only for items whose " +
   "content is public on islam.zmo.de — about 61% of articles (7,480/12,287) and 86% of " +
   "publications (1,298/1,501). Titles, subjects and AI abstracts are searchable for ALL items, so " +

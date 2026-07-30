@@ -108,6 +108,26 @@ export interface ColumnOptions extends Partial<Frame> {
   /** Emitted as `data-key` on every bar, for delegated click handling. */
   clickable?: boolean;
   maxTicks?: number;
+  /**
+   * A dashed horizontal baseline with a label — for the charts whose whole
+   * question is "which bars are above the line?". Drawn under the bars so it
+   * never obscures a value, and folded into the peak so a reference above every
+   * bar is still visible.
+   */
+  reference?: { value: number; label: string };
+  /**
+   * Direct value labels above the bars, by category index. Selective by design:
+   * a number on every bar is noise, but the two or three that carry the finding
+   * should not need a hover to read.
+   */
+  labelled?: Set<number>;
+  /**
+   * Axis text, when it must be shorter than the category name. `categories`
+   * still supplies the tooltip and the accessible name, so shortening the axis
+   * never costs the full label — it just stops long names colliding. Same
+   * length and order as `categories`.
+   */
+  axisLabels?: string[];
 }
 
 /**
@@ -128,10 +148,12 @@ export function columns(o: ColumnOptions): string {
     w: width - PAD.left - PAD.right,
     h: height - PAD.top - PAD.bottom,
   };
-  const peak =
+  const rawPeak =
     mode === "stacked"
       ? Math.max(...categories.map((_, i) => series.reduce((a, s) => a + (s.values[i] || 0), 0)))
       : Math.max(...series.flatMap((s) => s.values.map((v) => v || 0)));
+  // A reference line above every bar would otherwise be clipped off the top.
+  const peak = o.reference ? Math.max(rawPeak, o.reference.value) : rawPeak;
   const scale = ticks(peak, 4);
 
   const colors = palette();
@@ -160,8 +182,37 @@ export function columns(o: ColumnOptions): string {
     });
   });
 
+  // Drawn between the gridlines and the bars: visible against the plot, never
+  // over a value.
+  let refMarkup = "";
+  if (o.reference) {
+    const y = plot.y + plot.h - (o.reference.value / scale.max) * plot.h;
+    refMarkup =
+      `<line x1="${n(plot.x)}" x2="${n(plot.x + plot.w)}" y1="${n(y)}" y2="${n(y)}" class="refline"/>` +
+      `<text x="${n(plot.x + plot.w)}" y="${n(y - 5)}" class="reflbl" text-anchor="end">${esc(o.reference.label)}</text>`;
+  }
+
+  const directLabels = o.labelled
+    ? categories
+        .map((_cat, i) => {
+          if (!o.labelled?.has(i)) return "";
+          const total = series.reduce((a, s) => a + (s.values[i] || 0), 0);
+          if (!total) return "";
+          const y = plot.y + plot.h - (total / scale.max) * plot.h;
+          return (
+            `<text x="${n(plot.x + i * step + step / 2)}" y="${n(y - 5)}" class="barlbl" ` +
+            `text-anchor="middle">${esc(fmt(total))}</text>`
+          );
+        })
+        .join("")
+    : "";
+
   return frame(
-    yAxis(scale.max, scale.values, plot, fmt) + bars.join("") + xAxis(categories, plot, height, o.maxTicks),
+    yAxis(scale.max, scale.values, plot, fmt) +
+      refMarkup +
+      bars.join("") +
+      directLabels +
+      xAxis(o.axisLabels ?? categories, plot, height, o.maxTicks),
     { width, height, minWidth: o.minWidth, ariaLabel: o.ariaLabel ?? "Bar chart" },
   );
 }

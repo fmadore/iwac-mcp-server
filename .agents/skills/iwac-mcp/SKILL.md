@@ -14,13 +14,13 @@ description: |
 
 # IWAC MCP Research Workflow
 
-Structured methodology for academic research using the IWAC MCP server's 30 possible tools (27 core + 3 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.9.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below). The essentials of this guidance are mirrored in the server's MCP `instructions` string (`mcpb/src/index.ts`) for skill-less clients — when updating one, update the other.
+Structured methodology for academic research using the IWAC MCP server's 37 possible tools (34 core + 3 optional semantic). Adapted from ALA-compliant archival research practices. Applies to server **v0.9.0+** — all matching is accent- and case-insensitive; result objects use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`); list/search tools return a pagination envelope (`count`, `total_matches`, `offset`, `limit`, `has_more`, `next_offset`); and enumerated filters are validated (see **Reading Results & Errors** below). The essentials of this guidance are mirrored in the server's MCP `instructions` string (`mcpb/src/index.ts`) for skill-less clients — when updating one, update the other.
 
 ## Prerequisites
 
 Load reference files **as needed**, not all upfront:
 
-1. **references/tools-by-phase.md** — all 30 possible tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
+1. **references/tools-by-phase.md** — all 37 possible tools with parameters, defaults, and verified filter vocabularies. Read before the first search of a session.
 2. **references/research-domains.md** — French search terms and transliteration variants by domain. Read when crafting search-term variants (Extended mode, or when a Brief search comes back thin).
 3. **references/biases-and-limitations.md** — collection biases, coverage gaps, sentiment caveats. Read before writing the synthesis.
 4. **references/capabilities-overview.md** — plain-language description of the collection and recommended ways into the data. Read when the user asks what you can do (see "Capability Questions" below).
@@ -29,7 +29,7 @@ For data schema and Omeka S API details, defer to the `iwac-data` skill.
 
 ## Capability Questions
 
-When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 30 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
+When the user asks what you can do with IWAC ("what can you do?", "qu'est-ce que tu peux faire ?", "what's in this collection?", "how could I search this?"), do **not** launch the research workflow, present the depth choice, or enumerate the 37 tools. Read **references/capabilities-overview.md** and answer in plain language, in the user's language:
 
 1. One short paragraph on what the collection is and covers.
 2. The main ways into the data (keyword, curated themes, people/organizations, semantic, sentiment, periodicals, scholarship) — described as research moves, not tool names.
@@ -106,7 +106,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 2. Use `get_country_comparison` to assess geographic coverage relevant to the question
 3. Use `get_newspaper_stats` with country filter to identify which newspapers cover the topic
 4. Use `list_subjects` to discover relevant subject terms; `list_periodicals` if Islamic publications are in scope
-5. Use `get_temporal_distribution` (keyword/country/subject filters; per-year or per-month counts) to see WHEN coverage exists before searching — one call replaces paging through results to gauge a trend
+5. Use `get_temporal_distribution` (keyword/country/subject filters; per-year or per-month counts) to see WHEN coverage exists before searching — one call replaces paging through results to gauge a trend. If the question touches an observance (Ramadan, hajj/Tabaski, Korité, Maouloud), use `granularity="lunar_month"` instead: the Gregorian axis cannot show an observance rhythm at all
 6. When you do not yet know what to search for, describe the material instead: `get_topic_distribution` maps a filtered set onto the 30 precomputed LDA topics, and `get_field_distribution(field=...)` ranks its subjects, places or bylines. Both are one call and beat guessing keywords.
 7. Identify which subsets are relevant: articles (press), publications (Islamic media), references (scholarship), documents (association papers), index (authority records)
 
@@ -155,7 +155,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 2. Use `get_sentiment_distribution` with `subject` filter to compare topic-specific sentiment against the collection baseline (e.g., `subject="Laïcité", country="Burkina Faso"` vs. the whole BF corpus)
 3. Before any sentiment claim carries weight, re-run it with `model="all"`. The three models agree unanimously on polarity for 54% of the corpus; where your slice diverges further, say so rather than quoting one model
 4. Use `search_articles` results (which include sentiment inline) to build topic-specific sentiment tables without extra calls
-5. Use `get_temporal_distribution` (optionally `group_by=country|newspaper`) to verify a claimed trend over time and compare trajectories across countries or outlets without paging
+5. Use `get_temporal_distribution` (optionally `group_by=country|newspaper`) to verify a claimed trend over time and compare trajectories across countries or outlets without paging. For an observance claim, `granularity="lunar_month"` is the test: it pools every year into the twelve lunar months, so a Ramadan or Dhu al-Hijja effect either stands above the even split or it does not
 6. Test whether a theme you have named is really distinct: `get_cooccurrence(field="subject")` shows what it is always discussed alongside, and `get_similar_items` on a key article shows whether your "finding" is one story reprinted across several outlets (scores ≥0.85)
 7. Flag coverage gaps: which countries, time periods, or languages are underrepresented for this question?
 
@@ -202,6 +202,13 @@ Account for French transliterations when searching:
 
 See **references/research-domains.md** for comprehensive term lists by domain.
 
+Lunar **month** names are a filter value rather than a search term, and
+`hijri_month` accepts either transliteration (`Ramadan` / `Ramadan`, `Sha'ban` /
+`Chaabane`, `Shawwal` / `Chawwal`, `Dhu al-Hijja` / `Dhou al-hijja`) plus the
+plain number 1–12. Prefer that filter over keyword-searching an observance name:
+the filter finds every item *published during* the month, while the keyword finds
+only items that happen to mention it.
+
 ## Key Constraints
 
 1. **Never present search results as exhaustive.** IWAC is a curated collection, not a complete archive. Absence of evidence is not evidence of absence.
@@ -213,3 +220,4 @@ See **references/research-domains.md** for comprehensive term lists by domain.
 7. **Publications are mostly entire issues.** Individual articles within an issue are not separated; use the table of contents where one exists (17 of 25 series) and `get_publication_fulltext` keyword excerpts to localise content inside an issue.
 8. **Mind the 1990-91 press-system break.** Pre-1991 articles (~11% of the corpus) come almost entirely from state or single-party organs; the private press only emerges with political liberalisation. Temporal comparisons crossing 1990 compare two different press systems (see biases-and-limitations.md §6).
 9. **Full text is masked per item.** The server reads the *public* dataset, where OCR ships only for items whose content is public on islam.zmo.de — about **61% of articles** (7,480/12,287) and **86% of publications** (1,298/1,501). Titles, subjects and AI abstracts cover every item, so nothing is invisible to discovery, but the full-text half of a keyword match reaches only those shares. Read `fulltext_coverage` from `get_collection_stats`, treat keyword totals as a **floor rather than a census**, and say so whenever a count carries an argument.
+10. **A lunar-month count is not seasonality.** `granularity="lunar_month"` pools every Hijri year, so it deliberately mixes Gregorian seasons: a Ramadan peak is an observance effect, never a weather or school-year one. It also needs a complete `YYYY-MM-DD` — items dated only to a year or month land in `imprecise_date_count` and are **absent from the bars, not zero** (98.9% of articles and 82.9% of publications convert). Lunar dates do not exist for `references`.

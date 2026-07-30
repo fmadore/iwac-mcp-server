@@ -22,6 +22,48 @@ const IWAC = "https://islam.zmo.de/s/afrique_ouest/item/";
 /** Subsets that carry an `OCR` column, and therefore the per-row public flag. */
 const OCR_SUBSETS = ["articles", "publications", "documents", "audiovisual"];
 
+/**
+ * Subsets the pipeline writes Hijri date columns to
+ * (post-processing/calculate_hijri_dates.py). `references` is deliberately
+ * absent there — an academic imprint date has no meaningful lunar reading — and
+ * so is absent here, which is what lets the tests assert that asking for a
+ * lunar bucket on `references` is a clean error rather than a silent empty.
+ */
+const HIJRI_SUBSETS = ["articles", "publications", "documents", "audiovisual", "images"];
+
+/**
+ * Gregorian → Umm al-Qura for every date the fixtures use, computed with
+ * `hijridate` (the pipeline's converter of record) rather than with Node's
+ * `Intl`. Hard-coded on purpose: baking a second converter into this repo is
+ * exactly the drift the precomputed columns exist to prevent, and the two
+ * disagree on most pre-2000 dates — several of which are in this table.
+ *
+ * All 6 fixture articles carry a complete date, so their lunar months spread
+ * over Rajab / Muharram / Jumada II / Dhu al-Qa'da ×2 / Ramadan — a
+ * distribution with a real peak. The imprecise-date path is exercised by
+ * `publications` (1912, 1998) and `documents` (1990), whose year-only dates
+ * stay NULL here and must surface as `imprecise_date_count`.
+ */
+const HIJRI = {
+  "1987-03-02": [1407, 7, 2],
+  "1994-01-01": [1414, 7, 19],
+  "1995-06-01": [1416, 1, 3],
+  "1995-06-15": [1416, 1, 17],
+  "2001-09-14": [1422, 6, 26],
+  "2003-01-10": [1423, 11, 7],
+  "2010-11-01": [1431, 11, 24],
+  "2015-04-16": [1436, 6, 27],
+  "2018-11-02": [1440, 2, 24],
+  "2019-02-11": [1440, 6, 6],
+  "2019-05-20": [1440, 9, 15],
+  "2020-04-25": [1441, 9, 2],
+  "2021-06-11": [1442, 11, 1],
+  "2023-05-01": [1444, 10, 11],
+  "2023-06-12": [1444, 11, 23],
+  "2024-03-16": [1445, 9, 6],
+  "2024-05-20": [1445, 11, 12],
+};
+
 /** One CREATE + INSERT block per subset (plain SQL keeps the data reviewable). */
 const SUBSET_SQL = {
   articles: `
@@ -229,6 +271,21 @@ async function main() {
       }
       await conn.run(`ALTER TABLE ${table} ADD COLUMN "OCR_is_public" BOOLEAN`);
       await conn.run(`UPDATE ${table} SET "OCR_is_public" = length(trim(coalesce("OCR", ''))) > 0`);
+    }
+    // Hijri columns, keyed off pub_date exactly as the pipeline does. Rows whose
+    // date is not a complete YYYY-MM-DD (year-only, or a `1981-04/1981-06`
+    // range) are left NULL — an imprecise date has no lunar day, and that
+    // absence is a case the tools have to report rather than plot.
+    if (HIJRI_SUBSETS.includes(subset)) {
+      for (const col of ["hijri_year", "hijri_month", "hijri_day"]) {
+        await conn.run(`ALTER TABLE ${table} ADD COLUMN "${col}" BIGINT`);
+      }
+      for (const [greg, [hy, hm, hd]] of Object.entries(HIJRI)) {
+        await conn.run(
+          `UPDATE ${table} SET "hijri_year" = ${hy}, "hijri_month" = ${hm}, "hijri_day" = ${hd}
+           WHERE pub_date = '${greg}'`,
+        );
+      }
     }
     const dir = path.join(fixturesDir, subset);
     await fs.mkdir(dir, { recursive: true });

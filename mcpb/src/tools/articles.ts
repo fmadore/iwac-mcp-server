@@ -10,10 +10,13 @@ import {
   countryParam,
   dateRangeFilter,
   errorResult,
+  hijriFilter,
   keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
+  requireHijriColumns,
+  resolveHijriMonth,
   resolveLimit,
   runListQuery,
   TEXT_COLS,
@@ -40,6 +43,14 @@ export function registerArticleTools(server: Server): void {
         subject: z.string().optional(),
         date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
+        hijri_month: z
+          .string()
+          .optional()
+          .describe(
+            "Islamic lunar month: 1-12, or a name (Ramadan, Chaabane, Chawwal, Dhu al-Hijja). Pulls the articles " +
+              "behind an observance peak — matches only items with a full YYYY-MM-DD date.",
+          ),
+        hijri_year: z.number().int().optional().describe("Islamic (Umm al-Qura) year, e.g. 1445"),
         with_description: z
           .boolean()
           .optional()
@@ -54,6 +65,15 @@ export function registerArticleTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       const dates = validateDateBounds(args.date_from, args.date_to);
       if (dates.err) return errorResult(dates.err);
+      const hijriMonth = resolveHijriMonth(args.hijri_month);
+      if (hijriMonth.err) return errorResult(hijriMonth.err);
+      // An asked-for lunar filter that silently did nothing would return the
+      // WHOLE unfiltered result set as if it were Ramadan's — so a dataset
+      // revision without the columns is an error, not a no-op.
+      if (hijriMonth.n !== undefined || args.hijri_year !== undefined) {
+        const missing = requireHijriColumns(schema, "articles");
+        if (missing) return errorResult(missing);
+      }
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
@@ -64,6 +84,7 @@ export function registerArticleTools(server: Server): void {
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       keywordFilter(schema, where, params, TEXT_COLS.articles, args.keyword);
       dateRangeFilter(schema, where, params, args.date_from, args.date_to);
+      hijriFilter(where, params, hijriMonth.n, args.hijri_year);
 
       return textResult(
         await runListQuery({

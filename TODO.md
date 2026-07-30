@@ -98,6 +98,34 @@
 > Islam Hebdo still have none), subject 87%, OCR 97% (median ~16k, max ~278k
 > tokens/issue); audiovisual descriptionAI **0/45**.
 
+### Islamic calendar
+
+- [x] **Precompute `hijri_year` / `hijri_month` / `hijri_day`** —
+  `post-processing/calculate_hijri_dates.py` in the pipeline repo converts
+  `pub_date` with `hijridate` (Umm al-Qura), the same converter as
+  IwacVisualizations' `generate_on_this_day.py`, so the website's buckets and
+  the MCP server's counts cannot drift. Precomputing rather than converting per
+  consumer is load-bearing: measured on the live `articles` subset, ICU/`Intl`
+  disagrees with `hijridate` on **75% of pre-2000 dates** (2,365 of 3,152) and
+  on none from 2000 on. Only 0.86% of articles change lunar *month*, so
+  month-level aggregates are robust either way — day-level labels are not.
+  Written for articles, publications, documents, audiovisual and images;
+  deliberately **not** references (an academic imprint date has no meaningful
+  lunar reading). Columns are allowlisted in `iwac_common/public_columns.json`.
+  Server side: `calendar=hijri` + `granularity=lunar_month` on
+  `get_temporal_distribution` (with the `lunar` MCP App chart), `hijri_month` /
+  `hijri_year` filters on `search_articles` / `search_publications`, and a
+  `hijri_date` field on article and publication rows. Every path degrades to a
+  self-correctable error on a dataset revision that predates the columns.
+  Shipped in **v1.2.0**.
+
+  - [ ] **Run the pipeline script and re-publish.** The code is in place but
+    the columns do not exist on the Hub yet — until
+    `calculate_hijri_dates.py --config <subset>` runs against the private repo
+    for each of the five subsets and `publish_public.py` projects it, the live
+    server answers the lunar tools with "no Hijri date columns in this dataset
+    revision".
+
 ### References (864 rows)
 
 - [ ] **Auto-tag `subject`** from title+abstract (only 27% tagged today),

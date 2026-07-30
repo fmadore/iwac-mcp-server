@@ -7,7 +7,16 @@
 // and its default `legacy: "stateless"` posture keeps answering 2025-era
 // clients from that same factory. (Hand-wiring a StreamableHTTPServerTransport,
 // as this did under SDK v1, serves the legacy era only.) `responseMode: "json"`
-// preserves the old `enableJsonResponse: true` behaviour — never stream.
+// asks for an unstreamed reply, and the modern era honours it — but the SDK
+// threads the option into its modern path only, so the legacy fallback it
+// builds alongside always frames the reply as a single SSE event. A 2025-era
+// client therefore gets `text/event-stream` where SDK v1's
+// `enableJsonResponse: true` gave it a bare `application/json` body. The
+// payload is identical either way and a spec-compliant client sends
+// `Accept: application/json, text/event-stream` and reads both, so nothing
+// breaks — but it is worth knowing if anything upstream ever buffers event
+// streams. (For the same reason GET /mcp now answers 405 rather than opening
+// a stream, which is spec-legal and which the official client handles.)
 //
 // A bearer token (config.bearerToken) gates every /mcp request; an
 // unauthenticated GET /health is exposed for the container health check.

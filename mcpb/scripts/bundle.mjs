@@ -122,6 +122,9 @@ svg{display:block;width:100%;height:auto}
 .panel svg{width:auto;max-width:100%}
 .grid{stroke:var(--line);stroke-width:1}
 .tick{fill:var(--muted);font-size:11px}
+.refline{stroke:var(--fg);stroke-width:1.2;stroke-dasharray:5 4;opacity:.55}
+.reflbl{fill:var(--muted);font-size:11px;font-style:italic}
+.barlbl{fill:var(--fg);font-size:11px;font-weight:600}
 .lbl{fill:var(--fg)}
 .big{fill:var(--fg);font-size:19px;font-weight:600}
 .cell{fill:#fff;font-size:12px;font-weight:600;paint-order:stroke;stroke:rgba(0,0,0,.28);stroke-width:2.5px}

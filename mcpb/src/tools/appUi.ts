@@ -45,6 +45,10 @@ export const CHARTS_UI_META = { ui: { resourceUri: CHARTS_UI_URI } };
  */
 export const VIEW = {
   temporal: "temporal",
+  // The lunar cycle is a different SHAPE, not just a different calendar: twelve
+  // fixed named categories with a meaningful baseline, where `temporal` plots an
+  // open-ended time series. Hijri year/month buckets stay on `temporal`.
+  lunar: "lunar",
   periodicals: "periodicals",
   countries: "countries",
   newspapers: "newspapers",

@@ -100,6 +100,20 @@ given item's nearest neighbours are. Eleven tools in all — the stats family pl
 these — declare an MCP App view, so in Claude they render as interactive charts
 rather than JSON.
 
+`get_temporal_distribution` also reads the **Islamic calendar**. With
+`granularity="lunar_month"` it pools every year into the twelve lunar months —
+the one bucket a Gregorian axis structurally cannot produce, because the Hijri
+year drifts ~11 days annually and so smears each observance across all twelve
+Gregorian months. Over the 12,220 fully-dated articles the archive's rhythm is
+plain: Ramadan +72%, Dhu al-Hijja +70% (hajj and Tabaski) and Shawwal +44%
+(Korité) against an even split, while Rabi' I — Maouloud — sits flat. `search_articles`
+and `search_publications` take `hijri_month` (1–12 or a name in either
+transliteration) and `hijri_year` to read the items behind a peak. The lunar
+dates are precomputed in the dataset pipeline with the Umm al-Qura tables, the
+same converter the on-this-day block on islam.zmo.de uses, so the two never
+disagree; items dated only to a year or month have no lunar date and are reported
+in `imprecise_date_count` rather than plotted.
+
 The three full-text tools — `get_article`, `get_document`, and
 `get_publication_fulltext` — optionally take a `keyword` to return ~2000-char
 excerpts around each match, so Claude reads just the relevant passages of a long

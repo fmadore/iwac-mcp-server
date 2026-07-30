@@ -10,6 +10,7 @@ import { cooccurrenceView } from "./cooccurrence.js";
 import { countriesView } from "./countries.js";
 import { fieldView } from "./field.js";
 import { lexicalView } from "./lexical.js";
+import { lunarView } from "./lunar.js";
 import { newspapersView } from "./newspapers.js";
 import { periodicalsView } from "./periodicals.js";
 import { placesView } from "./places.js";
@@ -21,6 +22,7 @@ import { topicsView } from "./topics.js";
 
 export const VIEWS: Record<string, View> = {
   temporal: temporalView,
+  lunar: lunarView,
   periodicals: periodicalsView,
   countries: countriesView,
   newspapers: newspapersView,

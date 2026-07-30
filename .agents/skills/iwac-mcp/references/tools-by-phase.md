@@ -1,6 +1,6 @@
 # IWAC MCP Tools by Research Phase
 
-27 possible tools (25 core + 2 optional semantic) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Server **v0.9.0+** adds `get_temporal_distribution` (counts per year/month — use it for any "how did coverage evolve" question instead of paging through searches).
+37 possible tools (34 core + 3 optional semantic) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Server **v0.9.0+** adds `get_temporal_distribution` (counts per year/month — use it for any "how did coverage evolve" question instead of paging through searches).
 
 ## Cross-Collection Entry Points
 
@@ -63,9 +63,10 @@ Primary search tool for the 12,287 newspaper articles.
 - `newspaper` (optional): substring match
 - `subject` (optional): substring match on the pipe-separated curated tags
 - `date_from` / `date_to` (optional): `YYYY-MM-DD` or `YYYY` (day precision)
+- `hijri_month` / `hijri_year` (optional) *(v1.2.0+)*: Islamic (Umm al-Qura) lunar date. `hijri_month` takes 1–12 or a name in either transliteration (`Ramadan`, `Chaabane`, `Chawwal`, `Dhou al-hijja`), accent- and case-folded; a misspelling errors with `valid_values`. Matches only articles with a complete `YYYY-MM-DD` (98.9%). This is how you read the items behind a `granularity="lunar_month"` peak — and it beats keyword-searching an observance name, which finds items *mentioning* it rather than items *published during* it.
 - `with_description` (optional, boolean): include each article's ~500-char AI abstract (`description_ai`) — ~125 tokens/row, pair with limit ≤ 10
 - `limit` (default 20, max 100), `offset`
-- Returns: id, title, author, newspaper, country, date, subject, spatial, language, **polarity**, **centrality**, **subjectivity**, url
+- Returns: id, title, author, newspaper, country, date, **hijri_date** (`1440-09-15`, v1.2.0+), subject, spatial, language, **polarity**, **centrality**, **subjectivity**, url
 
 **Tip:** Sentiment comes inline — build topic-specific sentiment tables directly from search results. With `with_description=true` you can usually pick the 2-3 articles worth a full `get_article` without any intermediate calls.
 
@@ -97,6 +98,7 @@ Search the 1,501 Islamic publications (mostly complete periodical issues; OCR is
 - `subject` (optional): ~87% of issues are tagged
 - `country` (optional, exact name)
 - `date_from` / `date_to` (optional): years (YYYY)
+- `hijri_month` / `hijri_year` (optional) *(v1.2.0+)*: same semantics as on `search_articles`, but only ~83% of issues carry a complete date (many are `YYYY-MM` or a `1981-04/1981-06` range), so a lunar filter reaches a smaller share here — say so if the count carries an argument
 - `limit` (default 20, max 100), `offset`
 - Returns: id, title, newspaper, country, date, language, subject, nb_pages, url — plus `matching_toc_entries` when the keyword hits an issue's table of contents (325/1,501 issues have one; see `semantic_search_publications` below for series coverage)
 
@@ -193,12 +195,27 @@ Detailed index entry. **Raw dataset columns, French names** (Titre, Titre altern
 ### get_temporal_distribution *(v0.9.0+)*
 Counts of matching items per year (or month) — one call replaces paging through search results for any trend question. Also useful in Phase 1 to scope a topic's timeline before searching.
 - `subset` (optional, validated): articles (default) | publications | references | documents | audiovisual | images
-- `granularity` (optional, validated): year (default) | month — items dated only to a year keep a bare-year key even at month granularity
+- `granularity` (optional, validated): year (default) | month | **lunar_month** *(v1.2.0+)* — items dated only to a year keep a bare-year key even at month granularity
+- `calendar` (optional, validated) *(v1.2.0+)*: gregorian (default) | hijri
 - `keyword` (optional): ONE substring over the subset's text fields (same semantics as the subset's search tool)
 - `country` / `newspaper` / `subject` / `date_from` / `date_to` (optional): same semantics as the subset's search tool
 - `group_by` (optional, validated): country | newspaper — returns `distribution_by_group` (one map per group) instead of `distribution`
 - Returns `total_matches`, `dated_count`, `undated_count` (undated items are counted, never silently dropped), and the `distribution` map sorted by year
 - **Tip:** `get_temporal_distribution(keyword="hadj", group_by="country")` charts six decades of hajj coverage per country in a single ~1k-token call.
+
+#### The Islamic calendar *(v1.2.0+)*
+
+**Reach for `granularity="lunar_month"` for any observance question.** It pools every year into the twelve lunar months, and it is the only bucket a Gregorian axis structurally cannot produce: the Hijri year drifts ~11 days annually, so across 1961–2025 each observance smears over all twelve Gregorian months and disappears. Measured over the 12,220 fully-dated articles, the archive's rhythm is unmistakable — **Ramadan +72 %, Dhu al-Hijja +70 %** (hajj and Tabaski), **Shawwal +44 %** (Korité, 1 Shawwal) against an even split, with the six ordinary months 24–35 % below it. **Rabi' I is flat (−5 %)**, so Maouloud is *not* treated as a news event the way the others are — a finding in its own right.
+
+- `lunar_month` implies `calendar="hijri"`; you do not have to pass both (and `lunar_month` + `calendar="gregorian"` is refused as incoherent).
+- `calendar="hijri"` with `granularity="year"` or `"month"` gives a Hijri *time series* instead (`1440`, `1440-09`).
+- Keys are zero-padded month numbers (`"01"`…`"12"`) so they sort; `month_labels` maps them to names — use it rather than hard-coding a transliteration.
+- **Precision.** Lunar dates need a complete `YYYY-MM-DD`. Items dated only to a year or month (or a `1981-04/1981-06` range) appear in `imprecise_date_count` and are **absent from the distribution, not zero** — 98.9 % of articles and 82.9 % of publications convert, so the gap is small but must be disclosed when a count carries an argument.
+- **Not seasonality.** Pooling by lunar month deliberately mixes Gregorian seasons; a Ramadan peak is an observance effect, never a weather or school-year one.
+- **Not available on `references`** — an academic imprint date has no meaningful lunar reading, so asking returns `{error, note}` naming the subsets that do carry lunar dates (articles, publications, documents, audiovisual, images).
+- **Converter.** Umm al-Qura, precomputed in the dataset pipeline with `hijridate` — the same converter (and therefore the same buckets) as the on-this-day block on islam.zmo.de. This matters: ICU/`Intl` disagrees with it on **75 % of this collection's pre-2000 dates**, though on only 0.86 % of the *month* assignments, so month-level aggregates are robust while day-level labels are not.
+- **Reading the peak:** `search_articles` / `search_publications` accept `hijri_month` (1–12 or a name — `Ramadan`, `Chaabane`, `Chawwal`, `Dhou al-hijja`, accent- and case-folded) and `hijri_year`. Rows come back with a `hijri_date` field (`1440-09-15`) alongside `date`. A misspelt month returns `{error, valid_values}`, never an empty result.
+- **Tip:** `get_temporal_distribution(granularity="lunar_month", country="Burkina Faso")` asks whether one country's press follows the observance rhythm more closely than another's — then `search_articles(hijri_month="Ramadan", country="Burkina Faso")` reads the items behind it.
 
 ### get_sentiment_distribution *(`model` added v0.13.0)*
 Aggregated AI sentiment counts.
