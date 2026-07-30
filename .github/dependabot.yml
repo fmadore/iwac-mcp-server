@@ -1,0 +1,42 @@
+# Weekly dependency PRs. Grouped so related packages land together and the
+# volume stays reviewable for a single maintainer.
+#
+# The `docker` ecosystem is deliberately absent: the Node major is coordinated
+# across mcpb/Dockerfile, ci.yml, docker-publish.yml (NODE_VERSION) and the
+# `engines` field, and Dependabot would bump only the Dockerfile — desyncing the
+# image from the runtime its tests ran on. Bump Node by hand, in all four places.
+#
+# Security updates are a separate repo setting (Settings → Advanced Security →
+# Dependabot security updates); they fire on advisories and ignore this schedule.
+version: 2
+updates:
+  # The npm manifest lives in mcpb/, not at the repo root.
+  - package-ecosystem: npm
+    directory: /mcpb
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # @duckdb/node-api and the four platform bindings must move in lockstep:
+      # the native ABI has to match, and scripts/install-duckdb-bindings.mjs
+      # fetches all four at one version for the per-platform .mcpb packs.
+      duckdb:
+        patterns:
+          - "@duckdb/*"
+      mcp-sdk:
+        patterns:
+          - "@modelcontextprotocol/*"
+          - "@anthropic-ai/mcpb"
+      dev-tooling:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"
