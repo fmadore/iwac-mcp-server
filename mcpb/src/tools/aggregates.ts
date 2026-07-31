@@ -21,12 +21,14 @@ import {
   COUNTRIES,
   countryParam,
   dateRangeFilter,
+  DEFAULT_SENTIMENT_MODEL,
   errorResult,
   itemUrl,
   keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   rowsToMap,
+  sentimentCols,
   structuredResult,
   TEXT_COLS,
   TITLE_COL,
@@ -49,8 +51,23 @@ const AGG_SUBSETS = ["articles", "publications", "references"] as const;
 
 const GROUP_FIELDS = ["year", "newspaper", "country"] as const;
 
-/** Fields a semantic scatter may colour by. */
-const COLOR_FIELDS = ["country", "newspaper", "subject", "lda_topic_label", "gemini_polarite"] as const;
+/**
+ * Fields a semantic scatter may colour by. `polarity` is the stable public name
+ * for the default model's polarity column, whose real name changed with the
+ * 2026-07-31 sentiment rename; both dataset spellings are accepted as aliases so
+ * a saved call keeps working.
+ */
+const COLOR_FIELDS = ["country", "newspaper", "subject", "lda_topic_label", "polarity"] as const;
+
+const COLOR_ALIASES: Record<string, string> = {
+  gemini_polarite: "polarity",
+  [sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity]: "polarity",
+};
+
+/** The dataset column behind a validated `color_by` value. */
+function colorColumn(field: string): string {
+  return field === "polarity" ? sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity : field;
+}
 
 /**
  * Which column holds each subset's vectors. Publications embed their table of
@@ -63,9 +80,6 @@ const EMBEDDING_COLS: Partial<Record<Subset, string>> = {
   references: "embedding_OCR",
   publications: "embedding_tableOfContents",
 };
-
-/** The three AI sentiment models the dataset carries, all at 100% coverage. */
-export const SENTIMENT_MODELS = ["gemini", "chatgpt", "mistral"] as const;
 
 /** Multi-value columns are pipe-joined; ranking one means exploding it first. */
 const PIPE_FIELDS = new Set(["subject", "spatial", "author", "language", "country"]);
@@ -727,7 +741,12 @@ export function registerAggregateTools(server: Server): void {
       inputSchema: z.object({
         subset: z.string().optional().describe("articles (default) | publications | references"),
         ...filterInputs(),
-        color_by: z.string().optional().describe("country | newspaper | subject | lda_topic_label | gemini_polarite"),
+        color_by: z
+          .string()
+          .optional()
+          .describe(
+            `country | newspaper | subject | lda_topic_label | polarity (${DEFAULT_SENTIMENT_MODEL.id}'s label)`,
+          ),
         limit: z.number().int().optional().describe("Items projected (default 300, max 2000)"),
       }),
       outputSchema: SEMANTIC_MAP_OUTPUT,
@@ -738,7 +757,12 @@ export function registerAggregateTools(server: Server): void {
       const subset = (subsetV.canonical ?? "articles") as Subset;
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
-      const colorV = validateEnum(args.color_by, COLOR_FIELDS, "color_by");
+      const colorRaw = args.color_by?.trim();
+      const colorV = validateEnum(
+        colorRaw ? (COLOR_ALIASES[colorRaw.toLowerCase()] ?? colorRaw) : colorRaw,
+        COLOR_FIELDS,
+        "color_by",
+      );
       if (colorV.err) return errorResult(colorV.err);
 
       const schema = await ensureView(subset);
@@ -749,7 +773,10 @@ export function registerAggregateTools(server: Server): void {
           valid_values: AGG_SUBSETS.filter((s) => EMBEDDING_COLS[s]),
         });
       }
-      const colorBy = colorV.canonical && schema.has(colorV.canonical) ? colorV.canonical : undefined;
+      // `colorBy` is the name echoed back; `colorCol` is the dataset column it
+      // reads. They differ for `polarity`, whose column carries the model name.
+      const colorCol = colorV.canonical ? colorColumn(colorV.canonical) : undefined;
+      const colorBy = colorCol && schema.has(colorCol) ? colorV.canonical : undefined;
       // 2,000 x 768 doubles is ~12 MB and ~1 s of power iteration; past that the
       // scatter is an unreadable smear anyway. The default is deliberately low:
       // every point costs payload, and 300 already fills a 760px frame.
@@ -771,7 +798,7 @@ export function registerAggregateTools(server: Server): void {
       const titleCol = TITLE_COL[subset];
       const rows = await query(
         `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title,
-                ${colorBy ? `${q(colorBy)} AS grp,` : ""} ${q(embeddingCol)} AS emb
+                ${colorBy ? `${q(colorCol as string)} AS grp,` : ""} ${q(embeddingCol)} AS emb
          FROM ${viewName(subset)} WHERE ${whereSql}
          ORDER BY "o:id" LIMIT ${limit}`,
         params,

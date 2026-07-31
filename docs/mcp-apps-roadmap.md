@@ -120,7 +120,7 @@ now exposed.
 | Signal | Coverage | Exposed by |
 |---|---|---|
 | `lda_topic_id/label/prob/topk` | **12,234 / 12,287** articles, 30 labels, 0 outliers | `get_topic_distribution` |
-| `chatgpt_*` + `mistral_*` sentiment | **12,287 / 12,287** for all three models | `get_sentiment_distribution(model=…)` |
+| `gemini_3_flash_preview_*`, `gpt_5_mini_*`, `ministral_14b_2512_*` sentiment | **12,286 / 12,356** for all three models (2026-07-31; the 70 newest articles are unscored) | `get_sentiment_distribution(model=…)` |
 | `Lisibilite_OCR`, `Richesse_Lexicale_OCR`, `nb_mots` | 12,286 | `get_lexical_metrics` |
 | `author` (articles) | 9,664 signed, **2,463** distinct values | `get_field_distribution(field=author)` |
 | `subject` (articles) | 10,580 tagged, avg ~7/article | `get_field_distribution`, `get_cooccurrence` |
@@ -169,7 +169,7 @@ only module that knows more than one chart exists.
 | # | Tool | Notes |
 |---|---|---|
 | 2.1 | `get_topic_distribution` | Treemap + optional stacked timeline; the residual band keeps the total honest. |
-| 2.2 | `get_sentiment_distribution(model)` | `gemini` \| `chatgpt` \| `mistral` \| `all`. Three-model unanimity on polarity: **6,668 / 12,287 = 54%**. |
+| 2.2 | `get_sentiment_distribution(model)` | `gemini-3-flash-preview` \| `gpt-5-mini` \| `ministral-14b-2512` \| `all` (the pre-2026-07-31 vendor handles still resolve). Three-model unanimity on polarity: **6,667 / 12,286 scored = 54%**. |
 | 2.3 | `get_cooccurrence` | Symmetric matrix + strongest pairs; matrix or force-directed network. |
 | 2.4 + 2.6 | `get_field_distribution` | **Merged.** See §8. |
 | 2.5 | `get_lexical_metrics` | Readability / MATTR / length by year, newspaper or country. |

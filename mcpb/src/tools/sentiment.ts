@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
-import { SENTIMENT_MODELS } from "./aggregates.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   capOffset,
@@ -8,6 +7,7 @@ import {
   COUNTRIES,
   colsFor,
   countryParam,
+  DEFAULT_SENTIMENT_MODEL,
   errorResult,
   foldedEquals,
   likeFilterIfExists,
@@ -15,12 +15,17 @@ import {
   POLARITY_VALUES,
   pubDateOrder,
   resolveLimit,
+  resolveSentimentModel,
   rowsToMap,
   runListQuery,
+  SENTIMENT_MODEL_IDS,
+  SENTIMENT_MODELS,
+  sentimentCols,
   structuredResult,
   textResult,
   toolMeta,
   validateEnum,
+  type SentimentModel,
   type Server,
 } from "./_shared.js";
 
@@ -47,7 +52,9 @@ export function registerSentimentTools(server: Server): void {
     {
       ...toolMeta("Filter articles by AI sentiment"),
       description:
-        "Filter articles by Gemini sentiment labels (accent/case-insensitive exact match).",
+        `Filter articles by ${DEFAULT_SENTIMENT_MODEL.id} sentiment labels (accent/case-insensitive exact ` +
+        "match). One model's reading, not a consensus — two other models scored the same articles and often " +
+        "disagree; get_sentiment_distribution with model:\"all\" shows by how much.",
       inputSchema: z.object({
         polarity: z
           .string()
@@ -73,15 +80,26 @@ export function registerSentimentTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
+      const cols = sentimentCols(DEFAULT_SENTIMENT_MODEL);
       const where: string[] = [];
       const params: Bindable[] = [];
 
-      if (polarity.canonical && schema.has("gemini_polarite")) {
-        where.push(foldedEquals("gemini_polarite"));
+      // A requested filter whose column this revision lacks is an error, not a
+      // dropped clause: silently returning the unfiltered corpus reads as "every
+      // article is Très négatif". Reachable on a cache predating the 2026-07-31
+      // sentiment column rename.
+      if (polarity.canonical) {
+        if (!schema.has(cols.polarity)) {
+          return errorResult({ error: `This dataset revision has no ${cols.polarity} column, so polarity cannot be filtered` });
+        }
+        where.push(foldedEquals(cols.polarity));
         params.push(polarity.canonical);
       }
-      if (centrality.canonical && schema.has("gemini_centralite_islam_musulmans")) {
-        where.push(foldedEquals("gemini_centralite_islam_musulmans"));
+      if (centrality.canonical) {
+        if (!schema.has(cols.centrality)) {
+          return errorResult({ error: `This dataset revision has no ${cols.centrality} column, so centrality cannot be filtered` });
+        }
+        where.push(foldedEquals(cols.centrality));
         params.push(centrality.canonical);
       }
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
@@ -107,12 +125,12 @@ export function registerSentimentTools(server: Server): void {
     {
       ...toolMeta("Aggregate AI sentiment"),
       description:
-        "Aggregate AI polarity, centrality and subjectivity across a filter set. Three models scored every " +
-        'article independently — gemini (default), chatgpt and mistral — so model:"all" returns each one\'s ' +
+        "Aggregate AI polarity, centrality and subjectivity across a filter set. Three models scored the " +
+        `corpus independently — ${SENTIMENT_MODEL_IDS.join(", ")} — so model:"all" returns each one's ` +
         "distribution plus how often they AGREE. Treat disagreement as a fact about the judgement rather than " +
         "noise: in a set where the three models split on polarity, no single model's number should be quoted " +
-        "alone. Scores cover every article whether or not its full text ships, so these shares are not subject " +
-        "to the OCR coverage limit.",
+        "alone. Articles were scored whether or not their full text ships, so these shares are not subject to " +
+        "the OCR coverage limit; compare scored_by_all against total_articles for the residual gap.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         country: countryParam(),
@@ -121,7 +139,11 @@ export function registerSentimentTools(server: Server): void {
         model: z
           .string()
           .optional()
-          .describe('gemini (default) | chatgpt | mistral | all — "all" adds the cross-model agreement'),
+          .describe(
+            `${SENTIMENT_MODEL_IDS.join(" | ")} | all — default ${DEFAULT_SENTIMENT_MODEL.id}; ` +
+              '"all" adds the cross-model agreement. The vendor shorthands gemini/chatgpt/mistral are ' +
+              "also accepted and resolve to the model that ran.",
+          ),
       }),
       outputSchema: SENTIMENT_DISTRIBUTION_OUTPUT,
     },
@@ -129,9 +151,16 @@ export function registerSentimentTools(server: Server): void {
       const schema = await ensureView("articles");
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
-      const modelV = validateEnum(args.model, [...SENTIMENT_MODELS, "all"] as const, "model");
-      if (modelV.err) return errorResult(modelV.err);
-      const requested = modelV.canonical ?? "gemini";
+
+      // Not validateEnum: the vendor shorthands are accepted but are not part of
+      // the canonical vocabulary, so resolution and the valid_values list differ.
+      const raw = args.model?.trim();
+      const wantsAll = raw !== undefined && raw.toLowerCase() === "all";
+      const resolved = raw === undefined || raw === "" ? DEFAULT_SENTIMENT_MODEL : resolveSentimentModel(raw);
+      if (!wantsAll && !resolved) {
+        return errorResult({ error: `Invalid model: ${raw}`, valid_values: [...SENTIMENT_MODEL_IDS, "all"] });
+      }
+      const requested = wantsAll ? "all" : (resolved as SentimentModel).id;
       const where: string[] = [];
       const params: Bindable[] = [];
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
@@ -141,14 +170,17 @@ export function registerSentimentTools(server: Server): void {
 
       // Only the models this revision actually carries. Asking for a missing
       // one is an error naming the real list, not a silent all-zero envelope.
-      const available = SENTIMENT_MODELS.filter((m) => schema.has(`${m}_polarite`));
+      const available = SENTIMENT_MODELS.filter((m) => schema.has(sentimentCols(m).polarity));
       if (!available.length) {
         return errorResult({ error: "This dataset revision carries no AI sentiment columns" });
       }
-      if (requested !== "all" && !available.includes(requested as (typeof SENTIMENT_MODELS)[number])) {
-        return errorResult({ error: `Model '${requested}' is not in this dataset revision`, valid_values: available });
+      if (!wantsAll && !available.includes(resolved as SentimentModel)) {
+        return errorResult({
+          error: `Model '${requested}' is not in this dataset revision`,
+          valid_values: available.map((m) => m.id),
+        });
       }
-      const models = requested === "all" ? [...available] : [requested as (typeof SENTIMENT_MODELS)[number]];
+      const models: SentimentModel[] = wantsAll ? [...available] : [resolved as SentimentModel];
 
       const total = Number(
         (await queryScalarSingle<number | bigint>(
@@ -168,20 +200,21 @@ export function registerSentimentTools(server: Server): void {
       };
 
       /** Polarity, centrality and subjectivity for one model, under this filter. */
-      const distributionsFor = async (model: string): Promise<Record<string, unknown>> => {
+      const distributionsFor = async (model: SentimentModel): Promise<Record<string, unknown>> => {
+        const cols = sentimentCols(model);
         const out: Record<string, unknown> = {};
-        if (schema.has(`${model}_polarite`)) {
+        if (schema.has(cols.polarity)) {
           out.polarity_distribution = rowsToMap(
             await query(
-              `SELECT ${q(`${model}_polarite`)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
+              `SELECT ${q(cols.polarity)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
               params,
             ),
           );
         }
-        if (schema.has(`${model}_centralite_islam_musulmans`)) {
+        if (schema.has(cols.centrality)) {
           out.centrality_distribution = rowsToMap(
             await query(
-              `SELECT ${q(`${model}_centralite_islam_musulmans`)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
+              `SELECT ${q(cols.centrality)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
               params,
             ),
           );
@@ -191,8 +224,8 @@ export function registerSentimentTools(server: Server): void {
         // subjective" to anyone who assumes the usual normalised score. The
         // per-level counts come along because five buckets cost almost nothing
         // and say more than any average of an ordinal rating.
-        if (schema.has(`${model}_subjectivite_score`)) {
-          const col = q(`${model}_subjectivite_score`);
+        if (schema.has(cols.subjectivity)) {
+          const col = q(cols.subjectivity);
           const row = await queryOne(
             `SELECT ROUND(AVG(${col}), 3) AS mean, ROUND(median(${col}), 3) AS med, COUNT(${col}) AS scored
              FROM ${viewName("articles")} ${whereSql}`,
@@ -216,26 +249,26 @@ export function registerSentimentTools(server: Server): void {
         return out;
       };
 
-      if (requested !== "all") {
-        Object.assign(payload, await distributionsFor(requested));
+      if (!wantsAll) {
+        Object.assign(payload, await distributionsFor(resolved as SentimentModel));
         return structuredResult(payload);
       }
 
       const byModel: Record<string, unknown> = {};
-      for (const m of models) byModel[m] = await distributionsFor(m);
-      payload.models = models;
+      for (const m of models) byModel[m.id] = await distributionsFor(m);
+      payload.models = models.map((m) => m.id);
       payload.by_model = byModel;
 
       if (models.length > 1) {
         // Agreement is measured on polarity: the field most likely to differ
         // between models and the one whose number gets quoted the most.
-        const cols = models.map((m) => q(`${m}_polarite`));
+        const cols = models.map((m) => q(sentimentCols(m).polarity));
         const scoredExpr = cols.map((c) => `NULLIF(trim(${c}), '') IS NOT NULL`).join(" AND ");
         const sameExpr = cols.slice(1).map((c) => `${cols[0]} = ${c}`).join(" AND ");
         const pairExprs = models.flatMap((a, i) =>
           models.slice(i + 1).map((b) => ({
-            key: `${a}~${b}`,
-            sql: `COUNT(*) FILTER (WHERE ${q(`${a}_polarite`)} = ${q(`${b}_polarite`)} AND ${scoredExpr})`,
+            key: `${a.id}~${b.id}`,
+            sql: `COUNT(*) FILTER (WHERE ${q(sentimentCols(a).polarity)} = ${q(sentimentCols(b).polarity)} AND ${scoredExpr})`,
           })),
         );
         const row = await queryOne(
@@ -261,10 +294,10 @@ export function registerSentimentTools(server: Server): void {
 
         // Where the disagreement actually goes: how the first model's label
         // maps onto the second's. "They disagree 46% of the time" is much less
-        // useful than "chatgpt reads as Neutre what gemini calls Négatif".
+        // useful than "gpt-5-mini reads as Neutre what gemini calls Négatif".
         const [a, b] = models;
         const cells = await query(
-          `SELECT ${q(`${a}_polarite`)} AS ra, ${q(`${b}_polarite`)} AS rb, COUNT(*) AS c
+          `SELECT ${q(sentimentCols(a).polarity)} AS ra, ${q(sentimentCols(b).polarity)} AS rb, COUNT(*) AS c
            FROM ${viewName("articles")} ${whereSql} GROUP BY 1, 2`,
           params,
         );
@@ -275,7 +308,7 @@ export function registerSentimentTools(server: Server): void {
           counts[ka] ??= {};
           counts[ka][kb] = Number(r.c);
         }
-        payload.agreement_matrix = { rows: a, cols: b, counts };
+        payload.agreement_matrix = { rows: a.id, cols: b.id, counts };
       }
 
       return structuredResult(payload);

@@ -220,11 +220,75 @@ export function countryParam(opts: { nigeria?: boolean; note?: string } = {}) {
     .describe(`Exact country name: ${values} (accents optional)${opts.note ? `. ${opts.note}` : ""}`);
 }
 
-/** Gemini polarity labels (articles). */
+/** AI polarity labels (articles); same five-point scale for all three models. */
 export const POLARITY_VALUES = ["Très positif", "Positif", "Neutre", "Négatif", "Très négatif", "Non applicable"] as const;
 
-/** Gemini centrality labels (articles). */
+/** AI centrality labels (articles); same five-point scale for all three models. */
 export const CENTRALITY_VALUES = ["Très central", "Central", "Secondaire", "Marginal", "Non abordé"] as const;
+
+// -----------------------------------------------------------------------------
+// AI sentiment models
+// -----------------------------------------------------------------------------
+
+export interface SentimentModel {
+  /** Canonical id — the exact model that produced the scores. */
+  id: string;
+  /** Dataset column prefix: `<prefix>_polarite`, `<prefix>_centralite_islam_musulmans`, … */
+  prefix: string;
+  /** Handles also accepted on input (vendor shorthand, pre-2026-07-31 spellings). */
+  aliases: string[];
+}
+
+/**
+ * The three models that scored the corpus, at 100% coverage each.
+ *
+ * On 2026-07-31 the dataset renamed these columns. The old prefixes
+ * (`gemini_`, `chatgpt_`, `mistral_`) named a VENDOR SLOT while nothing in the
+ * data recorded which model had actually run inside it, so they now name the
+ * model — and so does this server: quoting a polarity share without saying what
+ * produced it is precisely the ambiguity the rename removes. The old handles
+ * stay accepted as aliases so callers and skill docs written before it keep
+ * working; they resolve to the id, which is what every payload echoes back.
+ */
+export const SENTIMENT_MODELS: SentimentModel[] = [
+  { id: "gemini-3-flash-preview", prefix: "gemini_3_flash_preview", aliases: ["gemini", "google"] },
+  { id: "gpt-5-mini", prefix: "gpt_5_mini", aliases: ["chatgpt", "openai", "gpt"] },
+  { id: "ministral-14b-2512", prefix: "ministral_14b_2512", aliases: ["mistral", "ministral"] },
+];
+
+/**
+ * The model reported by the single-model surfaces: the `polarity`/`centrality`/
+ * `subjectivity` columns on article rows, search_by_sentiment's filters, and
+ * get_country_comparison. Those name it explicitly rather than implying a
+ * consensus — get_sentiment_distribution with model:"all" is the tool for that.
+ */
+export const DEFAULT_SENTIMENT_MODEL: SentimentModel = SENTIMENT_MODELS[0];
+
+/** Canonical ids, for `valid_values` in an error and for tool descriptions. */
+export const SENTIMENT_MODEL_IDS: string[] = SENTIMENT_MODELS.map((m) => m.id);
+
+/** The three scored columns of one model. */
+export function sentimentCols(m: SentimentModel): {
+  polarity: string;
+  centrality: string;
+  subjectivity: string;
+} {
+  return {
+    polarity: `${m.prefix}_polarite`,
+    centrality: `${m.prefix}_centralite_islam_musulmans`,
+    subjectivity: `${m.prefix}_subjectivite_score`,
+  };
+}
+
+/**
+ * Resolve a caller's model handle to its registry entry, accepting the canonical
+ * id, a vendor alias, or the raw column prefix (`_` and `-` are interchangeable,
+ * so `gpt_5_mini` and `gpt-5-mini` both land on the same model).
+ */
+export function resolveSentimentModel(input: string): SentimentModel | undefined {
+  const key = input.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return SENTIMENT_MODELS.find((m) => m.id === key || m.aliases.includes(key));
+}
 
 /** Authority-index `Type` values. */
 export const INDEX_TYPES = ["Personnes", "Organisations", "Lieux", "Événements", "Sujets", "Notices d'autorité"] as const;
@@ -701,7 +765,8 @@ export function indexFreqOrder(schema: Set<string>): string {
 // Output keys are normalised to short English snake_case across all tools so the
 // model sees ONE shape (`id`, `date`, `polarity`, …) instead of re-learning
 // per-tool field names — and the long French dataset keys
-// (gemini_centralite_islam_musulmans × 20 rows) stop costing tokens.
+// (gemini_3_flash_preview_centralite_islam_musulmans × 20 rows) stop costing
+// tokens.
 //
 // Each column is declared ONCE, with its SQL expression, output alias, schema
 // dependencies, and the set of VIEWS it belongs to. Previously the same column
@@ -785,6 +850,14 @@ const ABSTRACT_SNIPPET_EXPR =
 
 const ALL_ARTICLE_VIEWS: FieldView[] = ["detail", "fetch", "summary", "sentiment"];
 
+/**
+ * The sentiment columns projected onto article rows. One model's, not a blend:
+ * the three disagree often enough that averaging them here would invent a
+ * number no annotator produced. `requires` drops them on a revision that
+ * predates the 2026-07-31 column rename rather than throwing.
+ */
+const SENTIMENT = sentimentCols(DEFAULT_SENTIMENT_MODEL);
+
 const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
   articles: [
     ...ID_URL(ALL_ARTICLE_VIEWS),
@@ -813,17 +886,17 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       views: ["detail", "fetch", "triage"],
       searchable: true,
     },
-    { expr: "gemini_polarite", alias: "polarity", requires: ["gemini_polarite"], views: ALL_ARTICLE_VIEWS },
+    { expr: SENTIMENT.polarity, alias: "polarity", requires: [SENTIMENT.polarity], views: ALL_ARTICLE_VIEWS },
     {
-      expr: "gemini_centralite_islam_musulmans",
+      expr: SENTIMENT.centrality,
       alias: "centrality",
-      requires: ["gemini_centralite_islam_musulmans"],
+      requires: [SENTIMENT.centrality],
       views: ALL_ARTICLE_VIEWS,
     },
     {
-      expr: "gemini_subjectivite_score",
+      expr: SENTIMENT.subjectivity,
       alias: "subjectivity",
-      requires: ["gemini_subjectivite_score"],
+      requires: [SENTIMENT.subjectivity],
       views: ["detail", "summary", "sentiment"],
     },
     { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], views: ["detail"] },

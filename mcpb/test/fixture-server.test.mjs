@@ -337,7 +337,13 @@ await call("get_newspaper_stats", { country: "Niger" }, {
 });
 await call("get_country_comparison", {}, {
   structured: true,
-  check: (p) => (p.total_countries === 5 ? null : `expected 5 article countries, got ${p.total_countries}`),
+  check: (p) => {
+    if (p.total_countries !== 5) return `expected 5 article countries, got ${p.total_countries}`;
+    // The polarity buckets are one model's, so the payload has to say whose.
+    if (p.polarity_model !== "gemini-3-flash-preview") return `polarity_model wrong: ${p.polarity_model}`;
+    if (!p.countries?.some((c) => c.polarity && Object.keys(c.polarity).length)) return "no country carries polarity";
+    return null;
+  },
 });
 await call("get_sentiment_distribution", { country: "Benin" }, {
   structured: true,
@@ -608,6 +614,18 @@ await call("get_semantic_map", { color_by: "country" }, {
     return null;
   },
 });
+// `polarity` is the stable public name for a column whose real name carries the
+// model and changed in the 2026-07-31 rename; the old spelling still resolves.
+for (const value of ["polarity", "gemini_polarite", "gemini_3_flash_preview_polarite"]) {
+  await call("get_semantic_map", { color_by: value }, {
+    structured: true,
+    check: (p) => {
+      if (p.color_by !== "polarity") return `color_by=${value} should echo "polarity", got ${p.color_by}`;
+      if (!p.points?.every((x) => x.group)) return `color_by=${value} did not populate group`;
+      return null;
+    },
+  });
+}
 // Deterministic: the same filter must project the same picture, or the chart
 // reshuffles itself on every call and cannot be read as evidence.
 {
@@ -728,36 +746,58 @@ await call("get_lexical_metrics", { group_by: "country" }, {
   check: (p) => (p.groups?.some((g) => g.group === "Benin") ? null : "country grouping missing Benin"),
 });
 
-// Cross-model sentiment: three models, and how far they agree.
+// Cross-model sentiment: three models, and how far they agree. Every model
+// identifier here is the EXACT model that scored the corpus — the dataset
+// renamed its vendor-slot columns on 2026-07-31 and the server echoes the new
+// names, because a polarity share is meaningless without knowing what produced it.
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,
   check: (p) => {
-    if (String(p.models) !== "gemini,chatgpt,mistral") return `models wrong: ${p.models}`;
-    if (!p.by_model?.chatgpt?.polarity_distribution) return "per-model distributions missing";
+    if (String(p.models) !== "gemini-3-flash-preview,gpt-5-mini,ministral-14b-2512") return `models wrong: ${p.models}`;
+    if (!p.by_model?.["gpt-5-mini"]?.polarity_distribution) return "per-model distributions missing";
     if (p.agreement?.scored_by_all !== 6) return `all 6 fixture articles are scored, got ${p.agreement?.scored_by_all}`;
     // 102 (Positif) and 105 (Neutre) match across all three; the rest split.
     if (p.agreement.unanimous !== 2) return `expected 2 unanimous articles, got ${p.agreement.unanimous}`;
     if (p.agreement.unanimous_percent !== 33) return `expected 33%, got ${p.agreement.unanimous_percent}`;
-    if (p.agreement.pairwise?.["gemini~chatgpt"] === undefined) return "pairwise agreement missing";
-    if (p.agreement_matrix?.rows !== "gemini") return "confusion matrix should be rows=gemini";
+    if (p.agreement.pairwise?.["gemini-3-flash-preview~gpt-5-mini"] === undefined) return "pairwise agreement missing";
+    if (p.agreement_matrix?.rows !== "gemini-3-flash-preview") return "confusion matrix rows should be the default model";
     return null;
   },
 });
-await call("get_sentiment_distribution", { model: "chatgpt" }, {
+await call("get_sentiment_distribution", { model: "gpt-5-mini" }, {
   structured: true,
   check: (p) => {
-    if (p.model !== "chatgpt") return "model not echoed";
+    if (p.model !== "gpt-5-mini") return "model not echoed";
     if (p.by_model) return "a single-model call should not return by_model";
-    if (p.polarity_distribution?.Neutre !== 3) return `chatgpt Neutre should be 3, got ${JSON.stringify(p.polarity_distribution)}`;
+    if (p.polarity_distribution?.Neutre !== 3) return `gpt-5-mini Neutre should be 3, got ${JSON.stringify(p.polarity_distribution)}`;
     // Subjectivity is an ordinal 1-5 rating; the scale must ship with it.
     if (!String(p.subjectivity?.scale ?? "").includes("1-5")) return "subjectivity must declare its 1-5 scale";
     if (p.subjectivity.mean > 5 || p.subjectivity.mean < 1) return `mean ${p.subjectivity.mean} outside the scale`;
     return null;
   },
 });
+// The pre-rename vendor handles still resolve, and resolve to the model id —
+// callers and skill docs written before 2026-07-31 keep working, and learn the
+// real name from the echo.
+await call("get_sentiment_distribution", { model: "chatgpt" }, {
+  structured: true,
+  check: (p) => (p.model === "gpt-5-mini" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
+});
+await call("get_sentiment_distribution", { model: "mistral" }, {
+  structured: true,
+  check: (p) => (p.model === "ministral-14b-2512" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
+});
+// The raw dataset column prefix is accepted too (underscores ≡ hyphens).
+await call("get_sentiment_distribution", { model: "gemini_3_flash_preview" }, {
+  structured: true,
+  check: (p) => (p.model === "gemini-3-flash-preview" ? null : `column prefix should resolve, got ${p.model}`),
+});
 await call("get_sentiment_distribution", { model: "llama" }, {
   expectError: true,
-  checkBody: (b) => (b.includes("valid_values") ? null : "an unknown model should list the valid ones"),
+  checkBody: (b) =>
+    b.includes("valid_values") && b.includes("ministral-14b-2512")
+      ? null
+      : "an unknown model should list the valid ones by model id",
 });
 
 // --- publications / documents / audiovisual --------------------------------------

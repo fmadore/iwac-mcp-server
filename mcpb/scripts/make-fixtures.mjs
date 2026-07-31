@@ -71,18 +71,23 @@ const SUBSET_SQL = {
       "o:id" VARCHAR, identifier VARCHAR, title VARCHAR, author VARCHAR,
       newspaper VARCHAR, country VARCHAR, pub_date VARCHAR, subject VARCHAR,
       spatial VARCHAR, language VARCHAR, "descriptionAI" VARCHAR, "OCR" VARCHAR,
-      gemini_polarite VARCHAR, gemini_centralite_islam_musulmans VARCHAR,
-      gemini_subjectivite_score DOUBLE, nb_mots BIGINT, nb_pages BIGINT,
+      -- Sentiment columns are named for the MODEL that scored the corpus, not
+      -- the vendor slot it ran in: the dataset renamed gemini_/chatgpt_/mistral_
+      -- to these on 2026-07-31, and a fixture on the old names would let the
+      -- server's schema.has() guards pass a build that reads nothing.
+      gemini_3_flash_preview_polarite VARCHAR,
+      gemini_3_flash_preview_centralite_islam_musulmans VARCHAR,
+      gemini_3_flash_preview_subjectivite_score DOUBLE, nb_mots BIGINT, nb_pages BIGINT,
       "Richesse_Lexicale_OCR" DOUBLE, "Lisibilite_OCR" DOUBLE, iwac_url VARCHAR,
       -- LDA topics and the two further sentiment models, so the aggregate
       -- tools have something to aggregate. Subjectivity is an INTEGER 1-5
       -- rating in the real parquet, not a 0-1 proportion — the fixture matches
       -- that, because a tool which ships the scale must be tested against it.
       lda_topic_id DOUBLE, lda_topic_prob DOUBLE, lda_topic_label VARCHAR,
-      chatgpt_polarite VARCHAR, chatgpt_centralite_islam_musulmans VARCHAR,
-      chatgpt_subjectivite_score DOUBLE,
-      mistral_polarite VARCHAR, mistral_centralite_islam_musulmans VARCHAR,
-      mistral_subjectivite_score DOUBLE,
+      gpt_5_mini_polarite VARCHAR, gpt_5_mini_centralite_islam_musulmans VARCHAR,
+      gpt_5_mini_subjectivite_score DOUBLE,
+      ministral_14b_2512_polarite VARCHAR, ministral_14b_2512_centralite_islam_musulmans VARCHAR,
+      ministral_14b_2512_subjectivite_score DOUBLE,
       -- Toy 4-d embeddings, not the real 768. The PCA projection does not care
       -- about dimensionality, and these are laid out as two separable clusters
       -- (the hadj/pilgrimage rows against the rest) so the projection has a

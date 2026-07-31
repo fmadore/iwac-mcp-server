@@ -15,11 +15,13 @@ interface Country {
   article_count?: number;
   newspaper_count?: number;
   date_range?: { earliest?: string; latest?: string };
-  gemini_polarity?: Record<string, number>;
+  polarity?: Record<string, number>;
 }
 
 export interface CountriesPayload extends BasePayload {
   total_countries?: number;
+  /** Which model produced the polarity buckets — three scored the corpus. */
+  polarity_model?: string;
   countries?: Country[];
 }
 
@@ -54,9 +56,10 @@ export function countriesView(payload: BasePayload): ViewResult {
   // Polarity, normalised per country: the interesting question is whether Niger
   // reads more negative than Benin, which raw counts hide behind volume.
   const labels = orderBy(
-    [...new Set(rows.flatMap((c) => Object.keys(c.gemini_polarity ?? {})))],
+    [...new Set(rows.flatMap((c) => Object.keys(c.polarity ?? {})))],
     POLARITY_ORDER,
   );
+  const model = p.polarity_model ?? "one AI model";
   const polarity = labels.length
     ? stackedBar({
         categories: names,
@@ -64,7 +67,7 @@ export function countriesView(payload: BasePayload): ViewResult {
           label,
           color: ordinalColor(label, POLARITY_ORDER),
           values: rows.map((c) => {
-            const bucket = c.gemini_polarity ?? {};
+            const bucket = c.polarity ?? {};
             const sum = Object.values(bucket).reduce((a, b) => a + b, 0);
             return sum ? (bucket[label] ?? 0) / sum : 0;
           }),
@@ -75,14 +78,14 @@ export function countriesView(payload: BasePayload): ViewResult {
       }) + legend(labels, labels.map((l) => ordinalColor(l, POLARITY_ORDER) ?? "#888"))
     : "";
 
-  const scored = rows.filter((c) => Object.keys(c.gemini_polarity ?? {}).length).length;
+  const scored = rows.filter((c) => Object.keys(c.polarity ?? {}).length).length;
 
   return {
     title: "Countries compared",
     subtitle: `${fmtInt(rows.length)} countries · ${fmtInt(total)} articles`,
     body: panels([
       { title: "Articles", body: volume },
-      ...(polarity ? [{ title: "AI polarity mix (share of each country)", body: polarity }] : []),
+      ...(polarity ? [{ title: `Polarity mix per country (${model})`, body: polarity }] : []),
     ]),
     notes: [
       "Click a country to chart its coverage over time.",
@@ -90,7 +93,8 @@ export function countriesView(payload: BasePayload): ViewResult {
         scored < rows.length &&
         `Polarity shown for ${scored} of ${rows.length} countries; the rest carry no scored articles.`,
       polarity &&
-        "Polarity is a Gemini judgement over every article, full text or not — it is not affected by the OCR coverage limit.",
+        `Polarity is ${model}'s judgement over every article, full text or not — it is not affected by the OCR ` +
+          "coverage limit. Two other models scored the same articles and read some of them differently.",
     ],
     actions: [
       {
@@ -108,7 +112,7 @@ export function countriesView(payload: BasePayload): ViewResult {
                 c.newspaper_count,
                 c.date_range?.earliest,
                 c.date_range?.latest,
-                ...labels.map((l) => c.gemini_polarity?.[l] ?? 0),
+                ...labels.map((l) => c.polarity?.[l] ?? 0),
               ]),
             ]),
           ),

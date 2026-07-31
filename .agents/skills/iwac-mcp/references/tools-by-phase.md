@@ -25,7 +25,7 @@ Overall collection statistics: subset record counts, articles by country, date r
 ### get_country_comparison
 Compare statistics across the 5 article countries (Nigeria has no press articles).
 - No parameters
-- Returns per-country article counts, newspaper counts, date ranges, Gemini polarity breakdowns
+- Returns per-country article counts, newspaper counts, date ranges, and a per-country `polarity` breakdown with `polarity_model` naming the model that produced it (`gemini-3-flash-preview`)
 
 ### get_newspaper_stats
 Newspaper-level statistics.
@@ -63,10 +63,10 @@ Primary search tool for the 12,287 newspaper articles.
 - `newspaper` (optional): substring match
 - `subject` (optional): substring match on the pipe-separated curated tags
 - `date_from` / `date_to` (optional): `YYYY-MM-DD` or `YYYY` (day precision)
-- `hijri_month` / `hijri_year` (optional) *(v1.2.0+)*: Islamic (Umm al-Qura) lunar date. `hijri_month` takes 1–12 or a name in either transliteration (`Ramadan`, `Chaabane`, `Chawwal`, `Dhou al-hijja`), accent- and case-folded; a misspelling errors with `valid_values`. Matches only articles with a complete `YYYY-MM-DD` (98.9%). This is how you read the items behind a `granularity="lunar_month"` peak — and it beats keyword-searching an observance name, which finds items *mentioning* it rather than items *published during* it.
+- `hijri_month` / `hijri_year` (optional) *(v1.3.0+)*: Islamic (Umm al-Qura) lunar date. `hijri_month` takes 1–12 or a name in either transliteration (`Ramadan`, `Chaabane`, `Chawwal`, `Dhou al-hijja`), accent- and case-folded; a misspelling errors with `valid_values`. Matches only articles with a complete `YYYY-MM-DD` (98.9%). This is how you read the items behind a `granularity="lunar_month"` peak — and it beats keyword-searching an observance name, which finds items *mentioning* it rather than items *published during* it.
 - `with_description` (optional, boolean): include each article's ~500-char AI abstract (`description_ai`) — ~125 tokens/row, pair with limit ≤ 10
 - `limit` (default 20, max 100), `offset`
-- Returns: id, title, author, newspaper, country, date, **hijri_date** (`1440-09-15`, v1.2.0+), subject, spatial, language, **polarity**, **centrality**, **subjectivity**, url
+- Returns: id, title, author, newspaper, country, date, **hijri_date** (`1440-09-15`, v1.3.0+), subject, spatial, language, **polarity**, **centrality**, **subjectivity**, url
 
 **Tip:** Sentiment comes inline — build topic-specific sentiment tables directly from search results. With `with_description=true` you can usually pick the 2-3 articles worth a full `get_article` without any intermediate calls.
 
@@ -85,7 +85,7 @@ Search the 4,697 authority records by name.
 - Returns: id, title, type, description, frequency, first_occurrence, last_occurrence, countries, url
 
 ### search_by_sentiment
-Filter articles by Gemini sentiment labels (exact match, accents optional).
+Filter articles by **`gemini-3-flash-preview`** sentiment labels (exact match, accents optional). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other two agree.
 - `polarity` (optional): Très positif | Positif | Neutre | Négatif | Très négatif | Non applicable
 - `centrality` (optional): Très central | Central | Secondaire | Marginal | Non abordé
 - `country` (optional, exact name), `subject` (optional)
@@ -98,7 +98,7 @@ Search the 1,501 Islamic publications (mostly complete periodical issues; OCR is
 - `subject` (optional): ~87% of issues are tagged
 - `country` (optional, exact name)
 - `date_from` / `date_to` (optional): years (YYYY)
-- `hijri_month` / `hijri_year` (optional) *(v1.2.0+)*: same semantics as on `search_articles`, but only ~83% of issues carry a complete date (many are `YYYY-MM` or a `1981-04/1981-06` range), so a lunar filter reaches a smaller share here — say so if the count carries an argument
+- `hijri_month` / `hijri_year` (optional) *(v1.3.0+)*: same semantics as on `search_articles`, but only ~83% of issues carry a complete date (many are `YYYY-MM` or a `1981-04/1981-06` range), so a lunar filter reaches a smaller share here — say so if the count carries an argument
 - `limit` (default 20, max 100), `offset`
 - Returns: id, title, newspaper, country, date, language, subject, nb_pages, url — plus `matching_toc_entries` when the keyword hits an issue's table of contents (325/1,501 issues have one; see `semantic_search_publications` below for series coverage)
 
@@ -195,15 +195,15 @@ Detailed index entry. **Raw dataset columns, French names** (Titre, Titre altern
 ### get_temporal_distribution *(v0.9.0+)*
 Counts of matching items per year (or month) — one call replaces paging through search results for any trend question. Also useful in Phase 1 to scope a topic's timeline before searching.
 - `subset` (optional, validated): articles (default) | publications | references | documents | audiovisual | images
-- `granularity` (optional, validated): year (default) | month | **lunar_month** *(v1.2.0+)* — items dated only to a year keep a bare-year key even at month granularity
-- `calendar` (optional, validated) *(v1.2.0+)*: gregorian (default) | hijri
+- `granularity` (optional, validated): year (default) | month | **lunar_month** *(v1.3.0+)* — items dated only to a year keep a bare-year key even at month granularity
+- `calendar` (optional, validated) *(v1.3.0+)*: gregorian (default) | hijri
 - `keyword` (optional): ONE substring over the subset's text fields (same semantics as the subset's search tool)
 - `country` / `newspaper` / `subject` / `date_from` / `date_to` (optional): same semantics as the subset's search tool
 - `group_by` (optional, validated): country | newspaper — returns `distribution_by_group` (one map per group) instead of `distribution`
 - Returns `total_matches`, `dated_count`, `undated_count` (undated items are counted, never silently dropped), and the `distribution` map sorted by year
 - **Tip:** `get_temporal_distribution(keyword="hadj", group_by="country")` charts six decades of hajj coverage per country in a single ~1k-token call.
 
-#### The Islamic calendar *(v1.2.0+)*
+#### The Islamic calendar *(v1.3.0+)*
 
 **Reach for `granularity="lunar_month"` for any observance question.** It pools every year into the twelve lunar months, and it is the only bucket a Gregorian axis structurally cannot produce: the Hijri year drifts ~11 days annually, so across 1961–2025 each observance smears over all twelve Gregorian months and disappears. Measured over the 12,220 fully-dated articles, the archive's rhythm is unmistakable — **Ramadan +72 %, Dhu al-Hijja +70 %** (hajj and Tabaski), **Shawwal +44 %** (Korité, 1 Shawwal) against an even split, with the six ordinary months 24–35 % below it. **Rabi' I is flat (−5 %)**, so Maouloud is *not* treated as a news event the way the others are — a finding in its own right.
 
@@ -217,16 +217,20 @@ Counts of matching items per year (or month) — one call replaces paging throug
 - **Reading the peak:** `search_articles` / `search_publications` accept `hijri_month` (1–12 or a name — `Ramadan`, `Chaabane`, `Chawwal`, `Dhou al-hijja`, accent- and case-folded) and `hijri_year`. Rows come back with a `hijri_date` field (`1440-09-15`) alongside `date`. A misspelt month returns `{error, valid_values}`, never an empty result.
 - **Tip:** `get_temporal_distribution(granularity="lunar_month", country="Burkina Faso")` asks whether one country's press follows the observance rhythm more closely than another's — then `search_articles(hijri_month="Ramadan", country="Burkina Faso")` reads the items behind it.
 
-### get_sentiment_distribution *(`model` added v0.13.0)*
+### get_sentiment_distribution *(`model` added v0.13.0; model-exact ids since the 2026-07-31 dataset rename)*
 Aggregated AI sentiment counts.
 - `country` (optional, exact name), `newspaper` (optional), `subject` (optional)
-- `model` (optional, validated): gemini (default) | chatgpt | mistral | **all**
+- `model` (optional, validated): `gemini-3-flash-preview` (default) | `gpt-5-mini` | `ministral-14b-2512` | **all**. The old vendor handles `gemini` / `chatgpt` / `mistral` still work and resolve to these ids, which is what the payload echoes back — quote the id, never the vendor
 - Returns `polarity_distribution`, `centrality_distribution` and `subjectivity` (mean, median and per-level counts on the **1-5** scale — it is an ordinal rating, not a proportion, so never report the mean as a percentage)
 - With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity, pairwise and unanimously) and `agreement_matrix` (where the first two part company)
 
 **Tip:** `get_sentiment_distribution(subject="Laïcité", country="Burkina Faso")` gives the polarity distribution for laïcité articles in BF specifically; compare against the unfiltered country baseline.
 
-**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the three models agree unanimously on polarity for only 6,668 of 12,287 articles (54%). That number is the confidence floor: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable.
+**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the three models agree unanimously on polarity for only 6,667 of the 12,286 articles all three scored (54%). That number is the confidence floor: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable.
+
+**Coverage is near-total but no longer complete** (measured 2026-07-31): 12,286 of 12,356 articles carry sentiment: the 70 most recently added are unscored and drop out of every distribution. Compare `scored_by_all` against `total_articles` rather than assuming they match.
+
+**Reliability differs sharply by scale.** Polarity and centrality are solid (leave-one-out κ ≈ 0.61–0.78); **subjectivity is not** (κ 0.435–0.460, and each model reproduces its own answer only 47–71% of the time on re-runs), so report the 1-5 rating as weak evidence with that caveat, or not at all. On *centrality* specifically, `ministral-14b-2512` is a systematic outlier (κ 0.182) — a 2-of-3 majority there is the other two outvoting Mistral, not a three-model consensus.
 
 ### get_topic_distribution *(v0.13.0)*
 How a set spreads across the 30 precomputed LDA topics (12,234 of 12,287 articles are classified), each labelled by its top terms. Topics were assigned offline over the full text, so they describe what a piece is **about** rather than which words it contains — the fastest way to map an unfamiliar corpus without keyword guessing.
@@ -271,7 +275,7 @@ The items nearest a given one in meaning, by cosine similarity over the stored e
 
 ### get_semantic_map *(v0.13.0)*
 A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. **Needs no API key.**
-- `subset` (optional); filter block; `color_by` (country | newspaper | subject | lda_topic_label | gemini_polarite); `limit` (default 300, max 2000)
+- `subset` (optional); filter block; `color_by` (country | newspaper | subject | lda_topic_label | polarity — `gemini-3-flash-preview`'s label); `limit` (default 300, max 2000)
 - **Read `explained_variance` before concluding anything.** Two components carry ~18% of the variance for an unfiltered article set, ~25% for a filtered one — so items drawn close together are not necessarily similar. Report it as a rough spread, not as clusters.
 - This is PCA, not UMAP: it preserves global spread rather than local neighbourhoods, and is not comparable to the semantic landscapes on islam.zmo.de.
 - The payload scales with `limit`; keep it low unless a chart will be drawn.
@@ -285,14 +289,16 @@ A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. 
 ### Countries
 Exact names: `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo`, `Nigeria` (all six are accepted everywhere; `Nigeria` simply yields 0 press articles — a real finding, not an error). Accents are optional (`Bénin` works); partial names (`Burkina`) are invalid and now error.
 
-### Polarity scale (articles, Gemini)
-Très positif (1,400) | Positif (5,984) | Neutre (3,999) | Négatif (569) | Très négatif (24) | Non applicable (311)
+### Polarity scale (articles, `gemini-3-flash-preview`)
+Très positif (1,400) | Positif (5,984) | Neutre (3,999) | Négatif (569) | Très négatif (24) | Non applicable (310) — plus 70 unscored (counts verified 2026-07-31)
 
-### Centrality scale (articles, Gemini)
-Très central (8,130) | Central (1,538) | Secondaire (942) | Marginal (1,366) | Non abordé (311)
+### Centrality scale (articles, `gemini-3-flash-preview`)
+Très central (8,130) | Central (1,538) | Marginal (1,366) | Secondaire (942) | Non abordé (310) — plus 70 unscored
 
-### Subjectivity (articles, Gemini)
-Score 1 (very objective) → 5 (very subjective)
+### Subjectivity (articles, `gemini-3-flash-preview`)
+Score 1 (very objective) → 5 (very subjective). The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
+
+The same three scales exist for `gpt-5-mini` and `ministral-14b-2512`; reach them with `get_sentiment_distribution(model=…)`.
 
 ### Index types
 Personnes (2,833) | Lieux (683) | Organisations (413) | Notices d'autorité (312) | Événements (242) | Sujets (214)

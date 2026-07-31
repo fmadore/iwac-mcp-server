@@ -369,8 +369,13 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
   const FULL: Record<string, Set<string>> = {
     articles: new Set([
       "o:id", "iwac_url", "identifier", "title", "author", "newspaper", "country", "pub_date",
-      "subject", "spatial", "language", "nb_pages", "descriptionAI", "gemini_polarite",
-      "gemini_centralite_islam_musulmans", "gemini_subjectivite_score", "nb_mots",
+      "subject", "spatial", "language", "nb_pages", "descriptionAI",
+      // Named for the model that scored the corpus, per the 2026-07-31 dataset
+      // rename. Spelling them wrong here would not fail — colsFor drops absent
+      // columns — so the projection assertion below is what actually guards it.
+      "gemini_3_flash_preview_polarite",
+      "gemini_3_flash_preview_centralite_islam_musulmans",
+      "gemini_3_flash_preview_subjectivite_score", "nb_mots",
       "Richesse_Lexicale_OCR", "Lisibilite_OCR", "OCR",
     ]),
     index: new Set([
@@ -428,6 +433,17 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
     assert.ok(!list.includes("countries"));
     assert.ok(withCountries.includes('"countries"'));
     assert.equal(withCountries.split(", ").length, list.split(", ").length + 1);
+  });
+
+  it("projects the sentiment columns under short, model-agnostic aliases", () => {
+    // The dataset column carries the model name; the output key must not, so a
+    // rename upstream never reaches the caller's field names. Asserting the
+    // real column name here is what would catch a stale prefix in the
+    // descriptor — colsFor silently drops anything the schema lacks.
+    const detail = colsFor("articles", FULL.articles, "detail");
+    assert.match(detail, /gemini_3_flash_preview_polarite AS "polarity"/);
+    assert.match(detail, /gemini_3_flash_preview_centralite_islam_musulmans AS "centrality"/);
+    assert.match(detail, /gemini_3_flash_preview_subjectivite_score AS "subjectivity"/);
   });
 
   it("drops columns missing from the live schema instead of throwing", () => {

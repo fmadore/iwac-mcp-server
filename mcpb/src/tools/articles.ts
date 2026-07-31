@@ -107,7 +107,7 @@ export function registerArticleTools(server: Server): void {
     {
       ...toolMeta("Get article details"),
       description:
-        "Get one article (by id): full metadata, the AI abstract (description_ai), Gemini sentiment, and OCR text. " +
+        "Get one article (by id): full metadata, the AI abstract (description_ai), AI sentiment, and OCR text. " +
         "Pass a `keyword` to get ~2000-char excerpts around each match instead of the full (capped) OCR.",
       inputSchema: z.object({
         article_id: z.number().int(),

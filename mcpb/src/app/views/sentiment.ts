@@ -105,8 +105,8 @@ function singleModel(p: SentimentPayload, block: ModelBlock, model: string): Vie
         ? `Subjectivity is an ordinal rating on ${subj.scale}, not a proportion — the centre shows its mean, ` +
           `which is ${subj.mean} here, NOT ${fmtPct((subj.mean ?? 0) / 5)}.`
         : null,
-      `${model} judgements cover every article regardless of full-text availability, so these shares are not ` +
-        "affected by the OCR coverage limit.",
+      `${model} scored articles whether or not their full text ships, so these shares are not affected by the ` +
+        "OCR coverage limit — the reconciliation above is the only coverage gap.",
       "Three models scored this corpus independently. Ask for all of them to see how far they agree before " +
         "quoting any single one.",
     ],
@@ -216,15 +216,16 @@ function allModels(p: SentimentPayload): ViewResult {
         ? "The confusion matrix blanks its agreeing diagonal, which holds most of the mass; the colour scale is " +
           "over the disagreements only."
         : null,
-      "All three models scored every article regardless of full-text availability.",
+      "All three scored the same articles, whether or not their full text ships — see scored_by_all above for " +
+        "how many carry all three judgements.",
     ],
     actions: [
       {
         id: "one",
-        label: `Back to ${models[0] ?? "gemini"} only`,
+        label: `Back to ${models[0]} only`,
         run: (ctx) =>
           ctx.run("get_sentiment_distribution", {
-            model: models[0] ?? "gemini",
+            model: models[0],
             ...Object.fromEntries(
               Object.entries(p.filters ?? {}).filter(([, v]) => v !== null && v !== undefined && v !== ""),
             ),
@@ -259,7 +260,9 @@ function allModels(p: SentimentPayload): ViewResult {
 export function sentimentView(payload: BasePayload): ViewResult {
   const p = payload as SentimentPayload;
   if (p.by_model && Object.keys(p.by_model).length > 1) return allModels(p);
-  const model = p.model === "all" ? (p.models?.[0] ?? "gemini") : (p.model ?? "gemini");
+  // The model id comes from the payload rather than a default here: the view
+  // must never name a model that did not produce the numbers it is drawing.
+  const model = (p.model === "all" ? p.models?.[0] : p.model) ?? Object.keys(p.by_model ?? {})[0] ?? "the AI model";
   const block: ModelBlock = p.by_model?.[model] ?? p;
   return singleModel(p, block, model);
 }

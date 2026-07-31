@@ -37,7 +37,9 @@ The collection has **deep coverage** for some countries and **very thin coverage
 
 ## 4. AI Sentiment Analysis Caveats
 
-The MCP server exposes Gemini (Flash 3.0) sentiment scores. The underlying dataset also contains ChatGPT and Mistral assessments, but the MCP tools use Gemini only for streamlined retrieval.
+Three models scored the corpus independently: **`gemini-3-flash-preview`**, **`gpt-5-mini`** and **`ministral-14b-2512`**. Coverage is near-total but not complete — 12,286 of 12,356 articles as of 2026-07-31, the 70 newest being unscored — so compare `scored_by_all` against `total_articles` rather than assuming they match. `get_sentiment_distribution` reaches all three (and `model="all"` reports their agreement); the inline `polarity` / `centrality` / `subjectivity` columns on search results, and `search_by_sentiment`'s filters, are `gemini-3-flash-preview`'s only.
+
+**Always name the model behind a reported figure.** Until 2026-07-31 the dataset's columns were named for a vendor slot (`gemini_*`, `chatgpt_*`, `mistral_*`) and nothing recorded which model had run inside it; they now name the model, and so do the tools. The old vendor handles are still accepted as input aliases and resolve to the model id, which is what the payload echoes back.
 
 ### Scale Definitions
 
@@ -48,13 +50,16 @@ All three dimensions evaluate the article's treatment of **Islam and/or Muslims*
 - **Subjectivity** (objectivity of representation): 1 (very objective, purely factual) → 3 (mixed facts and opinions) → 5 (very subjective, editorial style)
 
 ### Known Issues
-- **Cross-cultural framing:** Gemini, trained primarily on English-language data, may misread French-language West African press conventions
+- **Cross-cultural framing:** all three models are trained predominantly on English-language data and may misread French-language West African press conventions
 - **Polarity ambiguity:** Articles about Islamic festivals may be rated "Neutre" or "Positif" depending on whether descriptive coverage is interpreted as neutral or positive
 - **Centrality vs. mention:** An article that mentions Islam incidentally may be rated "Marginal" or "Secondaire" — the boundary is subjective
+- **Subjectivity is the weakest of the three scales.** Measured 2026-07-29: leave-one-out inter-model agreement of only κ 0.435–0.460, and on repeated runs each model reproduced its own subjectivité answer just 47–71% of the time. These are single-run annotations, so that variance is baked into the stored value. Report the 1-5 rating as weak evidence, with the caveat, or not at all. Polarity and centrality are far stronger (κ ≈ 0.61–0.78)
+- **On centrality, `ministral-14b-2512` is a systematic outlier** (κ 0.182 against 0.70–0.78 for the other two) — a persistent Mistral-family reading of the construct, not a bad run. So a 2-of-3 majority on centrality is almost always the other two outvoting Mistral: describe it that way rather than as a three-model consensus
 
 ### Using Topic-Specific Sentiment
 - Use `get_sentiment_distribution(subject="...", country="...")` to get sentiment breakdowns for a specific topic rather than the whole corpus
-- `search_articles` results include Gemini polarity, centrality, and subjectivity inline — use these to build topic-specific sentiment tables directly from search results
+- Pass `model="all"` before quoting any single number: where the three models split, no one model's figure should be reported alone
+- `search_articles` results include `gemini-3-flash-preview`'s polarity, centrality, and subjectivity inline — use these to build topic-specific sentiment tables directly from search results, naming the model
 - Always compare topic-specific sentiment against the corpus baseline to contextualize findings
 
 ## 5. Mainstream Press vs. Islamic Press
@@ -114,4 +119,4 @@ The 4,697 index entries (persons, organizations, places, events, subjects) repre
 
 When producing research outputs, include a limitations paragraph adapted from:
 
-> This analysis draws on the Islam West Africa Collection (IWAC), a curated digital archive of [N] documents focused on Muslim public life in francophone West Africa. Key limitations include: (1) ~96% French-language sources, which overrepresent mainstream press and Western-educated Muslim perspectives; (2) uneven geographic coverage, with Burkina Faso and Côte d'Ivoire dominating the corpus while Niger and especially Nigeria are dramatically underrepresented; (3) pre-1991 coverage drawn almost entirely from state or single-party newspapers, reflecting official framings of Islam; (4) Gemini sentiment labels that reflect model-specific interpretive choices rather than ground truth. Absence of evidence in this collection should not be interpreted as evidence of absence.
+> This analysis draws on the Islam West Africa Collection (IWAC), a curated digital archive of [N] documents focused on Muslim public life in francophone West Africa. Key limitations include: (1) ~96% French-language sources, which overrepresent mainstream press and Western-educated Muslim perspectives; (2) uneven geographic coverage, with Burkina Faso and Côte d'Ivoire dominating the corpus while Niger and especially Nigeria are dramatically underrepresented; (3) pre-1991 coverage drawn almost entirely from state or single-party newspapers, reflecting official framings of Islam; (4) AI sentiment labels — produced independently by gemini-3-flash-preview, gpt-5-mini and ministral-14b-2512 — that reflect model-specific interpretive choices rather than ground truth. Absence of evidence in this collection should not be interpreted as evidence of absence.

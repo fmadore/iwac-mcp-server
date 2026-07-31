@@ -148,7 +148,7 @@
   `hijri_year` filters on `search_articles` / `search_publications`, and a
   `hijri_date` field on article and publication rows. Every path degrades to a
   self-correctable error on a dataset revision that predates the columns.
-  Shipped in **v1.2.0**.
+  Shipped in **v1.3.0**.
 
   - [ ] **Run the pipeline script and re-publish.** The code is in place but
     the columns do not exist on the Hub yet — until

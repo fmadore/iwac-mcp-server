@@ -6,6 +6,7 @@ import {
   COUNTRIES,
   countryParam,
   dateRangeFilter,
+  DEFAULT_SENTIMENT_MODEL,
   errorResult,
   HIJRI_MONTHS,
   keywordFilter,
@@ -13,6 +14,7 @@ import {
   pipeValueFilterIfExists,
   requireHijriColumns,
   rowsToMap,
+  sentimentCols,
   structuredResult,
   TEXT_COLS,
   toolMeta,
@@ -68,6 +70,7 @@ const NEWSPAPER_STATS_OUTPUT = z.object({
 const COUNTRY_COMPARISON_OUTPUT = z.object({
   view: z.string(),
   total_countries: z.number(),
+  polarity_model: z.string().optional(),
   countries: z.array(z.looseObject({})),
 });
 
@@ -266,7 +269,8 @@ export function registerStatsTools(server: Server): void {
     {
       ...toolMeta("Compare countries"),
       description:
-        "Compare article counts, newspaper counts, date ranges, and Gemini polarity across countries.",
+        `Compare article counts, newspaper counts, date ranges, and ${DEFAULT_SENTIMENT_MODEL.id} polarity ` +
+        "across countries.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({}),
       outputSchema: COUNTRY_COMPARISON_OUTPUT,
@@ -289,13 +293,14 @@ export function registerStatsTools(server: Server): void {
         ORDER BY article_count DESC
       `);
 
+      const polarityCol = sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity;
       const polarityByCountry = new Map<string, Record<string, number>>();
-      if (schema.has("gemini_polarite")) {
+      if (schema.has(polarityCol)) {
         const rows = await query(`
-          SELECT country, gemini_polarite AS k, COUNT(*) AS c
+          SELECT country, ${q(polarityCol)} AS k, COUNT(*) AS c
           FROM ${viewName("articles")}
           WHERE NULLIF(trim(country), '') IS NOT NULL
-          GROUP BY country, gemini_polarite
+          GROUP BY country, ${q(polarityCol)}
         `);
         for (const r of rows) {
           const c = String(r.country);
@@ -319,10 +324,18 @@ export function registerStatsTools(server: Server): void {
           };
         }
         const pol = polarityByCountry.get(c);
-        if (pol && Object.keys(pol).length) rec.gemini_polarity = pol;
+        if (pol && Object.keys(pol).length) rec.polarity = pol;
         return rec;
       });
-      return structuredResult({ view: VIEW.countries, total_countries: countries.length, countries });
+      return structuredResult({
+        view: VIEW.countries,
+        total_countries: countries.length,
+        // Name the annotator: this is one model's reading of every country, and
+        // the three models disagree often enough that "the AI polarity" would be
+        // a claim the data does not support.
+        ...(schema.has(polarityCol) ? { polarity_model: DEFAULT_SENTIMENT_MODEL.id } : {}),
+        countries,
+      });
     },
   );
 

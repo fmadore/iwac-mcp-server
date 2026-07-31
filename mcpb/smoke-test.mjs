@@ -25,9 +25,11 @@ const EXPECTED = {
   // or the masking pipeline moved, not that the server broke.
   // 2026-07-29 refresh: articles 12,287 -> 12,356 and with_fulltext 7,480 ->
   // 7,549 — the same +69, so the whole increment ships public OCR and the share
-  // stays 61%. Publications did not move. The user-facing copies of these
-  // figures (INSTRUCTIONS in src/index.ts and its mirror in the iwac-mcp skill)
-  // still say 7,480/12,287 and want re-measuring together.
+  // stays 61%. Publications did not move. The user-facing copies (INSTRUCTIONS
+  // in src/index.ts and its mirror in the iwac-mcp skill) were brought to
+  // 7,549/12,356 on 2026-07-31; the per-column coverage figures in
+  // references/tools-by-phase.md (LDA 12,234, embeddings 12,286, signed 9,664)
+  // predate the refresh and still want re-measuring together.
   articlesWithFulltext: 7549,
   publicationsWithFulltext: 1298,
 };
@@ -261,13 +263,26 @@ await call("get_newspaper_stats", { country: "Niger" }, {
   check: (p) => (p.total_articles === EXPECTED.nigerArticles ? null : `Niger article count ${p.total_articles}, expected ${EXPECTED.nigerArticles} (Nigeria conflation?)`),
 });
 await call("search_by_sentiment", { polarity: "tres positif", limit: 2 }, {
-  check: (p) => (p.total_matches > 1000 ? null : `unaccented polarity matched ${p.total_matches}`),
+  // Bounded on BOTH sides: a filter that silently stopped being applied would
+  // return the whole corpus and still clear a lower bound on its own.
+  check: (p) =>
+    p.total_matches > 1000 && p.total_matches < 10_000
+      ? null
+      : `"Très positif" matched ${p.total_matches}, which is not a filtered subset of ~12,300 articles`,
 });
 await call("get_sentiment_distribution", { country: "Benin" }, {
   structured: true,
   check: (p) => (p.total_articles > 1500 ? null : `Benin distribution looks wrong: ${p.total_articles}`),
 });
-await call("get_country_comparison", {}, { structured: true });
+await call("get_country_comparison", {}, {
+  structured: true,
+  check: (p) => {
+    if (p.polarity_model !== "gemini-3-flash-preview") return `polarity_model wrong: ${p.polarity_model}`;
+    return p.countries?.some((c) => c.polarity && Object.keys(c.polarity).length)
+      ? null
+      : "no country carries polarity — the sentiment column is not being read";
+  },
+});
 // get_temporal_distribution (new in v0.9.0): a real trend query must return a
 // sane multi-year distribution whose counts reconcile with total_matches.
 await call("get_temporal_distribution", { keyword: "ramadan", country: "Benin" }, {
@@ -397,15 +412,29 @@ await call("get_sentiment_distribution", { model: "all" }, {
     if (p.models?.length !== 3) return `expected 3 models, got ${p.models}`;
     const a = p.agreement;
     if (!a) return "no agreement block";
-    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all three (was 12,287)`;
-    // ~54% unanimous as of 2026-07-27. A jump to 100% would mean the three
+    // 12,286 of 12,356 as of 2026-07-31 — the 70 newest articles are unscored,
+    // so this is deliberately not asserted equal to total_articles.
+    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all three (was 12,286)`;
+    // ~54% unanimous as of 2026-07-31. A jump to 100% would mean the three
     // columns had collapsed onto one another upstream.
     if (a.unanimous_percent < 30 || a.unanimous_percent > 95)
       return `three-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
-    const subj = p.by_model?.gemini?.subjectivity;
+    // The models must be named for what actually ran. The dataset dropped its
+    // vendor-slot column prefixes on 2026-07-31 precisely because nothing
+    // recorded which model had produced a score; a vendor handle reappearing
+    // here means the server has fallen back to guessing.
+    const expected = ["gemini-3-flash-preview", "gpt-5-mini", "ministral-14b-2512"];
+    const missing = expected.filter((m) => !p.models.includes(m));
+    if (missing.length) return `models should be the exact model ids, missing ${missing} (got ${p.models})`;
+    const subj = p.by_model?.["gemini-3-flash-preview"]?.subjectivity;
     if (subj && (subj.mean < 1 || subj.mean > 5)) return `subjectivity mean ${subj.mean} is not on the 1-5 scale`;
     return null;
   },
+});
+// The pre-rename vendor handle still resolves, and answers with the model id.
+await call("get_sentiment_distribution", { model: "chatgpt" }, {
+  structured: true,
+  check: (p) => (p.model === "gpt-5-mini" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
 });
 await call("get_article", { article_id: 67613 }, {
   check: (p) => (p.description_ai ? null : "get_article lacks description_ai"),

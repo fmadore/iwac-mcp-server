@@ -325,20 +325,23 @@ CASES.push([
   {
     view: "countries",
     total_countries: 2,
+    polarity_model: "gemini-3-flash-preview",
     countries: [
       {
         country: "Burkina Faso",
         article_count: 4000,
         newspaper_count: 12,
         date_range: { earliest: "1990-01-01", latest: "2020-12-31" },
-        gemini_polarity: { Positif: 1000, Neutre: 2000, Négatif: 1000 },
+        polarity: { Positif: 1000, Neutre: 2000, Négatif: 1000 },
       },
       { country: "Togo", article_count: 900, newspaper_count: 5 },
     ],
   },
   (markup) => {
     if (!markup.includes("Burkina Faso")) return "missing a country";
-    if (!markup.includes("AI polarity mix")) return "polarity panel did not render";
+    if (!markup.includes("Polarity mix per country")) return "polarity panel did not render";
+    // The chart must name the model that judged, not just "AI".
+    if (!markup.includes("gemini-3-flash-preview")) return "polarity chart did not name its model";
     if (!markup.includes("Polarity shown for 1 of 2")) return "did not disclose partial polarity coverage";
     return null;
   },
@@ -368,7 +371,7 @@ CASES.push([
   "sentiment",
   {
     view: "sentiment",
-    model: "gemini",
+    model: "gemini-3-flash-preview",
     total_articles: 120,
     filters: { country: "Niger" },
     polarity_distribution: { Neutre: 60, "Très négatif": 20, Positif: 20 },
@@ -378,7 +381,8 @@ CASES.push([
     if ((markup.match(/<svg/g) ?? []).length < 2) return "expected a donut for each vocabulary";
     // Ordinal order, not alphabetical: Positif must precede Neutre.
     if (markup.indexOf("Positif") > markup.indexOf("Neutre")) return "polarity slices are not in scale order";
-    if (!markup.includes("20 matching articles carry no gemini score")) return "did not reconcile scored vs matched";
+    if (!markup.includes("20 matching articles carry no gemini-3-flash-preview score"))
+      return "did not reconcile scored vs matched";
     return null;
   },
 ]);
@@ -519,29 +523,33 @@ CASES.push([
     model: "all",
     total_articles: 12287,
     filters: {},
-    models: ["gemini", "chatgpt", "mistral"],
+    models: ["gemini-3-flash-preview", "gpt-5-mini", "ministral-14b-2512"],
     by_model: {
-      gemini: { polarity_distribution: { Positif: 5984, Neutre: 3999, Négatif: 569 }, subjectivity: { scale: "1-5 (1 = most factual, 5 = most opinionated)", mean: 2.12 } },
-      chatgpt: { polarity_distribution: { Positif: 7231, Neutre: 3444, Négatif: 580 } },
-      mistral: { polarity_distribution: { Positif: 6100, Neutre: 3800, Négatif: 700 } },
+      "gemini-3-flash-preview": { polarity_distribution: { Positif: 5984, Neutre: 3999, Négatif: 569 }, subjectivity: { scale: "1-5 (1 = most factual, 5 = most opinionated)", mean: 2.12 } },
+      "gpt-5-mini": { polarity_distribution: { Positif: 7231, Neutre: 3444, Négatif: 580 } },
+      "ministral-14b-2512": { polarity_distribution: { Positif: 6100, Neutre: 3800, Négatif: 700 } },
     },
     agreement: {
       field: "polarity",
       scored_by_all: 12287,
       unanimous: 6668,
       unanimous_percent: 54,
-      pairwise: { "gemini~chatgpt": 8729, "gemini~mistral": 7880, "chatgpt~mistral": 8709 },
+      pairwise: {
+        "gemini-3-flash-preview~gpt-5-mini": 8729,
+        "gemini-3-flash-preview~ministral-14b-2512": 7880,
+        "gpt-5-mini~ministral-14b-2512": 8709,
+      },
     },
     agreement_matrix: {
-      rows: "gemini",
-      cols: "chatgpt",
+      rows: "gemini-3-flash-preview",
+      cols: "gpt-5-mini",
       counts: { Négatif: { Positif: 134, Neutre: 113, Négatif: 298 }, Neutre: { Positif: 900, Neutre: 3000 } },
     },
   },
   (markup) => {
     if (!markup.includes("three models compared")) return "did not switch to the comparison view";
     if (!markup.includes("54%")) return "agreement rate missing from the headline";
-    if (!markup.includes("gemini ↔ chatgpt")) return "pairwise agreement chart missing";
+    if (!markup.includes("gemini-3-flash-preview ↔ gpt-5-mini")) return "pairwise agreement chart missing";
     // The agreeing diagonal is blanked so the ramp covers the disagreements.
     if (markup.includes("Négatif × Négatif")) return "the agreeing diagonal should be blanked";
     if (!markup.includes("Négatif × Neutre: 113")) return "confusion cell missing";
