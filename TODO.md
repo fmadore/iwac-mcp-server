@@ -59,6 +59,20 @@
 - [ ] **Add `screenshots/`** showing a research query in Claude Desktop — the
   directory listing surfaces these.
 
+- [ ] **Drop the `@hono/node-server` override once the SDK catches up** —
+  `mcpb/package.json` forces `@hono/node-server` to `^2.0.12` via `overrides`
+  because the entire 1.x line carries GHSA-frvp-7c67-39w9 (Windows
+  `serve-static` path traversal) with no backport, while
+  `@modelcontextprotocol/node@2.0.0` still declares `^1.19.9`. Running a
+  transitive dep a major above what upstream asks for is safe *here* — the SDK
+  imports exactly one symbol, `getRequestListener`, which v2 still exports, v2
+  wants Node ≥20 against this project's ≥24, and it peers on `hono ^4` — and the
+  advisory was never reachable anyway (`serveStatic` appears nowhere in the
+  built bundle; `src/http.ts` drives Node's own `http.createServer` rather than
+  hono's `serve()`). Once `@modelcontextprotocol/node` widens its own range,
+  *remove* the override rather than bumping it, so the resolved version goes
+  back to being upstream's problem.
+
 - [x] **Migrate to MCP TypeScript SDK v2 / protocol 2026-07-28** — done
   2026-07-29. `@modelcontextprotocol/server` 2.0.0 went stable 2026-07-27, four
   weeks earlier than the ~late-Aug estimate this entry carried; v1 `sdk` topped
