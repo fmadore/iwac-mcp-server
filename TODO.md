@@ -50,11 +50,23 @@
   `EmbeddingGemma-300M`, or the older `multilingual-e5-small` /
   `paraphrase-multilingual-MiniLM-L12-v2`.
 
-- [ ] **Remote transport / hosted deployments** — see
-  [#1](https://github.com/fmadore/iwac-mcp-server/issues/1) (transport-agnostic
-  refactor), [#2](https://github.com/fmadore/iwac-mcp-server/issues/2)
-  (Streamable-HTTP), [#3](https://github.com/fmadore/iwac-mcp-server/issues/3)
-  (auth + rate limiting).
+- [x] **Remote transport / hosted deployments** — shipped. `--http` selects the
+  Streamable-HTTP transport in `main()` (`mcpb/src/index.ts`), built on
+  `createMcpHandler` so it answers both protocol eras; a bearer token gates every
+  `/mcp` request (`IWAC_MCP_BEARER_TOKEN`, or a Docker secret located via
+  `IWAC_MCP_TOKEN_FILE`). HTTP mode *refuses to start* without a token rather
+  than warning and running open — deliberately stricter than
+  [#3](https://github.com/fmadore/iwac-mcp-server/issues/3) asked for, because
+  the endpoint is public. Live at `https://islam.zmo.de/mcp/`.
+  [#1](https://github.com/fmadore/iwac-mcp-server/issues/1) is closed as
+  delivered; #2 (Streamable-HTTP) was deleted from the tracker after it landed,
+  which is why the "Depends on #2" line in #3 now dangles.
+
+  - [ ] **Confirm nginx enforces a request limit** on the IWAC-docker host. This
+    is the only part of #3 not implemented in this repo — rate limiting was
+    delegated upstream by design (see the header comment in `mcpb/src/http.ts`),
+    so nothing here proves it exists. A public, read-only endpoint running
+    DuckDB scans wants a `limit_req` in front of it.
 
 - [ ] **Add `screenshots/`** showing a research query in Claude Desktop — the
   directory listing surfaces these.
