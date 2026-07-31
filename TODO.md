@@ -60,13 +60,18 @@
   the endpoint is public. Live at `https://islam.zmo.de/mcp/`.
   [#1](https://github.com/fmadore/iwac-mcp-server/issues/1) is closed as
   delivered; #2 (Streamable-HTTP) was deleted from the tracker after it landed,
-  which is why the "Depends on #2" line in #3 now dangles.
+  which is why the "Depends on #2" line in #3 now dangles. #3 is now closed as
+  delivered.
 
-  - [ ] **Confirm nginx enforces a request limit** on the IWAC-docker host. This
-    is the only part of #3 not implemented in this repo — rate limiting was
-    delegated upstream by design (see the header comment in `mcpb/src/http.ts`),
-    so nothing here proves it exists. A public, read-only endpoint running
-    DuckDB scans wants a `limit_req` in front of it.
+  - [x] **Upstream request limit confirmed** on the IWAC-docker host. Rate
+    limiting was delegated to the front proxy by design (see the header comment
+    in `mcpb/src/http.ts`), so nothing in this repo proves it exists — measured
+    directly instead (2026-07-28): a burst of ~24 back-to-back requests
+    succeeds, then every further request returns **HTTP 429** until the bucket
+    refills (~6 req/s sustained). Note the 429 body is raw proxy HTML, **not** a
+    JSON-RPC error, so an MCP client surfaces it as an opaque transport
+    failure — any probe or test script against the live endpoint must pace
+    itself and retry on 429, or its results are silently polluted.
 
 - [ ] **Add `screenshots/`** showing a research query in Claude Desktop — the
   directory listing surfaces these.
