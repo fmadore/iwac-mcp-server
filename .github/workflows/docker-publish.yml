@@ -27,11 +27,9 @@ env:
   IMAGE_NAME: ${{ github.repository }} # fmadore/iwac-mcp-server
   # Single source of truth for the Node major used to build and test releases.
   # Keep in step with ci.yml, mcpb/Dockerfile and mcpb/package.json `engines`.
-  # NOTE: this is the BUILD baseline only. The shipped .mcpb still targets
-  # node18 (scripts/bundle.mjs) and declares `runtimes.node: ">=18.0.0"`
-  # (manifest.json), because Claude Desktop runs the extension on its OWN
-  # bundled Node — raising that floor without knowing Desktop's version would
-  # stop the extension installing. Those two move together, or not at all.
+  # NOTE: this is the BUILD baseline only. scripts/bundle.mjs derives the
+  # shipped target from manifest.json's `runtimes.node` floor (currently Node
+  # 20, matching MCP SDK v2), and ci.yml executes the artifact on that floor.
   NODE_VERSION: 24
   # Pin a specific mcp-publisher release (e.g. "v1.4.0") for reproducible,
   # supply-chain-safer publishes; "latest" keeps the old auto-tracking

@@ -45,7 +45,26 @@ import {
 } from "../src/tools/_shared.js";
 import { interleave, tokenize, tokenizedWhere } from "../src/tools/search.js";
 import { q, selectList, type Bindable } from "../src/db.js";
-import { ALL_SUBSETS } from "../src/config.js";
+import { ALL_SUBSETS, parseAllowedOrigins, parsePositiveInt } from "../src/config.js";
+
+describe("configuration parsing", () => {
+  it("accepts only complete positive decimal integers", () => {
+    assert.equal(parsePositiveInt("8080", 8000), 8080);
+    assert.equal(parsePositiveInt(" 768 ", 1), 768);
+    for (const bad of [undefined, "", "0", "-1", "3.5", "1e3", "8000junk", "Infinity"]) {
+      assert.equal(parsePositiveInt(bad, 42), 42, `${String(bad)} should fall back`);
+    }
+    assert.equal(parsePositiveInt("65536", 8000, 65_535), 8000);
+  });
+
+  it("normalises exact HTTP(S) origins and reports unsafe entries", () => {
+    const parsed = parseAllowedOrigins(
+      "https://ChatGPT.com/, http://localhost:3000, https://chatgpt.com:443, *, https://example.com/path, file:///tmp",
+    );
+    assert.deepEqual([...parsed.allowed], ["https://chatgpt.com", "http://localhost:3000"]);
+    assert.deepEqual(parsed.invalid, ["*", "https://example.com/path", "file:///tmp"]);
+  });
+});
 
 describe("foldText", () => {
   it("folds accents and case", () => {

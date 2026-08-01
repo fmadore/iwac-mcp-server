@@ -101,7 +101,14 @@ if (tools.tools.length !== 34) fail(`expected 34 tools with semantic off, got ${
 if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");
 for (const t of tools.tools) {
   if (!t.title && !t.annotations?.title) fail(`tool ${t.name} has no title`);
+  if (!t.description?.trim()) fail(`tool ${t.name} has no description`);
+  if (t.inputSchema?.type !== "object") fail(`tool ${t.name} must advertise an object input schema`);
+  if (t.annotations?.readOnlyHint !== true) fail(`tool ${t.name} must be annotated read-only`);
+  if (t.annotations?.destructiveHint !== false) fail(`tool ${t.name} must be annotated non-destructive`);
+  if (t.annotations?.idempotentHint !== true) fail(`tool ${t.name} must be annotated idempotent`);
+  if (t.annotations?.openWorldHint !== false) fail(`tool ${t.name} must be annotated closed-world`);
 }
+if (new Set(names).size !== names.length) fail("tool names must be unique");
 // Tools that promise structured output must declare an output schema.
 for (const n of [
   "search",

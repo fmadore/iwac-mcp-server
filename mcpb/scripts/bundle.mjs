@@ -17,6 +17,13 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
+const manifest = JSON.parse(readFileSync(join(rootDir, "manifest.json"), "utf8"));
+const runtimeRange = manifest.compatibility?.runtimes?.node;
+const runtimeMatch = typeof runtimeRange === "string" ? /^>=\s*(\d+)(?:\.|$)/.exec(runtimeRange) : null;
+if (!runtimeMatch) {
+  throw new Error(`manifest.json must declare compatibility.runtimes.node as a >= major range; got ${runtimeRange}`);
+}
+const nodeTarget = `node${runtimeMatch[1]}`;
 
 // --- zod locale stubbing ----------------------------------------------------
 // zod's `v4/locales/index.js` re-exports 50+ error-message catalogues (Arabic,
@@ -164,13 +171,10 @@ await esbuild.build({
   bundle: true,
   platform: "node",
   format: "esm",
-  // Deliberately BELOW the build baseline (Node 24 in CI, Docker and
-  // package.json `engines`). Claude Desktop runs the extension on its own
-  // bundled Node, whose version this project does not control, so the emitted
-  // bundle stays parseable well below that. Raise this only together with
-  // `compatibility.runtimes.node` in manifest.json, and only once Desktop's
-  // bundled runtime is known to clear the new floor.
-  target: "node18",
+  // Deliberately below the Node 24 build baseline. The emitted target is
+  // derived from the manifest's runtime floor, and CI executes the finished
+  // bundle on that same floor. MCP SDK v2 currently makes Node 20 the minimum.
+  target: nodeTarget,
   // No banner shebang: src/index.ts already starts with `#!/usr/bin/env node`,
   // and esbuild hoists the entry point's shebang to line 1 of the bundle.
   legalComments: "none",

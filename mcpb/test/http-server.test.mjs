@@ -17,6 +17,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverJs = path.join(root, "server", "index.js");
 const PORT = 18432;
 const TOKEN = "test-token-fixture-http";
+const ALLOWED_ORIGIN = "https://trusted.example";
 const BASE = `http://127.0.0.1:${PORT}`;
 
 const baseEnv = {
@@ -27,6 +28,7 @@ const baseEnv = {
   PORT: String(PORT),
   // Point the token file somewhere that never exists so only the env var counts.
   IWAC_MCP_TOKEN_FILE: path.join(root, "test", "fixtures", "no-such-token-file"),
+  IWAC_MCP_ALLOWED_ORIGINS: ALLOWED_ORIGIN,
 };
 
 let failures = 0;
@@ -82,6 +84,52 @@ try {
     body: "{}",
   });
   if (badAuth.status !== 401) fail(`wrong token should 401, got ${badAuth.status}`);
+
+  // MCP 2026-07-28 requires Origin validation on every Streamable-HTTP
+  // connection. Origin-less server clients remain valid; a browser origin must
+  // be explicitly allowlisted and is checked before bearer authentication.
+  const badOrigin = await fetch(`${BASE}/mcp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+      Origin: "https://attacker.example",
+    },
+    body: "{}",
+  });
+  if (badOrigin.status !== 403) fail(`untrusted Origin should 403, got ${badOrigin.status}`);
+  const allowedOrigin = await fetch(`${BASE}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: ALLOWED_ORIGIN },
+    body: "{}",
+  });
+  if (allowedOrigin.status !== 401) fail(`allowlisted Origin should proceed to auth and 401, got ${allowedOrigin.status}`);
+
+  // The v2 handler owns protocol/media validation. These raw checks guard the
+  // adapter boundary around it, including the local pre-parsing of JSON bodies.
+  const wrongMediaType = await fetch(`${BASE}/mcp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain",
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${TOKEN}`,
+    },
+    body: "{}",
+  });
+  if (wrongMediaType.status !== 415) fail(`non-JSON MCP POST should 415, got ${wrongMediaType.status}`);
+
+  const parseSentinel = "not-json-DO_NOT_REFLECT";
+  const invalidJson = await fetch(`${BASE}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+    body: parseSentinel,
+  });
+  const invalidJsonBody = await invalidJson.text();
+  if (invalidJson.status !== 400) fail(`invalid JSON should 400, got ${invalidJson.status}`);
+  if (!invalidJsonBody.includes('"code":-32700') || !invalidJsonBody.includes('"message":"Parse error"')) {
+    fail(`invalid JSON should return a stable JSON-RPC parse error, got ${invalidJsonBody.slice(0, 200)}`);
+  }
+  if (invalidJsonBody.includes(parseSentinel)) fail("parse error reflected attacker-controlled request text");
 
   const notFound = await fetch(`${BASE}/nope`, { method: "POST" });
   if (notFound.status !== 404) fail(`unknown path should 404, got ${notFound.status}`);

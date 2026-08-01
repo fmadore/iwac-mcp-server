@@ -42,11 +42,52 @@ function parseBool(v: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
-/** Parse a positive integer env var, falling back on garbage/NaN/≤0 instead of
- * letting a NaN leak into an API call or `listen()`. */
-function parsePositiveInt(v: string | undefined, fallback: number): number {
-  const n = Number.parseInt(v ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+/** Parse a decimal positive-integer env var. `parseInt()` is deliberately not
+ * used: it accepts malformed prefixes such as `8000junk` and truncates `3.5`
+ * to 3, contradicting the configuration contract. */
+export function parsePositiveInt(
+  v: string | undefined,
+  fallback: number,
+  max = Number.MAX_SAFE_INTEGER,
+): number {
+  const raw = v?.trim() ?? "";
+  if (!/^\d+$/.test(raw)) return fallback;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n > 0 && n <= max ? n : fallback;
+}
+
+export interface ParsedOrigins {
+  allowed: ReadonlySet<string>;
+  invalid: string[];
+}
+
+/** Parse the exact HTTP(S) origins allowed to reach the MCP endpoint.
+ * Paths, credentials, queries, fragments, opaque origins, and wildcard values
+ * are rejected: accepting any of them would turn the allowlist into a false
+ * sense of DNS-rebinding protection. */
+export function parseAllowedOrigins(v: string | undefined): ParsedOrigins {
+  const allowed = new Set<string>();
+  const invalid: string[] = [];
+  for (const raw of v?.split(",") ?? []) {
+    const candidate = raw.trim();
+    if (!candidate) continue;
+    try {
+      const url = new URL(candidate);
+      const valid =
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        url.origin !== "null" &&
+        !url.username &&
+        !url.password &&
+        url.pathname === "/" &&
+        !url.search &&
+        !url.hash;
+      if (valid) allowed.add(url.origin);
+      else invalid.push(candidate);
+    } catch {
+      invalid.push(candidate);
+    }
+  }
+  return { allowed, invalid };
 }
 
 /**
@@ -66,6 +107,8 @@ function readBearerToken(): string | undefined {
   return process.env.IWAC_MCP_BEARER_TOKEN?.trim() || undefined;
 }
 
+const httpOrigins = parseAllowedOrigins(process.env.IWAC_MCP_ALLOWED_ORIGINS);
+
 export const config = {
   datasetRepo: DATASET_REPO,
   datasetRevision: DATASET_REVISION,
@@ -82,6 +125,8 @@ export const config = {
     process.env.GEMINI_API_KEY?.trim() ||
     undefined,
   // Remote HTTP transport (node server/index.js --http). Unused by stdio mode.
-  httpPort: parsePositiveInt(process.env.PORT, 8000),
+  httpPort: parsePositiveInt(process.env.PORT, 8000, 65_535),
   bearerToken: readBearerToken(),
+  httpAllowedOrigins: httpOrigins.allowed,
+  invalidHttpOrigins: httpOrigins.invalid,
 };

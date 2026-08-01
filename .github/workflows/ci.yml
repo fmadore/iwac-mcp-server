@@ -1,8 +1,11 @@
 name: CI
 
-# Two layers:
+# Three layers:
 #  - test: hermetic, runs on every push/PR — typecheck, build, unit tests, and
 #    the offline fixture MCP round-trip (synthetic parquet, IWAC_OFFLINE=1).
+#  - runtime-floor: builds on the Node 24 toolchain, then runs the finished
+#    bundle and offline suite on the runtime floor read from manifest.json.
+#    This catches runtime API drift that esbuild's target cannot.
 #  - live-smoke: weekly (and on demand) — the full smoke test against the real
 #    Hugging Face dataset. Its pinned counts (smoke-test.mjs EXPECTED block) are
 #    the dataset-drift alarm, so a red weekly run usually means the dataset
@@ -69,6 +72,50 @@ jobs:
 
       - name: HTTP transport round-trip (offline)
         run: npm run test:http
+
+  runtime-floor:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcpb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up build toolchain
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Read declared runtime floor
+        id: runtime
+        run: |
+          major=$(node -e '
+            const manifest = require("./manifest.json");
+            const range = manifest.compatibility?.runtimes?.node;
+            const match = typeof range === "string" && /^>=\s*(\d+)(?:\.|$)/.exec(range);
+            if (!match) throw new Error(`invalid compatibility.runtimes.node: ${range}`);
+            process.stdout.write(match[1]);
+          ')
+          echo "major=$major" >> "$GITHUB_OUTPUT"
+
+      - name: Set up declared runtime floor
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.runtime.outputs.major }}
+
+      - name: Test built bundle at declared floor
+        run: |
+          node --version
+          npm test
 
   live-smoke:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

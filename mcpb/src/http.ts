@@ -23,10 +23,11 @@
 //
 // TLS termination, rate limiting, and the public `/mcp` path mount are handled
 // upstream by nginx — see docs/iwac-mcp-roadmap.md in the IWAC-docker repo.
-// The SDK's localhostHostValidation/localhostOriginValidation guards are
-// deliberately NOT mounted: they defend a loopback bind against DNS rebinding,
-// and this process binds 0.0.0.0 behind nginx, where they would reject every
-// legitimate public Host header.
+// The SDK's localhostHostValidation/localhostOriginValidation guards are not
+// suitable for this public 0.0.0.0 bind: they would reject nginx's legitimate
+// public Host. Instead, requests that carry Origin are checked against the
+// exact IWAC_MCP_ALLOWED_ORIGINS allowlist below, as required by the Streamable
+// HTTP specification. Server-to-server clients normally omit Origin.
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
@@ -77,7 +78,19 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown, he
 }
 
 export function startHttpServer(createServer: () => McpServer): void {
-  const { httpPort: port, bearerToken: token } = config;
+  const {
+    httpPort: port,
+    bearerToken: token,
+    httpAllowedOrigins: allowedOrigins,
+    invalidHttpOrigins,
+  } = config;
+  if (invalidHttpOrigins.length > 0) {
+    console.error(
+      `[iwac] FATAL: IWAC_MCP_ALLOWED_ORIGINS contains invalid origins: ${invalidHttpOrigins.join(", ")}. ` +
+        "Use comma-separated HTTP(S) origins without paths, queries, fragments, credentials, or wildcards.",
+    );
+    process.exit(1);
+  }
   if (!token) {
     console.error(
       "[iwac] FATAL: HTTP mode requires a bearer token. Set IWAC_MCP_BEARER_TOKEN or mount a " +
@@ -117,6 +130,18 @@ export function startHttpServer(createServer: () => McpServer): void {
       return;
     }
 
+    // Browsers always send Origin on cross-origin fetches. An absent header is
+    // normal for server-to-server MCP clients; a present one must be explicitly
+    // trusted. Never reflect it or fall back to Host — either would defeat the
+    // DNS-rebinding protection this check exists to provide.
+    const origin = req.headers.origin;
+    if (origin !== undefined && !allowedOrigins.has(origin)) {
+      sendJson(res, 403, rpcError(-32000, "Forbidden: Origin is not allowed"), {
+        Vary: "Origin",
+      });
+      return;
+    }
+
     if (!authorized(req.headers.authorization)) {
       sendJson(res, 401, rpcError(-32001, "Unauthorized"), { "WWW-Authenticate": "Bearer" });
       return;
@@ -143,8 +168,14 @@ export function startHttpServer(createServer: () => McpServer): void {
         res.destroy();
       } else if (err instanceof BodyTooLargeError) {
         sendJson(res, 413, rpcError(-32600, "Request body too large"), { Connection: "close" });
+      } else if (err instanceof SyntaxError) {
+        // JSON.parse messages may echo attacker-controlled request fragments;
+        // return the stable JSON-RPC wording and keep those details out of the
+        // response. The request body itself is enough for local diagnostics.
+        sendJson(res, 400, rpcError(-32700, "Parse error"));
       } else {
-        sendJson(res, 400, rpcError(-32700, `Parse error: ${(err as Error).message}`));
+        console.error("[iwac] HTTP request error:", err);
+        sendJson(res, 500, rpcError(-32603, "Internal error"));
       }
     });
   });

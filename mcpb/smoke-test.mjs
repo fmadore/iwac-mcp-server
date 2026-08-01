@@ -552,7 +552,7 @@ await call("list_locations", { country: "Benin", limit: 3 }, {
 });
 
 // --- semantic: registration is gated on IWAC_SEMANTIC_SEARCH_ENABLED, so the
-// presence/absence of the two semantic tools is asserted against the tools list
+// presence/absence of the three semantic tools is asserted against the tools list
 // near the top of this script (no call here — that would need a Google API key). ---
 
 // --- error path ----------------------------------------------------------------

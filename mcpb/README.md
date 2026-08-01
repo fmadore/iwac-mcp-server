@@ -21,7 +21,9 @@ bundle is published.
 
 On first use the server downloads ~250 MB of parquet data from Hugging Face
 into `~/.iwac-mcp/cache/` (override via the extension settings). Subsequent
-queries are served locally through DuckDB.
+queries are served locally through DuckDB. Online starts compare the Hub's LFS,
+Xet, or Git content identity with a small cache sidecar, so a same-sized dataset
+republish is refreshed; existing caches are verified once by SHA-256 when possible.
 
 - **25 core tools** work without any API key (keyword search, filtering,
   statistics, coverage timelines, item details).
@@ -129,13 +131,14 @@ Environment variables (all transports unless noted):
 | -------- | ------- | ------- |
 | `IWAC_CACHE_DIR` | `~/.iwac-mcp/cache` (`/cache` in Docker) | Where parquet data is cached (~250 MB) |
 | `IWAC_OFFLINE` | `false` | Trust the cache as-is; never touch the network |
-| `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Register the two `semantic_search_*` tools |
+| `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Register the three `semantic_search_*` tools |
 | `IWAC_GOOGLE_API_KEY` (or `GOOGLE_API_KEY` / `GEMINI_API_KEY`) | — | Gemini key for semantic search |
 | `IWAC_EMBEDDING_MODEL` | `gemini-embedding-2` | Query-embedding model (must match the dataset's) |
 | `IWAC_EMBEDDING_DIMENSIONALITY` | `768` | Query-embedding dimensionality |
 | `PORT` | `8000` | HTTP mode only: listen port |
 | `IWAC_MCP_BEARER_TOKEN` | — | HTTP mode only: the bearer token clients must send |
 | `IWAC_MCP_TOKEN_FILE` | `/run/secrets/iwac_mcp_token` | HTTP mode only: read the token from a mounted secret file instead |
+| `IWAC_MCP_ALLOWED_ORIGINS` | — | HTTP mode only: comma-separated exact HTTP(S) origins permitted when a request carries `Origin`; origin-less server clients remain allowed |
 
 ## Layout
 
