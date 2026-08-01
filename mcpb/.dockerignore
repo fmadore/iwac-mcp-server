@@ -11,7 +11,6 @@ npm-debug.log*
 # fixtures from invalidating the COPY layer or bloating the build context.
 test
 smoke-test.mjs
-manifest.json
 manifest.json.orig
 .mcpbignore
 icon.png
