@@ -54,8 +54,8 @@ export function registerArticleTools(server: Server): void {
         with_description: z
           .boolean()
           .optional()
-          .describe("Include each article's ~500-char AI abstract (description_ai) for triage without get_article. Adds ~125 tokens/row, so pass a smaller limit (≤10) when enabling it."),
-        limit: z.number().int().optional().describe("Default 20, max 100"),
+          .describe("Include each article's ~500-char AI abstract (description_ai) for triage without get_article. Adds ~125 tokens/row, so `limit` defaults to 10 and caps at 25 while this is on."),
+        limit: z.number().int().optional().describe("Default 20, max 100 (10 and 25 with with_description)"),
         offset: z.number().int().optional(),
       }),
     },
@@ -74,7 +74,15 @@ export function registerArticleTools(server: Server): void {
         const missing = requireHijriColumns(schema, "articles");
         if (missing) return errorResult(missing);
       }
-      const limit = resolveLimit(args.limit, 20, 100);
+      // `with_description` attaches a ~500-char AI abstract to every row, which
+      // turns a 100-row page into ~27k tokens — past the 25k ceiling Claude Code
+      // enforces on a tool result, so the whole answer is discarded rather than
+      // trimmed. The tool description has always said "pass a smaller limit
+      // (≤10)"; this makes the advice binding, and the clamp is reported through
+      // the usual limit_warning rather than applied silently.
+      const limit = args.with_description
+        ? resolveLimit(args.limit, 10, 25, "`with_description` adds a ~500-char abstract per row; drop it to page 100 at a time.")
+        : resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
       const where: string[] = [];
       const params: Bindable[] = [];

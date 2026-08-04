@@ -1,8 +1,10 @@
 name: CI
 
 # Three layers:
-#  - test: hermetic, runs on every push/PR — typecheck, build, unit tests, and
-#    the offline fixture MCP round-trip (synthetic parquet, IWAC_OFFLINE=1).
+#  - test: hermetic, runs on every push/PR — typecheck, build, unit tests, the
+#    offline fixture MCP round-trip (synthetic parquet, IWAC_OFFLINE=1), and the
+#    token budget gate (always-on tool-definition footprint against a committed
+#    baseline, plus worst-case response sizes against inflated fixtures).
 #  - runtime-floor: builds on the Node 24 toolchain, then runs the finished
 #    bundle and offline suite on the runtime floor read from manifest.json.
 #    This catches runtime API drift that esbuild's target cannot.
@@ -72,6 +74,11 @@ jobs:
 
       - name: HTTP transport round-trip (offline)
         run: npm run test:http
+
+      # Prints the per-tool breakdown either way, so a PR that adds a tool shows
+      # what it costs in the log rather than only when it trips the gate.
+      - name: Token budget (offline)
+        run: npm run test:tokens
 
   runtime-floor:
     if: github.event_name == 'push' || github.event_name == 'pull_request'

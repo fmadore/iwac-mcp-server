@@ -151,6 +151,16 @@ describe("resolveLimit / limitWarning", () => {
     assert.deepEqual(limitWarning(resolveLimit(50, 20, 100)), {});
     assert.deepEqual(limitWarning(resolveLimit(undefined, 20, 100)), {});
   });
+  // A per-call cap lower than the tool's documented maximum (search_articles
+  // with `with_description`) is indistinguishable from a documentation bug
+  // unless the warning says why it applied.
+  it("carries the reason for a per-call maximum into the warning", () => {
+    const warn = limitWarning(resolveLimit(100, 10, 25, "`with_description` adds a ~500-char abstract per row."));
+    assert.match(String(warn.limit_warning), /maximum 25/);
+    assert.match(String(warn.limit_warning), /with_description/);
+    // No reason, no trailing sentence — the wording stays as it was.
+    assert.equal(String(limitWarning(resolveLimit(500, 20, 100)).limit_warning).endsWith("applied 100."), true);
+  });
   // The low end is a silent truncation too: one row returned for `limit: 0`
   // reads as "that is all there is".
   it("reports clamps at the LOW end as well", () => {

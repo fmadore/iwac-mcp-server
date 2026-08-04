@@ -303,6 +303,22 @@ await call("list_subjects", { limit: 500 }, {
     return null;
   },
 });
+// `with_description` lowers this tool's own maximum, because 100 rows carrying a
+// ~500-char abstract each is ~27k tokens — past the ceiling Claude Code applies
+// to a tool result, so the caller receives nothing at all. The clamp has to be
+// visible for the same reason every other clamp here is.
+await call("search_articles", { limit: 100, with_description: true }, {
+  check: (p) => {
+    if (p.limit !== 25) return `with_description should cap the limit at 25, got ${p.limit}`;
+    if (p.requested_limit !== 100) return "visible-cap fields missing on the with_description cap";
+    if (!String(p.limit_warning ?? "").includes("with_description"))
+      return "limit_warning should name with_description as the reason";
+    return null;
+  },
+});
+await call("search_articles", { limit: 100 }, {
+  check: (p) => (p.limit === 100 ? null : `without with_description the limit should stay 100, got ${p.limit}`),
+});
 await call("list_locations", { country: "Togo" }, {
   check: (p) => {
     if (!p.results?.some((r) => r.title === "Bénin")) return "Bénin (countries Benin|Togo) should appear under Togo";

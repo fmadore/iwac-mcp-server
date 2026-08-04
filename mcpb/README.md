@@ -39,8 +39,9 @@ npm run install-bindings                    # fetch the 4 macOS/Windows binaries
 npm run typecheck                           # tsc --noEmit (type safety)
 npm run lint                                # biome (linter only, no formatting)
 npm run build                               # esbuild -> server/index.js (single file)
-npm test                                    # unit + offline fixture + HTTP round-trips
+npm test                                    # unit + offline fixture + HTTP round-trips + token budget
 npm run test:live                           # full smoke test against the real dataset
+npm run test:tokens -- --update             # re-baseline the token budget after an intended change
 ```
 
 > **Windows on ARM:** `npm run lint` segfaults (exit 139) on `win32-arm64` —
@@ -57,11 +58,39 @@ npm run test:live                           # full smoke test against the real d
 `npm test` is hermetic: `test/unit.test.ts` covers the pure helpers,
 `test/fixture-server.test.mjs` spawns the built server over stdio against
 synthetic parquet fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1`,
-and `test/http-server.test.mjs` does the same over the `--http` transport
-(bearer auth, /health, body cap, a real Streamable-HTTP MCP call) — no network,
+`test/http-server.test.mjs` does the same over the `--http` transport
+(bearer auth, /health, body cap, a real Streamable-HTTP MCP call), and
+`test/token-budget.test.mjs` gates what the server costs a model — no network,
 runs in seconds. `npm run test:live` (smoke-test.mjs) exercises every tool
 against the real Hugging Face dataset; its pinned counts double as a
 dataset-drift alarm and run weekly in CI.
+
+### Token budget
+
+Two things are measured, in `o200k_base` tokens — not Claude's tokenizer, since
+none is published, but the one the public MCP benchmarks use and close enough on
+French prose for a gate about *movement*:
+
+* **Always-on footprint** — the 34 tool definitions plus the instructions block,
+  which every client loads before the user has typed anything: **~14.1k tokens**
+  today (`inputSchema` 5.5k, `outputSchema` 2.4k, descriptions 2.7k). Compared
+  against `test/token-baseline.json` on every PR; more than 5% growth fails, and
+  clearing it means either trimming the schemas or re-baselining with
+  `--update` in the same commit, where a reviewer can see the cost. A hard
+  ceiling of 16k catches step changes the percentage would let through.
+* **Worst-case responses** — every tool called with the largest arguments it
+  will honour, against inflated fixtures (`scripts/make-stress-fixtures.mjs`:
+  the ordinary fixtures re-read with ≥130 rows per subset and text padded to the
+  lengths the real corpus carries). The ceiling is 20k tokens, under the 25k cap
+  Claude Code enforces on a tool result — past which the caller receives nothing
+  at all, on exactly the query that was worth asking for 100 rows. Adding a tool
+  without a `WORST_CASE` entry fails the test.
+
+The aggregate tools are the gap this cannot close: their response size follows
+the corpus's cardinality (distinct months, subjects, places), which no synthetic
+fixture reproduces. The same 20k ceiling is therefore also applied in
+`smoke-test.mjs`, which runs weekly against the live dataset and prints the
+heaviest responses it saw.
 
 Pack the per-OS server bundles (one `.mcpb` per OS, each with only that OS's
 DuckDB binaries):
@@ -156,8 +185,10 @@ Environment variables (all transports unless noted):
 | `scripts/install-duckdb-bindings.mjs` | Fetch the 4 macOS/Windows bindings     |
 | `scripts/pack-platforms.mjs` | Build one `.mcpb` per OS (Windows, macOS)       |
 | `scripts/make-fixtures.mjs`  | Generate synthetic parquet test fixtures        |
+| `scripts/make-stress-fixtures.mjs` | Inflate those fixtures for the token budget |
 | `scripts/make-server-json.mjs` | Generate `server.json` for the MCP Registry   |
 | `test/`                      | Unit tests + offline fixture/HTTP MCP tests     |
+| `test/token-baseline.json`   | Committed always-on token footprint baseline    |
 | `smoke-test.mjs`             | Live MCP round-trip test (real dataset)         |
 | `.mcpbignore`                | Files excluded from the `.mcpb` archive         |
 

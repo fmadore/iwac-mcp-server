@@ -65,7 +65,7 @@ Primary search tool for the 12,287 newspaper articles.
 - `date_from` / `date_to` (optional): `YYYY-MM-DD` or `YYYY` (day precision)
 - `hijri_month` / `hijri_year` (optional) *(v1.3.0+)*: Islamic (Umm al-Qura) lunar date. `hijri_month` takes 1–12 or a name in either transliteration (`Ramadan`, `Chaabane`, `Chawwal`, `Dhou al-hijja`), accent- and case-folded; a misspelling errors with `valid_values`. Matches only articles with a complete `YYYY-MM-DD` (98.9%). This is how you read the items behind a `granularity="lunar_month"` peak — and it beats keyword-searching an observance name, which finds items *mentioning* it rather than items *published during* it.
 - `with_description` (optional, boolean): include each article's ~500-char AI abstract (`description_ai`) — ~125 tokens/row, pair with limit ≤ 10
-- `limit` (default 20, max 100), `offset`
+- `limit` (default 20, max 100 — 10 and 25 with `with_description`, since 100 rows carrying abstracts overrun the client's tool-result cap), `offset`
 - Returns: id, title, author, newspaper, country, date, **hijri_date** (`1440-09-15`, v1.3.0+), subject, spatial, language, **polarity**, **centrality**, **subjectivity**, url
 
 **Tip:** Sentiment comes inline — build topic-specific sentiment tables directly from search results. With `with_description=true` you can usually pick the 2-3 articles worth a full `get_article` without any intermediate calls.

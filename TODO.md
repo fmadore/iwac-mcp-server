@@ -118,6 +118,33 @@
   being true in v0.12.0 when the `ui://` chart resource landed. The error-code
   change is emitted by the SDK either way, so nothing to write.
 
+- [x] **Token budget in CI** — the server's cost to a model is now measured
+  rather than assumed. `npm run test:tokens` gates two things on every PR:
+  the **always-on footprint** (34 tool definitions + instructions = 14 091
+  tokens, checked against the committed `test/token-baseline.json` at 5% drift
+  and a 16k hard ceiling) and the **worst-case response** of every tool called
+  at its maximum arguments against inflated fixtures
+  (`scripts/make-stress-fixtures.mjs`), ceiling 20k — under the 25k cap Claude
+  Code applies to a tool result. The same ceiling runs weekly in
+  `smoke-test.mjs`, which is the only place the aggregate tools' real
+  cardinality shows up. The gate earned itself on the first run:
+  `search_articles(limit=100, with_description=true)` was **27 533 tokens**, so
+  a caller asking for 100 abstracts received nothing at all; `with_description`
+  now caps the page at 25 with a `limit_warning` that says why.
+
+  Still open, in rough order of payoff:
+
+  - `outputSchema` is **2 402 tokens, 19% of the footprint**, and is attached to
+    only 13 of 34 tools. It buys `structuredContent` validation (asserted in
+    `test/fixture-server.test.mjs`); worth deciding per tool rather than by
+    habit, and worth re-checking once clients report whether they read it.
+  - The 9 aggregate tools are **5 600 tokens, 44% of the footprint** for tools a
+    given session may never call. If MCP tool-search / progressive disclosure
+    becomes reliable across clients, they are the obvious candidates to defer.
+  - `search_index` (16 770) and `search_references` (15 867) sit closest to the
+    response ceiling at `limit=100`. Neither is wrong — the caller asked — but
+    they are the two that a wider row would push over.
+
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 
 > Governing rule: all AI enrichment is precomputed offline as HF columns and

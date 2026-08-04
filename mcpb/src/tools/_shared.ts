@@ -161,11 +161,15 @@ export interface ResolvedLimit {
   requested: number | undefined;
   capped: boolean;
   max: number;
+  /** Why this call's maximum is lower than the tool's documented one, when it
+   * is. Without it, a caller who asked for 100 and got 25 has no way to tell a
+   * per-call cap from a typo in the docs. */
+  reason?: string;
 }
 
-export function resolveLimit(v: number | undefined, def: number, max: number): ResolvedLimit {
+export function resolveLimit(v: number | undefined, def: number, max: number, reason?: string): ResolvedLimit {
   const value = Math.max(1, Math.min(v ?? def, max));
-  return { value, requested: v, capped: v !== undefined && v !== value, max };
+  return { value, requested: v, capped: v !== undefined && v !== value, max, reason };
 }
 
 /** The visible-cap fields (`requested_limit` + `limit_warning`) for a clamped
@@ -177,7 +181,7 @@ export function limitWarning(limit: ResolvedLimit): Record<string, unknown> {
     requested_limit: requested,
     limit_warning:
       requested > limit.max
-        ? `Requested limit ${requested} exceeds the maximum ${limit.max}; applied ${limit.value}.`
+        ? `Requested limit ${requested} exceeds the maximum ${limit.max}; applied ${limit.value}.${limit.reason ? ` ${limit.reason}` : ""}`
         : `Requested limit ${requested} is below the minimum 1; applied ${limit.value}.`,
   };
 }

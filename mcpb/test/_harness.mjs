@@ -4,19 +4,31 @@
 // diverged; the shared version takes the differences as options.
 
 /**
- * Build a { call, fail, failures } harness bound to a connected MCP client.
+ * Build a { call, fail, failures, tokenReport } harness bound to a connected
+ * MCP client.
  *
  * options:
  *   verbose   — log a one-line preview of every response (the live smoke test's
  *               behaviour; the fixture test stays quiet)
  *   timeoutMs — per-call timeout (fixtures are instant; live HF queries aren't)
+ *   encode + tokenCeiling — when both are given, count every response in tokens,
+ *               fail any call over the ceiling, and collect a report. This is
+ *               the half of the token budget that synthetic fixtures cannot
+ *               honestly cover: the aggregate tools' response size is driven by
+ *               the corpus's CARDINALITY (distinct months, subjects, places), so
+ *               only the live dataset shows their real worst case. The
+ *               deterministic half lives in test/token-budget.test.mjs. The
+ *               encoder is passed in rather than imported here so the hermetic
+ *               fixture test never loads its megabytes of BPE ranks.
  */
-export function createHarness(client, { verbose = false, timeoutMs = 60_000 } = {}) {
+export function createHarness(client, { verbose = false, timeoutMs = 60_000, encode = null, tokenCeiling = 0 } = {}) {
   let failures = 0;
   function fail(msg) {
     failures++;
     console.error(`  FAIL: ${msg}`);
   }
+
+  const responseTokens = [];
 
   /**
    * Call a tool and run assertions. opts:
@@ -40,6 +52,16 @@ export function createHarness(client, { verbose = false, timeoutMs = 60_000 } = 
     if (verbose) {
       const preview = body.slice(0, 220).replace(/\s+/g, " ");
       console.log(`\n[${name}] ${isErr ? "ERROR " : ""}${body.length} chars | ${preview}${body.length > 220 ? "..." : ""}`);
+    }
+    if (encode && tokenCeiling) {
+      // Counted on the WHOLE payload a client receives, not just content[0]:
+      // an over-budget answer is over budget however it is split into blocks.
+      const whole = res.content?.map((c) => c.text ?? "").join("") ?? "";
+      const tokens = encode(whole).length;
+      responseTokens.push({ name, args, tokens });
+      if (tokens > tokenCeiling) {
+        fail(`${name}(${JSON.stringify(args)}): response is ${tokens} tokens, over the ${tokenCeiling} ceiling`);
+      }
     }
     if (isErr !== (opts.expectError ?? false)) {
       fail(`${name}(${JSON.stringify(args)}): isError=${isErr}, expected ${opts.expectError ?? false} — ${body.slice(0, 200)}`);
@@ -70,7 +92,20 @@ export function createHarness(client, { verbose = false, timeoutMs = 60_000 } = 
     return parsed;
   }
 
-  return { call, fail, failures: () => failures };
+  /** Print the heaviest responses seen, so the live run leaves a record of what
+   * the real corpus costs even when nothing crossed the ceiling. */
+  function tokenReport(top = 15) {
+    if (!responseTokens.length) return;
+    const sorted = [...responseTokens].sort((a, b) => b.tokens - a.tokens);
+    console.log(`\nheaviest responses (o200k_base, ceiling ${tokenCeiling}):`);
+    for (const r of sorted.slice(0, top)) {
+      console.log(`  ${String(r.tokens).padStart(6)}  ${r.name} ${JSON.stringify(r.args)}`.slice(0, 160));
+    }
+    const total = responseTokens.reduce((s, r) => s + r.tokens, 0);
+    console.log(`  ${responseTokens.length} calls, ${total} tokens total, median ${sorted[Math.floor(sorted.length / 2)].tokens}`);
+  }
+
+  return { call, fail, failures: () => failures, tokenReport };
 }
 
 /**

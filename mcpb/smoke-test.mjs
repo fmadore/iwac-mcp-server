@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { readFileSync } from "node:fs";
 import { checkManifestParity, createHarness } from "./test/_harness.mjs";
+import { encode } from "gpt-tokenizer/encoding/o200k_base";
 
 // Pins against the LIVE dataset revision — these are the dataset-drift alarm.
 // After a dataset refresh, update them here (one place) if the checks fire.
@@ -46,7 +47,20 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "smoke", version: "0.0.0" });
 await client.connect(transport);
 
-const { call, fail, failures } = createHarness(client, { verbose: true, timeoutMs: 5 * 60_000 });
+// RESPONSE_CEILING mirrors test/token-budget.test.mjs. That test bounds the
+// tools whose worst case follows from the server's own caps; this run bounds the
+// ones whose size follows from the CORPUS — an aggregate over every distinct
+// month, subject or place is only as large as the real data makes it, and no
+// synthetic fixture can stand in for that. It measures the calls this file
+// already makes, so it is a canary on real sizes rather than a proof about
+// maximum arguments; the report below is printed whether or not anything fired.
+const RESPONSE_CEILING = 20_000;
+const { call, fail, failures, tokenReport } = createHarness(client, {
+  verbose: true,
+  timeoutMs: 5 * 60_000,
+  encode,
+  tokenCeiling: RESPONSE_CEILING,
+});
 
 const serverVersion = client.getServerVersion()?.version;
 console.log(`server version: ${serverVersion}`);
@@ -560,6 +574,8 @@ await call("get_article", { article_id: 1 }, { expectError: true });
 
 await client.close();
 await transport.close();
+
+tokenReport();
 
 console.log(`\n${failures() === 0 ? "ALL CHECKS PASSED" : `${failures()} CHECK(S) FAILED`}`);
 process.exitCode = failures() === 0 ? 0 : 1;

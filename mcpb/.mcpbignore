@@ -27,6 +27,9 @@ node_modules/esbuild/
 node_modules/typescript/
 node_modules/tsx/
 node_modules/rimraf/
+# ~53 MB of BPE ranks, used only by the token budget test — larger unpacked than
+# everything else the bundle ships put together.
+node_modules/gpt-tokenizer/
 
 # Dev metadata
 .gitignore
