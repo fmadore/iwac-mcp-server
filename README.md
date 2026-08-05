@@ -1,5 +1,10 @@
 # IWAC MCP Server
 
+[![CI](https://github.com/fmadore/iwac-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/fmadore/iwac-mcp-server/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/fmadore/iwac-mcp-server?label=release)](https://github.com/fmadore/iwac-mcp-server/releases/latest)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.fmadore%2Fiwac--mcp--server-0a7ea4)](https://registry.modelcontextprotocol.io/?search=iwac)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server for the
 [Islam West Africa Collection (IWAC)](https://islam.zmo.de/s/westafrica/).
 Ships as a one-click [Desktop Extension](https://github.com/modelcontextprotocol/mcpb)
@@ -180,6 +185,30 @@ Docker image, uploads the release assets, and publishes to the MCP Registry.
 See [TODO.md](TODO.md) — near-term: submit to the Anthropic extension directory,
 sign the bundle with a production code-signing cert, and replace Gemini
 semantic-search with a free local model.
+
+## How to cite
+
+Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
+**Cite this repository** button (sidebar) renders it as APA or BibTeX with the
+current version filled in. In text:
+
+> Madore, F. (2026). *IWAC MCP Server* (Version 1.5.0) [Computer software].
+> https://github.com/fmadore/iwac-mcp-server
+
+```bibtex
+@software{madore_iwac_mcp_server,
+  author  = {Madore, Frédérick},
+  title   = {{IWAC MCP Server}},
+  year    = {2026},
+  version = {1.5.0},
+  url     = {https://github.com/fmadore/iwac-mcp-server},
+  license = {MIT}
+}
+```
+
+If the software helped you reach a finding, please cite the
+[collection itself](https://islam.zmo.de/s/westafrica/) as well — that is where
+the archival work lives.
 
 ## License
 

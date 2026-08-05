@@ -42,16 +42,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check version consistency (package.json vs manifest.json)
+      - name: Check version consistency (package.json, manifest.json, CITATION.cff, README citation)
         run: |
           node -e '
             const fs = require("fs");
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
-            const man = JSON.parse(fs.readFileSync("manifest.json", "utf8")).version;
-            if (pkg !== man) {
-              console.error(`version mismatch: package.json ${pkg} vs manifest.json ${man}`);
+            const fail = (what, got) => {
+              console.error(`version mismatch: package.json ${pkg} vs ${what} ${got}`);
               process.exit(1);
-            }
+            };
+            const man = JSON.parse(fs.readFileSync("manifest.json", "utf8")).version;
+            if (man !== pkg) fail("manifest.json", man);
+
+            // A stale version in the citation metadata is worse than none, so the
+            // CITATION.cff field and both versions quoted in the README "How to
+            // cite" block are checked here too.
+            const cff = fs.readFileSync("../CITATION.cff", "utf8");
+            const cffVersion = cff.match(/^version:\s*"?([^"\s]+)"?\s*$/m)?.[1];
+            if (cffVersion !== pkg) fail("CITATION.cff", cffVersion);
+
+            const readme = fs.readFileSync("../README.md", "utf8");
+            const cited = [
+              ["README (APA)", readme.match(/\(Version ([\d.]+)\) \[Computer software\]/)?.[1]],
+              ["README (BibTeX)", readme.match(/^\s*version\s*=\s*\{([\d.]+)\},?\s*$/m)?.[1]],
+            ];
+            for (const [what, got] of cited) if (got !== pkg) fail(what, got);
           '
 
       - name: Typecheck

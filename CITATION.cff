@@ -1,0 +1,58 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the software and the underlying collection."
+title: "IWAC MCP Server"
+abstract: >-
+  A read-only Model Context Protocol (MCP) server that gives AI assistants
+  structured access to the Islam West Africa Collection (IWAC): francophone
+  newspaper articles, Islamic publications, archival documents, audiovisual
+  records, fieldwork photographs and academic references on Islam and Muslim
+  societies in Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria and Togo.
+  Ships as a Claude Desktop extension (.mcpb), a Docker image and a hosted
+  Streamable-HTTP endpoint.
+type: software
+authors:
+  - given-names: Frédérick
+    family-names: Madore
+    orcid: "https://orcid.org/0000-0003-0959-2092"
+    affiliation: "University of Bayreuth"
+    email: frederick.madore@uni-bayreuth.de
+repository-code: "https://github.com/fmadore/iwac-mcp-server"
+url: "https://islam.zmo.de/s/westafrica/"
+license: MIT
+version: 1.5.0
+date-released: "2026-08-04"
+keywords:
+  - Model Context Protocol
+  - MCP server
+  - digital humanities
+  - digital archive
+  - Islam
+  - West Africa
+  - Benin
+  - Burkina Faso
+  - Côte d'Ivoire
+  - Niger
+  - Nigeria
+  - Togo
+  - newspapers
+  - text mining
+  - sentiment analysis
+references:
+  - type: database
+    title: "Islam West Africa Collection"
+    authors:
+      - given-names: Frédérick
+        family-names: Madore
+        orcid: "https://orcid.org/0000-0003-0959-2092"
+    year: 2026
+    url: "https://islam.zmo.de/s/westafrica/"
+    notes: "The archive this server reads from."
+  - type: data
+    title: "Islam West Africa Collection (Hugging Face dataset)"
+    authors:
+      - given-names: Frédérick
+        family-names: Madore
+        orcid: "https://orcid.org/0000-0003-0959-2092"
+    year: 2026
+    url: "https://huggingface.co/datasets/fmadore/islam-west-africa-collection"
+    notes: "The parquet distribution the server queries."

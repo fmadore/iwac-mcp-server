@@ -5,6 +5,31 @@
   "private": true,
   "type": "module",
   "main": "server/index.js",
+  "author": {
+    "name": "Frédérick Madore",
+    "email": "frederick.madore@uni-bayreuth.de",
+    "url": "https://orcid.org/0000-0003-0959-2092"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/fmadore/iwac-mcp-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fmadore/iwac-mcp-server.git",
+    "directory": "mcpb"
+  },
+  "bugs": {
+    "url": "https://github.com/fmadore/iwac-mcp-server/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "digital-humanities",
+    "islam",
+    "west-africa",
+    "duckdb",
+    "huggingface"
+  ],
   "engines": {
     "node": ">=24.0.0"
   },
