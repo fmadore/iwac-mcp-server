@@ -19,8 +19,8 @@ authors:
 repository-code: "https://github.com/fmadore/iwac-mcp-server"
 url: "https://islam.zmo.de/s/westafrica/"
 license: MIT
-version: 1.5.0
-date-released: "2026-08-04"
+version: 1.5.1
+date-released: "2026-08-05"
 keywords:
   - Model Context Protocol
   - MCP server

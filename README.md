@@ -192,7 +192,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 1.5.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 1.5.1) [Computer software].
 > https://github.com/fmadore/iwac-mcp-server
 
 ```bibtex
@@ -200,7 +200,7 @@ current version filled in. In text:
   author  = {Madore, Frédérick},
   title   = {{IWAC MCP Server}},
   year    = {2026},
-  version = {1.5.0},
+  version = {1.5.1},
   url     = {https://github.com/fmadore/iwac-mcp-server},
   license = {MIT}
 }
