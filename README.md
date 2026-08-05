@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/fmadore/iwac-mcp-server?label=release)](https://github.com/fmadore/iwac-mcp-server/releases/latest)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.fmadore%2Fiwac--mcp--server-0a7ea4)](https://registry.modelcontextprotocol.io/?search=iwac)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21805837.svg)](https://doi.org/10.5281/zenodo.21805837)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21805837-blue)](https://doi.org/10.5281/zenodo.21805837)
 
 A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server for the
 [Islam West Africa Collection (IWAC)](https://islam.zmo.de/s/westafrica/).
