@@ -4,6 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/fmadore/iwac-mcp-server?label=release)](https://github.com/fmadore/iwac-mcp-server/releases/latest)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.fmadore%2Fiwac--mcp--server-0a7ea4)](https://registry.modelcontextprotocol.io/?search=iwac)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21805837.svg)](https://doi.org/10.5281/zenodo.21805837)
 
 A read-only [Model Context Protocol](https://modelcontextprotocol.io/) server for the
 [Islam West Africa Collection (IWAC)](https://islam.zmo.de/s/westafrica/).
@@ -193,18 +194,25 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 current version filled in. In text:
 
 > Madore, F. (2026). *IWAC MCP Server* (Version 1.5.1) [Computer software].
-> https://github.com/fmadore/iwac-mcp-server
+> Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
 @software{madore_iwac_mcp_server,
-  author  = {Madore, Frédérick},
-  title   = {{IWAC MCP Server}},
-  year    = {2026},
-  version = {1.5.1},
-  url     = {https://github.com/fmadore/iwac-mcp-server},
-  license = {MIT}
+  author    = {Madore, Frédérick},
+  title     = {{IWAC MCP Server}},
+  year      = {2026},
+  version   = {1.5.1},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.21805837},
+  url       = {https://github.com/fmadore/iwac-mcp-server},
+  license   = {MIT}
 }
 ```
+
+That DOI is the **concept DOI** — it always resolves to the newest release, so it
+stays correct as versions come and go. If you need to cite the exact version you
+ran, take the per-version DOI from the
+[Zenodo record](https://doi.org/10.5281/zenodo.21805837).
 
 If the software helped you reach a finding, please cite the
 [collection itself](https://islam.zmo.de/s/westafrica/) as well — that is where

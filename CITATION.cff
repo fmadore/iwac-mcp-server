@@ -18,6 +18,13 @@ authors:
     email: frederick.madore@uni-bayreuth.de
 repository-code: "https://github.com/fmadore/iwac-mcp-server"
 url: "https://islam.zmo.de/s/westafrica/"
+# Zenodo concept DOI: always resolves to the newest version, so it never needs
+# updating here. Per-version DOIs are listed on the Zenodo record itself.
+doi: 10.5281/zenodo.21805837
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21805837
+    description: "Concept DOI for all versions of the software."
 license: MIT
 version: 1.5.1
 date-released: "2026-08-05"
