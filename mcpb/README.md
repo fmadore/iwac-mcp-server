@@ -44,14 +44,19 @@ npm run test:live                           # full smoke test against the real d
 npm run test:tokens -- --update             # re-baseline the token budget after an intended change
 ```
 
-> **Windows on ARM:** `npm run lint` segfaults (exit 139) on `win32-arm64` —
-> a Biome platform-binary bug, reproducible on 2.5.4 and 2.5.5 with any target,
-> including a single file and a minimal config (`biome --version` still works).
+> **Windows on ARM:** `npm run lint` dies with an access violation
+> (`0xC0000005`; exit 139 under Git Bash) on `win32-arm64`. It is a Biome
+> platform-binary regression, not a config problem: it reproduces on a two-line
+> file with no config at all, while `biome --version` and `biome rage` still
+> work. Bisected to **2.5.2** — 2.4.16, 2.5.0 and 2.5.1 are fine, every release
+> from 2.5.2 to 2.5.7 crashes. Reported upstream as
+> [biomejs/biome#11242](https://github.com/biomejs/biome/issues/11242).
 > CI lints on `ubuntu-latest` and is unaffected. To lint locally before a commit,
-> run the x64 binary under emulation:
+> run the x64 binary under emulation — keep the version in step with
+> `package.json`:
 >
 > ```bash
-> npm i --no-save --force --cpu=x64 --os=win32 --prefix /tmp/biome-x64 @biomejs/cli-win32-x64@2.5.5
+> npm i --no-save --force --cpu=x64 --os=win32 --prefix /tmp/biome-x64 @biomejs/cli-win32-x64@2.5.6
 > /tmp/biome-x64/node_modules/@biomejs/cli-win32-x64/biome.exe lint .
 > ```
 
