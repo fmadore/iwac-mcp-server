@@ -34,10 +34,10 @@ export function registerArticleTools(server: Server): void {
     {
       ...toolMeta("Search newspaper articles"),
       description:
-        "Search IWAC newspaper articles by keyword (title + OCR + AI abstract), country, newspaper, subject, " +
+        "Search IWAC newspaper articles by keyword (title + OCR + AI abstracts, French and English), country, newspaper, subject, " +
         "and date range. Use French concept keywords regardless of the user's report language. Matching is accent- and case-insensitive.",
       inputSchema: z.object({
-        keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR text, and AI abstract"),
+        keyword: z.string().optional().describe("Concept keyword; substring match on title, OCR text, and the French and English AI abstracts. Prefer French for the OCR; an English term still matches via the English abstract"),
         country: countryParam(),
         newspaper: z.string().optional(),
         subject: z.string().optional(),

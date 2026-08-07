@@ -331,7 +331,10 @@ describe("FAST_TEXT_COLS / HAS_HEAVY_TEXT (two-phase search)", () => {
       assert.ok(!FAST_TEXT_COLS[s].includes("OCR"), `${s} fast columns must exclude OCR`);
       for (const c of FAST_TEXT_COLS[s]) assert.ok(TEXT_COLS[s].includes(c), `${c} not in TEXT_COLS.${s}`);
     }
-    assert.deepEqual(new Set(FAST_TEXT_COLS.articles), new Set(["title", "descriptionAI"]));
+    assert.deepEqual(
+      new Set(FAST_TEXT_COLS.articles),
+      new Set(["title", "descriptionAI", "descriptionAI_en"]),
+    );
     assert.deepEqual(new Set(FAST_TEXT_COLS.publications), new Set(["title", "subject", "tableOfContents"]));
   });
   it("flags exactly the subsets whose deep pass is worth running", () => {
@@ -430,13 +433,59 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
 
   it("derives TEXT_COLS from the `searchable` tag", () => {
     // Set equality, not order: the OR-clause order is not semantic.
-    assert.deepEqual(new Set(TEXT_COLS.articles), new Set(["title", "OCR", "descriptionAI"]));
+    assert.deepEqual(
+      new Set(TEXT_COLS.articles),
+      new Set(["title", "OCR", "descriptionAI", "descriptionAI_en"]),
+    );
     assert.deepEqual(new Set(TEXT_COLS.index), new Set(["Titre", "Titre alternatif", "Description"]));
     // Every searchable column must be a real column name the schema can be probed for.
     for (const s of ALL_SUBSETS) {
       assert.ok(TEXT_COLS[s].length > 0, `${s} has no searchable columns`);
       for (const c of TEXT_COLS[s]) assert.ok(!c.includes('"'), `${c} is an expression, not a column`);
     }
+  });
+
+  it("keeps the English AI summary in the keyword-search surface", () => {
+    // The dataset splits `bibo:shortDescription` into `descriptionAI` (fr) +
+    // `descriptionAI_en` rather than pipe-joining the two @language literals.
+    // If the English column ships to the Hub but never reaches TEXT_COLS, an
+    // English query stops matching the summaries altogether — strictly worse
+    // for anglophone discovery than the joined column was. This is that guard.
+    let checked = 0;
+    for (const s of ALL_SUBSETS) {
+      if (!TEXT_COLS[s].includes("descriptionAI")) continue;
+      checked++;
+      assert.ok(
+        TEXT_COLS[s].includes("descriptionAI_en"),
+        `${s}.descriptionAI_en is not searchable`,
+      );
+      // Cheap half of the surface too: the unified `search` tries FAST_TEXT_COLS
+      // first and only falls back to the OCR scan, so an English summary absent
+      // from it would only be found on the slow path, if at all.
+      assert.ok(
+        FAST_TEXT_COLS[s].includes("descriptionAI_en"),
+        `${s}.descriptionAI_en missing from the fast search pass`,
+      );
+    }
+    assert.equal(checked, 3, "expected articles, documents and audiovisual");
+  });
+
+  it("searches the English summary but never returns it alongside the French one", () => {
+    // One summary per response, not two: the pair says the same thing about the
+    // same item, so returning both would double what an abstract costs to add
+    // nothing. French is the returned one — source language, and the only one
+    // present on every row. `views: []` is what encodes that.
+    const schema = new Set(["o:id", "iwac_url", "descriptionAI", "descriptionAI_en"]);
+    for (const s of ["articles", "documents", "audiovisual"] as const) {
+      for (const v of ["detail", "fetch", "summary", "triage"] as const) {
+        assert.ok(
+          !colsFor(s, schema, v).includes("descriptionAI_en"),
+          `${s}.${v} must not return the English summary`,
+        );
+      }
+    }
+    // The French one is still there — this is "pick one", not "drop both".
+    assert.match(colsFor("articles", schema, "detail"), /"descriptionAI" AS "description_ai"/);
   });
 
   it("`fetch` re-aliases the body column to the contract key `text`", () => {

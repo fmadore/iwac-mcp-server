@@ -9,7 +9,7 @@ Cross-subset search for skill-less clients and quick discovery.
 - `query` (required): one concept, name, or short phrase. Tokens are AND-ed across each subset's searchable fields; use French concepts for primary-source discovery, and French/English terms for references. A query whose every word is under 2 characters is **refused** (it would otherwise return an empty result indistinguishable from a real absence).
 - `limit` (default 20, max 50)
 - Returns `results` with namespaced ids (`articles:28576`, `references:11045`, `images:12237`), `title`, `url`, `category`, plus a `ranking` note and `deep_scan`. There is no numeric relevance score; for precise filters use the granular `search_*` tools.
-- **Two passes.** Pass 1 matches curated metadata only (titles, subjects, AI abstracts, tables of contents) and answers in ~0.2 s; if that fills fewer than `limit` results, pass 2 also scans the full OCR (~2.5 s) and `deep_scan: true` says so. A common term therefore never pays for the OCR scan, and a rare one still finds everything — but treat `search` as discovery, not a census: for exhaustive counts use `search_*` or `get_temporal_distribution`.
+- **Two passes.** Pass 1 matches curated metadata only (titles, subjects, AI abstracts in both languages, tables of contents) and answers in ~0.2 s; if that fills fewer than `limit` results, pass 2 also scans the full OCR (~2.5 s) and `deep_scan: true` says so. A common term therefore never pays for the OCR scan, and a rare one still finds everything — but treat `search` as discovery, not a census: for exhaustive counts use `search_*` or `get_temporal_distribution`.
 
 ### fetch
 Fetch one item returned by `search`.
@@ -58,7 +58,7 @@ The 25 Islamic periodical/series titles in the publications subset, with issue c
 
 ### search_articles
 Primary search tool for the 12,287 newspaper articles.
-- `keyword` (optional): substring match on **title + OCR + AI abstract** (does NOT search subject/spatial — use the `subject` parameter for curated tags)
+- `keyword` (optional): substring match on **title + OCR + AI abstracts, French and English** (does NOT search subject/spatial — use the `subject` parameter for curated tags). An English term can therefore match a French article via its English summary
 - `country` (optional): exact name — Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo
 - `newspaper` (optional): substring match
 - `subject` (optional): substring match on the pipe-separated curated tags

@@ -228,6 +228,24 @@ await call("search_articles", { country: "Bénin" }, {
 await call("search_articles", { keyword: "pelerinage" }, {
   check: (p) => (p.total_matches >= 2 ? null : `unaccented keyword should reach accented OCR, got ${p.total_matches}`),
 });
+// The English half of the bilingual AI summary must be searchable. "pilgrimage"
+// appears ONLY in `descriptionAI_en` — nowhere in a title, a French summary or
+// the OCR — so a hit here can only have come through the English column. If the
+// dataset splits `descriptionAI` by language and the server forgets to mark the
+// English side searchable, English queries silently stop matching summaries,
+// which is worse for anglophone discovery than the pipe-joined column was.
+await call("search_articles", { keyword: "pilgrimage" }, {
+  check: (p) => (p.total_matches === 1 && String(p.results?.[0]?.id) === "101"
+    ? null
+    : `English-only summary term should find article 101, got ${p.total_matches}`),
+});
+// …and through the unified `search`, whose cheap first pass is FAST_TEXT_COLS.
+await call("search", { query: "pilgrimage" }, {
+  structured: true,
+  check: (p) => (p.results?.some((r) => String(r.id).endsWith("101"))
+    ? null
+    : "unified search should reach the English summary on the fast pass"),
+});
 await call("search_articles", { country: "Atlantis" }, {
   expectError: true,
   checkBody: (b) => (b.includes("valid_values") ? null : "invalid country should error with valid_values"),

@@ -23,6 +23,29 @@ const IWAC = "https://islam.zmo.de/s/afrique_ouest/item/";
 const OCR_SUBSETS = ["articles", "publications", "documents", "audiovisual"];
 
 /**
+ * Subsets carrying the AI summary. Since the summariser went bilingual the
+ * dataset stores the two `@language` literals as `descriptionAI` (fr) and
+ * `descriptionAI_en` rather than pipe-joining them, so the fixture must hold
+ * both — an English-only term has to be findable, which is the whole point of
+ * tagging the English column `searchable`.
+ */
+const DESC_AI_SUBSETS = ["articles", "documents", "audiovisual"];
+
+/**
+ * English summaries, keyed by `o:id`. Deliberately NOT translations of the
+ * French: each uses vocabulary ("pilgrimage", "fasting") that appears nowhere
+ * in the French text or the OCR, so a test matching one proves the English
+ * column is really in the search surface rather than riding on a shared token.
+ * Audiovisual is absent on purpose — 0/47 filled in the real subset.
+ */
+const DESC_AI_EN = {
+  101: "Report on the pilgrimage of Beninese faithful to Mecca.",
+  102: "The fasting month as lived in the capital's mosques.",
+  103: "Celebrations marking the end of the fasting month in Abidjan.",
+  501: "Annual report of a Burkinabè Muslim students' association.",
+};
+
+/**
  * Subsets the pipeline writes Hijri date columns to
  * (post-processing/calculate_hijri_dates.py). `references` is deliberately
  * absent there — an academic imprint date has no meaningful lunar reading — and
@@ -276,6 +299,19 @@ async function main() {
       }
       await conn.run(`ALTER TABLE ${table} ADD COLUMN "OCR_is_public" BOOLEAN`);
       await conn.run(`UPDATE ${table} SET "OCR_is_public" = length(trim(coalesce("OCR", ''))) > 0`);
+    }
+    // The English half of the bilingual AI summary. Empty string, not NULL,
+    // for rows without one — the real parquet stores empty strings here, and a
+    // NULL would let a `COUNT()` claim coverage the subset does not have.
+    if (DESC_AI_SUBSETS.includes(subset)) {
+      await conn.run(`ALTER TABLE ${table} ADD COLUMN "descriptionAI_en" VARCHAR`);
+      await conn.run(`UPDATE ${table} SET "descriptionAI_en" = ''`);
+      for (const [oid, text] of Object.entries(DESC_AI_EN)) {
+        await conn.run(
+          `UPDATE ${table} SET "descriptionAI_en" = '${text.replace(/'/g, "''")}'
+           WHERE "o:id" = '${oid}'`,
+        );
+      }
     }
     // Hijri columns, keyed off pub_date exactly as the pipeline does. Rows whose
     // date is not a complete YYYY-MM-DD (year-only, or a `1981-04/1981-06`

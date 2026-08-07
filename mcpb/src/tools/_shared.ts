@@ -890,6 +890,28 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       views: ["detail", "fetch", "triage"],
       searchable: true,
     },
+    // The English half of the bilingual summary (the dataset splits the two
+    // `@language` literals into `descriptionAI` + `descriptionAI_en` rather
+    // than pipe-joining them).
+    //
+    // SEARCHED, NEVER RETURNED — `views: []` is deliberate, not an oversight.
+    // Every response carries exactly ONE summary, the French one: the two say
+    // the same thing about the same item, so returning both would roughly
+    // double the ~125 tokens/row an abstract costs to tell the reader nothing
+    // new. `searchable` is the load-bearing flag: without it the English text
+    // sits on the Hub but is absent from TEXT_COLS, so an English query matches
+    // nothing it contains — strictly worse for anglophone discovery than the
+    // pipe-joined column this replaced. So: queries reach both languages,
+    // payloads carry one. French is the returned one because it is the source
+    // language and the only one present on every row (the 51 non-FR/EN articles
+    // keep an untagged French summary and have no English counterpart).
+    {
+      expr: '"descriptionAI_en"',
+      alias: "description_ai_en",
+      requires: ["descriptionAI_en"],
+      views: [],
+      searchable: true,
+    },
     { expr: SENTIMENT.polarity, alias: "polarity", requires: [SENTIMENT.polarity], views: ALL_ARTICLE_VIEWS },
     {
       expr: SENTIMENT.centrality,
@@ -984,6 +1006,15 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       views: ["detail", "fetch", "summary"],
       searchable: true,
     },
+    // English half of the bilingual summary — searched, never returned, so a
+    // response carries one summary rather than two. See articles.descriptionAI_en.
+    {
+      expr: '"descriptionAI_en"',
+      alias: "description_ai_en",
+      requires: ["descriptionAI_en"],
+      views: [],
+      searchable: true,
+    },
     { expr: "nb_mots", alias: "word_count", requires: ["nb_mots"], views: ["detail"] },
     { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true, heavy: true },
   ],
@@ -1045,6 +1076,16 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       alias: "description_ai",
       requires: ["descriptionAI"],
       views: ["detail", "fetch"],
+      searchable: true,
+    },
+    // Empty corpus-wide today, like its French counterpart — carried so that
+    // populating the summaries later is a data change, not a schema change.
+    // Searched, never returned. See articles.descriptionAI_en.
+    {
+      expr: '"descriptionAI_en"',
+      alias: "description_ai_en",
+      requires: ["descriptionAI_en"],
+      views: [],
       searchable: true,
     },
     // The transcription column, added to the dataset in July 2026. It is the

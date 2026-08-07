@@ -36,7 +36,7 @@ Because reports are date-stamped and location-specific, the collection also supp
 
 ## Ways into the data (recommend 2-3, matched to the question)
 
-- **Keyword search** (French concept terms for press/publications; French and English title/abstract terms for scholarship) across titles, full OCR text and AI abstracts.
+- **Keyword search** (French concept terms for press/publications; French and English title/abstract terms for scholarship) across titles, full OCR text and AI abstracts. Articles and documents carry a French **and** an English AI abstract and both are searched, so an English term can reach a French item through its summary — responses still return only the French one.
 - **Curated themes** — 214 subject tags (Hadj, Laïcité, Ramadan, Éducation islamique…) for precise, pre-classified slices.
 - **People, organisations, places** — find the canonical name among the 4,700 index records, then pull every article that mentions it.
 - **Conceptual (semantic) search** in any language, when keywords would miss paraphrases — "Islamic education reform" also surfaces madrasa-modernisation pieces.

@@ -29,7 +29,7 @@ export function registerDocumentTools(server: Server): void {
         "Search the small archival-documents subset (~26 items: Islamic association reports, flyers, project " +
         "documents — mostly Burkina Faso). Use French concept keywords regardless of the user's report language. Most have OCR text and an AI description. Call with no arguments to list all.",
       inputSchema: z.object({
-        keyword: z.string().optional().describe("French concept keyword; substring match on title, OCR, AI description and subject (accent-insensitive)"),
+        keyword: z.string().optional().describe("Concept keyword; substring match on title, OCR, the French and English AI descriptions, and subject (accent-insensitive)"),
         country: countryParam({ nigeria: true, note: "Corpus is mostly Burkina Faso/Togo/Benin" }),
         limit: z.number().int().optional().describe("Default 15, max 50"),
         offset: z.number().int().optional(),
