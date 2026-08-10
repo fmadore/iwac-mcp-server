@@ -269,8 +269,14 @@ await call("search_articles", { keyword: "ramadan", date_from: "1995-01-01", dat
 await call("search_articles", { country: "Burkina Faso", with_description: true, limit: 2 }, {
   check: (p) => (p.results?.[0]?.description_ai ? null : "with_description did not add description_ai"),
 });
+// Bounded on both sides for the same reason as search_by_sentiment below: a
+// filter that stopped being applied would return the whole corpus. The ceiling
+// is deliberately loose — subject enrichment upstream moves these counts without
+// the server changing (Mosquée 1401 -> 1511 between the 2026-08-03 and
+// 2026-08-10 weekly runs, alongside Prière 2139 -> 2368 and Paix 1894 -> 2184),
+// so it guards the corpus-wide failure, not the exact tally.
 await call("search_articles", { subject: "Mosquée", limit: 1 }, {
-  check: (p) => (p.total_matches > 1000 && p.total_matches < 1500 ? null : `pipe-aware subject filter looks wrong for Mosquée: ${p.total_matches}`),
+  check: (p) => (p.total_matches > 1000 && p.total_matches < 4000 ? null : `pipe-aware subject filter looks wrong for Mosquée: ${p.total_matches}`),
 });
 await call("get_newspaper_stats", { country: "Niger" }, {
   structured: true,
