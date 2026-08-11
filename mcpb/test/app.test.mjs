@@ -325,7 +325,7 @@ CASES.push([
   {
     view: "countries",
     total_countries: 2,
-    polarity_model: "gemini-3-flash-preview",
+    polarity_model: "gpt-5-6-luna",
     countries: [
       {
         country: "Burkina Faso",
@@ -341,7 +341,7 @@ CASES.push([
     if (!markup.includes("Burkina Faso")) return "missing a country";
     if (!markup.includes("Polarity mix per country")) return "polarity panel did not render";
     // The chart must name the model that judged, not just "AI".
-    if (!markup.includes("gemini-3-flash-preview")) return "polarity chart did not name its model";
+    if (!markup.includes("gpt-5-6-luna")) return "polarity chart did not name its model";
     if (!markup.includes("Polarity shown for 1 of 2")) return "did not disclose partial polarity coverage";
     return null;
   },
@@ -371,18 +371,34 @@ CASES.push([
   "sentiment",
   {
     view: "sentiment",
-    model: "gemini-3-flash-preview",
+    model: "gpt-5-6-luna",
     total_articles: 120,
     filters: { country: "Niger" },
     polarity_distribution: { Neutre: 60, "Très négatif": 20, Positif: 20 },
     centrality_distribution: { Central: 50, Marginal: 50 },
+    subjectivity: {
+      scale: "Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif (ordinal, least to most subjective)",
+      scored: 100,
+      unscored: 20,
+      distribution: { "Très objectif": 40, "Plutôt objectif": 30, Mixte: 10, "Plutôt subjectif": 15, "Très subjectif": 5 },
+      mean_rank: 2.15,
+      median_rank: 2,
+      rank_scale: "1 = Très objectif … 5 = Très subjectif; derived here, not stored",
+      caveat: "Weakest of the three scales: inter-model agreement κ 0.093-0.470.",
+    },
   },
   (markup) => {
-    if ((markup.match(/<svg/g) ?? []).length < 2) return "expected a donut for each vocabulary";
+    if ((markup.match(/<svg/g) ?? []).length < 3) return "expected a donut for each of the three vocabularies";
     // Ordinal order, not alphabetical: Positif must precede Neutre.
     if (markup.indexOf("Positif") > markup.indexOf("Neutre")) return "polarity slices are not in scale order";
-    if (!markup.includes("20 matching articles carry no gemini-3-flash-preview score"))
+    if (markup.indexOf("Très objectif") > markup.indexOf("Plutôt subjectif"))
+      return "subjectivity slices are not in scale order";
+    if (!markup.includes("20 matching articles carry no gpt-5-6-luna score"))
       return "did not reconcile scored vs matched";
+    // The chart is the easiest thing here to quote out of context, so the
+    // weakness of the scale has to travel with it.
+    if (!markup.includes("κ 0.093-0.470")) return "subjectivity caveat missing from the chart";
+    if (!markup.includes("mean rank 2.15")) return "derived rank not disclosed as derived";
     return null;
   },
 ]);
@@ -521,38 +537,60 @@ CASES.push([
   {
     view: "sentiment",
     model: "all",
-    total_articles: 12287,
+    // Real generation-2 figures, measured over the 12,305 scored articles, so a
+    // rendering change that mangles the numbers is visible as a wrong-looking
+    // chart rather than a plausible one.
+    total_articles: 12356,
     filters: {},
-    models: ["gemini-3-flash-preview", "gpt-5-mini", "ministral-14b-2512"],
+    models: ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731"],
     by_model: {
-      "gemini-3-flash-preview": { polarity_distribution: { Positif: 5984, Neutre: 3999, Négatif: 569 }, subjectivity: { scale: "1-5 (1 = most factual, 5 = most opinionated)", mean: 2.12 } },
-      "gpt-5-mini": { polarity_distribution: { Positif: 7231, Neutre: 3444, Négatif: 580 } },
-      "ministral-14b-2512": { polarity_distribution: { Positif: 6100, Neutre: 3800, Négatif: 700 } },
+      "gpt-5-6-luna": {
+        polarity_distribution: { Positif: 6149, Neutre: 5020, "Très positif": 425, Négatif: 376, "Non applicable": 290, "Très négatif": 45 },
+        subjectivity: {
+          scale: "Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif (ordinal, least to most subjective)",
+          scored: 12015,
+          unscored: 341,
+          distribution: { "Très objectif": 1144, "Plutôt objectif": 7906, Mixte: 314, "Plutôt subjectif": 1915, "Très subjectif": 736 },
+          mean_rank: 2.263,
+          median_rank: 2,
+          rank_scale: "1 = Très objectif … 5 = Très subjectif; derived here, not stored",
+          caveat: "Weakest of the three scales: inter-model agreement κ 0.093-0.470.",
+        },
+      },
+      "mistral-small-2603": {
+        polarity_distribution: { Positif: 4988, Neutre: 4095, "Très positif": 2088, "Non applicable": 588, Négatif: 362, "Très négatif": 184 },
+      },
+      "deepseek-v4-flash-0731": {
+        polarity_distribution: { Neutre: 6653, Positif: 4004, "Très positif": 900, "Non applicable": 484, Négatif: 223, "Très négatif": 41 },
+      },
     },
     agreement: {
       field: "polarity",
-      scored_by_all: 12287,
-      unanimous: 6668,
-      unanimous_percent: 54,
+      scored_by_all: 12305,
+      unanimous: 5305,
+      unanimous_percent: 43,
       pairwise: {
-        "gemini-3-flash-preview~gpt-5-mini": 8729,
-        "gemini-3-flash-preview~ministral-14b-2512": 7880,
-        "gpt-5-mini~ministral-14b-2512": 8709,
+        "gpt-5-6-luna~mistral-small-2603": 7151,
+        "gpt-5-6-luna~deepseek-v4-flash-0731": 8441,
+        "mistral-small-2603~deepseek-v4-flash-0731": 6745,
       },
     },
     agreement_matrix: {
-      rows: "gemini-3-flash-preview",
-      cols: "gpt-5-mini",
-      counts: { Négatif: { Positif: 134, Neutre: 113, Négatif: 298 }, Neutre: { Positif: 900, Neutre: 3000 } },
+      rows: "gpt-5-6-luna",
+      cols: "mistral-small-2603",
+      counts: {
+        Négatif: { Négatif: 128, Neutre: 137, "Très négatif": 65, Positif: 34 },
+        Neutre: { Neutre: 2915, Positif: 1406, "Non applicable": 310 },
+      },
     },
   },
   (markup) => {
     if (!markup.includes("three models compared")) return "did not switch to the comparison view";
-    if (!markup.includes("54%")) return "agreement rate missing from the headline";
-    if (!markup.includes("gemini-3-flash-preview ↔ gpt-5-mini")) return "pairwise agreement chart missing";
+    if (!markup.includes("43%")) return "agreement rate missing from the headline";
+    if (!markup.includes("gpt-5-6-luna ↔ mistral-small-2603")) return "pairwise agreement chart missing";
     // The agreeing diagonal is blanked so the ramp covers the disagreements.
     if (markup.includes("Négatif × Négatif")) return "the agreeing diagonal should be blanked";
-    if (!markup.includes("Négatif × Neutre: 113")) return "confusion cell missing";
+    if (!markup.includes("Négatif × Neutre: 137")) return "confusion cell missing";
     return null;
   },
 ]);

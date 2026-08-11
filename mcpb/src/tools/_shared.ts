@@ -224,11 +224,32 @@ export function countryParam(opts: { nigeria?: boolean; note?: string } = {}) {
     .describe(`Exact country name: ${values} (accents optional)${opts.note ? `. ${opts.note}` : ""}`);
 }
 
-/** AI polarity labels (articles); same five-point scale for all three models. */
+/** AI polarity labels (articles); same six-point scale for all three models. */
 export const POLARITY_VALUES = ["Très positif", "Positif", "Neutre", "Négatif", "Très négatif", "Non applicable"] as const;
 
 /** AI centrality labels (articles); same five-point scale for all three models. */
 export const CENTRALITY_VALUES = ["Très central", "Central", "Secondaire", "Marginal", "Non abordé"] as const;
+
+/**
+ * AI subjectivity labels, least to most subjective. Generation 2 stores this as
+ * an ORDINAL LABEL; generation 1 stored a 1-5 float. The dataset column is still
+ * named `…_subjectivite_score`, so the name gives no warning that its type
+ * changed — only the values do. Order is load-bearing: it is the rank mapping
+ * behind `mean_rank`/`median_rank` and the chart's scale order.
+ */
+export const SUBJECTIVITY_VALUES = [
+  "Très objectif",
+  "Plutôt objectif",
+  "Mixte",
+  "Plutôt subjectif",
+  "Très subjectif",
+] as const;
+
+/** Rank 1-5 for a stored subjectivity label, or undefined for anything else. */
+export function subjectivityRank(label: string): number | undefined {
+  const i = SUBJECTIVITY_VALUES.indexOf(label.trim() as (typeof SUBJECTIVITY_VALUES)[number]);
+  return i < 0 ? undefined : i + 1;
+}
 
 // -----------------------------------------------------------------------------
 // AI sentiment models
@@ -239,32 +260,61 @@ export interface SentimentModel {
   id: string;
   /** Dataset column prefix: `<prefix>_polarite`, `<prefix>_centralite_islam_musulmans`, … */
   prefix: string;
-  /** Handles also accepted on input (vendor shorthand, pre-2026-07-31 spellings). */
+  /** Vendor shorthand also accepted on input. */
   aliases: string[];
 }
 
 /**
- * The three models that scored the corpus, at 100% coverage each.
+ * The three models of the generation-2 annotation campaign, each covering the
+ * 12,305 French- and English-language articles (the 51 Ewé/Kabiyè/Dendi/untagged
+ * ones are skipped deliberately: the prompt is French, and a French-prompted
+ * model returns confident but unusable output for them).
  *
- * On 2026-07-31 the dataset renamed these columns. The old prefixes
- * (`gemini_`, `chatgpt_`, `mistral_`) named a VENDOR SLOT while nothing in the
- * data recorded which model had actually run inside it, so they now name the
- * model — and so does this server: quoting a polarity share without saying what
- * produced it is precisely the ambiguity the rename removes. The old handles
- * stay accepted as aliases so callers and skill docs written before it keep
- * working; they resolve to the id, which is what every payload echoes back.
+ * Generation 1 (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) is
+ * NOT served here. Its columns still exist on the Hub, but the archive's own
+ * annotations were emptied on 2026-08-07 and the two generations differ in
+ * model, prompt AND subjectivity dtype — so mixing them in one vocabulary would
+ * put three-way comparisons one typo away from confounding all three. Retired
+ * handles get a named error instead; see RETIRED_SENTIMENT_MODELS.
+ *
+ * Only vendor shorthand is aliased. A retired EXACT model id is never remapped
+ * onto its vendor's successor: `gpt-5-mini` and `gpt-5-6-luna` disagree, and
+ * quietly answering with the wrong one is the ambiguity this registry exists to
+ * prevent.
  */
 export const SENTIMENT_MODELS: SentimentModel[] = [
-  { id: "gemini-3-flash-preview", prefix: "gemini_3_flash_preview", aliases: ["gemini", "google"] },
-  { id: "gpt-5-mini", prefix: "gpt_5_mini", aliases: ["chatgpt", "openai", "gpt"] },
-  { id: "ministral-14b-2512", prefix: "ministral_14b_2512", aliases: ["mistral", "ministral"] },
+  { id: "gpt-5-6-luna", prefix: "gpt_5_6_luna", aliases: ["chatgpt", "openai", "gpt", "luna"] },
+  { id: "mistral-small-2603", prefix: "mistral_small_2603", aliases: ["mistral"] },
+  { id: "deepseek-v4-flash-0731", prefix: "deepseek_v4_flash_0731", aliases: ["deepseek"] },
 ];
+
+/**
+ * Handles that named a real annotator once and must not be silently re-pointed.
+ * Generation 1's three ids, plus the vendor shorthands with no generation-2
+ * successor (`gemini` — the Gemini slot ran in generation 1 only, and
+ * `ministral`, a distinct Mistral product line from Mistral Small).
+ */
+export const RETIRED_SENTIMENT_MODELS: Record<string, string> = {
+  "gemini-3-flash-preview": "generation 1, dropped from this server",
+  "gpt-5-mini": "generation 1, dropped from this server",
+  "ministral-14b-2512": "generation 1, dropped from this server",
+  gemini: "the Gemini slot scored the corpus in generation 1 only; generation 2 has no Gemini member",
+  google: "the Gemini slot scored the corpus in generation 1 only; generation 2 has no Gemini member",
+  ministral: "Ministral 14B is generation 1; Mistral Small 2603 is a different model, ask for it by name",
+};
 
 /**
  * The model reported by the single-model surfaces: the `polarity`/`centrality`/
  * `subjectivity` columns on article rows, search_by_sentiment's filters, and
  * get_country_comparison. Those name it explicitly rather than implying a
  * consensus — get_sentiment_distribution with model:"all" is the tool for that.
+ *
+ * gpt-5-6-luna and not one of the other two: it is complete on all three fields
+ * (its only subjectivity gaps are exactly its `Non abordé` rows, a principled
+ * abstention rather than a dropped answer), where deepseek-v4-flash-0731 omits
+ * ~489 scores it owed; and the Mistral family is a persistent outlier on
+ * centrality (κ 0.244-0.270 pairwise against 0.511-0.725 for the others), which
+ * is a bad thing for a default to make invisible.
  */
 export const DEFAULT_SENTIMENT_MODEL: SentimentModel = SENTIMENT_MODELS[0];
 
@@ -284,14 +334,24 @@ export function sentimentCols(m: SentimentModel): {
   };
 }
 
+/** Normalise a model handle: case, whitespace and `_`/`-` are interchangeable. */
+function sentimentKey(input: string): string {
+  return input.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
 /**
  * Resolve a caller's model handle to its registry entry, accepting the canonical
  * id, a vendor alias, or the raw column prefix (`_` and `-` are interchangeable,
- * so `gpt_5_mini` and `gpt-5-mini` both land on the same model).
+ * so `gpt_5_6_luna` and `gpt-5-6-luna` both land on the same model).
  */
 export function resolveSentimentModel(input: string): SentimentModel | undefined {
-  const key = input.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  const key = sentimentKey(input);
   return SENTIMENT_MODELS.find((m) => m.id === key || m.aliases.includes(key));
+}
+
+/** Why a retired handle is refused, or undefined if it was never one. */
+export function retiredSentimentModel(input: string): string | undefined {
+  return RETIRED_SENTIMENT_MODELS[sentimentKey(input)];
 }
 
 /** Authority-index `Type` values. */
@@ -769,7 +829,7 @@ export function indexFreqOrder(schema: Set<string>): string {
 // Output keys are normalised to short English snake_case across all tools so the
 // model sees ONE shape (`id`, `date`, `polarity`, …) instead of re-learning
 // per-tool field names — and the long French dataset keys
-// (gemini_3_flash_preview_centralite_islam_musulmans × 20 rows) stop costing
+// (gpt_5_6_luna_centralite_islam_musulmans × 20 rows) stop costing
 // tokens.
 //
 // Each column is declared ONCE, with its SQL expression, output alias, schema
@@ -857,8 +917,9 @@ const ALL_ARTICLE_VIEWS: FieldView[] = ["detail", "fetch", "summary", "sentiment
 /**
  * The sentiment columns projected onto article rows. One model's, not a blend:
  * the three disagree often enough that averaging them here would invent a
- * number no annotator produced. `requires` drops them on a revision that
- * predates the 2026-07-31 column rename rather than throwing.
+ * reading no annotator produced. `requires` drops them on a revision that
+ * predates the generation-2 columns rather than throwing. `subjectivity` is a
+ * French label here, not a number — see SUBJECTIVITY_VALUES.
  */
 const SENTIMENT = sentimentCols(DEFAULT_SENTIMENT_MODEL);
 

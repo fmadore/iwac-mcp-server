@@ -1,10 +1,10 @@
 // get_sentiment_distribution → the AI polarity and centrality mixes, and —
 // with model:"all" — how far the three models agree.
 //
-// Both vocabularies are ordinal five-point French scales, so the slices go
-// round in scale order with a scale-carrying palette (diverging for polarity,
-// sequential for centrality). Alphabetical slices in arbitrary hues would throw
-// away the ordering, which is most of what these fields say.
+// All three vocabularies are ordinal French scales, so the slices go round in
+// scale order with a scale-carrying palette (diverging for polarity, sequential
+// for centrality and subjectivity). Alphabetical slices in arbitrary hues would
+// throw away the ordering, which is most of what these fields say.
 //
 // The cross-model half is deliberately blunt. When three models score the same
 // article and unanimously agree only about half the time, the honest headline
@@ -12,14 +12,26 @@
 // worth more than any one model's donut.
 import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { donut, heatmapMatrix, horizontalBar, legend } from "../svg.js";
-import { CENTRALITY_ORDER, fmtInt, fmtPct, ordinalColor, orderBy, POLARITY_ORDER } from "../theme.js";
+import {
+  CENTRALITY_ORDER,
+  fmtInt,
+  fmtPct,
+  ordinalColor,
+  orderBy,
+  POLARITY_ORDER,
+  SUBJECTIVITY_ORDER,
+} from "../theme.js";
 
 interface Subjectivity {
   scale?: string;
-  mean?: number;
-  median?: number;
+  /** Derived by ranking the labels 1-5, not a stored score — hence the name. */
+  mean_rank?: number;
+  median_rank?: number;
+  rank_scale?: string;
   scored?: number;
+  unscored?: number;
   distribution?: Record<string, number>;
+  caveat?: string;
 }
 
 interface ModelBlock {
@@ -66,15 +78,7 @@ function singleModel(p: SentimentPayload, block: ModelBlock, model: string): Vie
   const centrality = ring(block.centrality_distribution, CENTRALITY_ORDER, "scored");
   const subj = block.subjectivity;
   const subjectivity = subj?.distribution
-    ? donut({
-        slices: orderBy(Object.keys(subj.distribution), ["1", "2", "3", "4", "5"]).map((k) => ({
-          label: `level ${k}`,
-          value: (subj.distribution as Record<string, number>)[k],
-        })),
-        centerValue: subj.mean === undefined ? undefined : subj.mean.toFixed(2),
-        centerLabel: "mean",
-        size: 200,
-      })
+    ? ring(subj.distribution, SUBJECTIVITY_ORDER, "scored")
     : "";
 
   if (!polarity && !centrality && !subjectivity) {
@@ -95,15 +99,20 @@ function singleModel(p: SentimentPayload, block: ModelBlock, model: string): Vie
     body: panels([
       { title: "Polarity", body: polarity },
       { title: "Centrality of Islam / Muslims", body: centrality },
-      { title: `Subjectivity — ${subj?.scale ?? "1-5"}`, body: subjectivity },
+      { title: "Subjectivity", body: subjectivity },
     ]),
     notes: [
       scored < matched
         ? `${fmtInt(matched - scored)} matching articles carry no ${model} score and are not in the rings.`
         : null,
-      subj?.scale
-        ? `Subjectivity is an ordinal rating on ${subj.scale}, not a proportion — the centre shows its mean, ` +
-          `which is ${subj.mean} here, NOT ${fmtPct((subj.mean ?? 0) / 5)}.`
+      // The caveat travels with the chart, not just the JSON: a donut is the
+      // easiest thing here to screenshot and quote out of context, and this is
+      // the field least able to survive that.
+      subj?.caveat ? `Subjectivity — ${subj.caveat}` : null,
+      subj?.mean_rank !== undefined
+        ? `Subjectivity is an ordinal label, ranked ${subj.rank_scale ?? "1-5"} only to average it: ` +
+          `mean rank ${subj.mean_rank}, median ${subj.median_rank}. That is a position on a five-point ` +
+          `scale, NOT ${fmtPct(subj.mean_rank / 5)} subjective.`
         : null,
       `${model} scored articles whether or not their full text ships, so these shares are not affected by the ` +
         "OCR coverage limit — the reconciliation above is the only coverage gap.",
@@ -140,6 +149,11 @@ function singleModel(p: SentimentPayload, block: ModelBlock, model: string): Vie
                 "centrality",
                 k,
                 block.centrality_distribution?.[k],
+              ]),
+              ...orderBy(Object.keys(subj?.distribution ?? {}), SUBJECTIVITY_ORDER).map((k) => [
+                "subjectivity",
+                k,
+                subj?.distribution?.[k],
               ]),
             ]),
           ),
@@ -243,11 +257,11 @@ function allModels(p: SentimentPayload): ViewResult {
             "iwac-sentiment-models.csv",
             "text/csv",
             csv([
-              ["model", ...labels, "subjectivity_mean"],
+              ["model", ...labels, "subjectivity_mean_rank"],
               ...models.map((m) => [
                 m,
                 ...labels.map((l) => byModel[m]?.polarity_distribution?.[l] ?? 0),
-                byModel[m]?.subjectivity?.mean ?? "",
+                byModel[m]?.subjectivity?.mean_rank ?? "",
               ]),
             ]),
           );

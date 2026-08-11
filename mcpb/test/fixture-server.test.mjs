@@ -381,7 +381,7 @@ await call("get_country_comparison", {}, {
   check: (p) => {
     if (p.total_countries !== 5) return `expected 5 article countries, got ${p.total_countries}`;
     // The polarity buckets are one model's, so the payload has to say whose.
-    if (p.polarity_model !== "gemini-3-flash-preview") return `polarity_model wrong: ${p.polarity_model}`;
+    if (p.polarity_model !== "gpt-5-6-luna") return `polarity_model wrong: ${p.polarity_model}`;
     if (!p.countries?.some((c) => c.polarity && Object.keys(c.polarity).length)) return "no country carries polarity";
     return null;
   },
@@ -396,6 +396,25 @@ await call("get_sentiment_distribution", { country: "Benin" }, {
 });
 await call("search_by_sentiment", { polarity: "tres positif" }, {
   check: (p) => (p.total_matches === 1 ? null : `unaccented polarity should match 1, got ${p.total_matches}`),
+});
+// Subjectivity became filterable when generation 2 turned it from a 1-5 float
+// into a closed label vocabulary. Same accent-folding contract as the other two.
+await call("search_by_sentiment", { subjectivity: "plutot objectif" }, {
+  check: (p) =>
+    p.total_matches === 3 ? null : `unaccented subjectivity should match 3, got ${p.total_matches}`,
+});
+// Narrower than either filter alone (3 ∩ 3 = 2), so a dropped clause shows up
+// as a count that is too high rather than as a plausible-looking zero.
+await call("search_by_sentiment", { subjectivity: "Plutôt objectif", polarity: "Neutre" }, {
+  check: (p) =>
+    p.total_matches === 2 ? null : `subjectivity AND polarity should match 2, got ${p.total_matches}`,
+});
+await call("search_by_sentiment", { subjectivity: "3" }, {
+  expectError: true,
+  checkBody: (b) =>
+    b.includes("valid_values") && b.includes("Très objectif")
+      ? null
+      : "a generation-1 numeric rating should error with the label vocabulary, not silently match nothing",
 });
 await call("list_periodicals", {}, {
   structured: true,
@@ -656,8 +675,8 @@ await call("get_semantic_map", { color_by: "country" }, {
   },
 });
 // `polarity` is the stable public name for a column whose real name carries the
-// model and changed in the 2026-07-31 rename; the old spelling still resolves.
-for (const value of ["polarity", "gemini_polarite", "gemini_3_flash_preview_polarite"]) {
+// model; the current dataset spelling resolves onto it too.
+for (const value of ["polarity", "gpt_5_6_luna_polarite"]) {
   await call("get_semantic_map", { color_by: value }, {
     structured: true,
     check: (p) => {
@@ -667,6 +686,13 @@ for (const value of ["polarity", "gemini_polarite", "gemini_3_flash_preview_pola
     },
   });
 }
+// A generation-1 column name must NOT alias onto `polarity`: it holds a
+// different model's reading, so colouring by it while the legend says
+// gpt-5-6-luna would be a chart that lies.
+await call("get_semantic_map", { color_by: "gemini_3_flash_preview_polarite" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "a generation-1 colour column should be refused with valid_values"),
+});
 // Deterministic: the same filter must project the same picture, or the chart
 // reshuffles itself on every call and cannot be read as evidence.
 {
@@ -788,55 +814,74 @@ await call("get_lexical_metrics", { group_by: "country" }, {
 });
 
 // Cross-model sentiment: three models, and how far they agree. Every model
-// identifier here is the EXACT model that scored the corpus — the dataset
-// renamed its vendor-slot columns on 2026-07-31 and the server echoes the new
-// names, because a polarity share is meaningless without knowing what produced it.
+// identifier here is the EXACT generation-2 model that scored the corpus,
+// because a polarity share is meaningless without knowing what produced it.
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,
   check: (p) => {
-    if (String(p.models) !== "gemini-3-flash-preview,gpt-5-mini,ministral-14b-2512") return `models wrong: ${p.models}`;
-    if (!p.by_model?.["gpt-5-mini"]?.polarity_distribution) return "per-model distributions missing";
+    if (String(p.models) !== "gpt-5-6-luna,mistral-small-2603,deepseek-v4-flash-0731") return `models wrong: ${p.models}`;
+    if (!p.by_model?.["mistral-small-2603"]?.polarity_distribution) return "per-model distributions missing";
     if (p.agreement?.scored_by_all !== 6) return `all 6 fixture articles are scored, got ${p.agreement?.scored_by_all}`;
     // 102 (Positif) and 105 (Neutre) match across all three; the rest split.
     if (p.agreement.unanimous !== 2) return `expected 2 unanimous articles, got ${p.agreement.unanimous}`;
     if (p.agreement.unanimous_percent !== 33) return `expected 33%, got ${p.agreement.unanimous_percent}`;
-    if (p.agreement.pairwise?.["gemini-3-flash-preview~gpt-5-mini"] === undefined) return "pairwise agreement missing";
-    if (p.agreement_matrix?.rows !== "gemini-3-flash-preview") return "confusion matrix rows should be the default model";
+    if (p.agreement.pairwise?.["gpt-5-6-luna~mistral-small-2603"] === undefined) return "pairwise agreement missing";
+    if (p.agreement_matrix?.rows !== "gpt-5-6-luna") return "confusion matrix rows should be the default model";
     return null;
   },
 });
-await call("get_sentiment_distribution", { model: "gpt-5-mini" }, {
+await call("get_sentiment_distribution", { model: "mistral-small-2603" }, {
   structured: true,
   check: (p) => {
-    if (p.model !== "gpt-5-mini") return "model not echoed";
+    if (p.model !== "mistral-small-2603") return "model not echoed";
     if (p.by_model) return "a single-model call should not return by_model";
-    if (p.polarity_distribution?.Neutre !== 3) return `gpt-5-mini Neutre should be 3, got ${JSON.stringify(p.polarity_distribution)}`;
-    // Subjectivity is an ordinal 1-5 rating; the scale must ship with it.
-    if (!String(p.subjectivity?.scale ?? "").includes("1-5")) return "subjectivity must declare its 1-5 scale";
-    if (p.subjectivity.mean > 5 || p.subjectivity.mean < 1) return `mean ${p.subjectivity.mean} outside the scale`;
+    if (p.polarity_distribution?.Neutre !== 3) return `Neutre should be 3, got ${JSON.stringify(p.polarity_distribution)}`;
+    // Subjectivity is an ordinal LABEL in generation 2, so the distribution is
+    // keyed by label and any scalar must be flagged as a derived rank.
+    const subj = p.subjectivity ?? {};
+    if (subj.distribution?.["Plutôt objectif"] !== 3) return `label buckets wrong: ${JSON.stringify(subj.distribution)}`;
+    if (!String(subj.scale ?? "").includes("Très subjectif")) return "subjectivity must declare its label scale";
+    if (subj.mean_rank > 5 || subj.mean_rank < 1) return `mean_rank ${subj.mean_rank} outside the scale`;
+    if (subj.mean !== undefined) return "the generation-1 numeric `mean` key must be gone";
+    if (!subj.caveat) return "subjectivity must ship its reliability caveat";
     return null;
   },
 });
-// The pre-rename vendor handles still resolve, and resolve to the model id —
-// callers and skill docs written before 2026-07-31 keep working, and learn the
-// real name from the echo.
+// A model that declines to score some articles it did place on the other scales
+// must reconcile, not silently shrink the denominator.
+await call("get_sentiment_distribution", { model: "deepseek" }, {
+  structured: true,
+  check: (p) =>
+    p.subjectivity?.scored === 5 && p.subjectivity?.unscored === 1
+      ? null
+      : `unscored subjectivity not reconciled: ${JSON.stringify(p.subjectivity)}`,
+});
+// Vendor shorthand resolves to the model that ran, and the payload echoes the id.
 await call("get_sentiment_distribution", { model: "chatgpt" }, {
   structured: true,
-  check: (p) => (p.model === "gpt-5-mini" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
-});
-await call("get_sentiment_distribution", { model: "mistral" }, {
-  structured: true,
-  check: (p) => (p.model === "ministral-14b-2512" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
+  check: (p) => (p.model === "gpt-5-6-luna" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
 });
 // The raw dataset column prefix is accepted too (underscores ≡ hyphens).
-await call("get_sentiment_distribution", { model: "gemini_3_flash_preview" }, {
+await call("get_sentiment_distribution", { model: "mistral_small_2603" }, {
   structured: true,
-  check: (p) => (p.model === "gemini-3-flash-preview" ? null : `column prefix should resolve, got ${p.model}`),
+  check: (p) => (p.model === "mistral-small-2603" ? null : `column prefix should resolve, got ${p.model}`),
 });
+// A generation-1 id names a real annotator this server no longer serves. It
+// must say so rather than answer with the same vendor's generation-2 model,
+// which read the corpus differently.
+for (const retired of ["gpt-5-mini", "gemini-3-flash-preview", "ministral-14b-2512", "gemini"]) {
+  await call("get_sentiment_distribution", { model: retired }, {
+    expectError: true,
+    checkBody: (b) =>
+      b.includes("generation-2") && b.includes("gpt-5-6-luna")
+        ? null
+        : `retired model ${retired} should be refused by name, got: ${b.slice(0, 200)}`,
+  });
+}
 await call("get_sentiment_distribution", { model: "llama" }, {
   expectError: true,
   checkBody: (b) =>
-    b.includes("valid_values") && b.includes("ministral-14b-2512")
+    b.includes("valid_values") && b.includes("deepseek-v4-flash-0731")
       ? null
       : "an unknown model should list the valid ones by model id",
 });

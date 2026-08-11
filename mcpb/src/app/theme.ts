@@ -78,6 +78,14 @@ export const POLARITY_ORDER = [
 
 export const CENTRALITY_ORDER = ["Très central", "Central", "Secondaire", "Marginal", "Non abordé"];
 
+export const SUBJECTIVITY_ORDER = [
+  "Très objectif",
+  "Plutôt objectif",
+  "Mixte",
+  "Plutôt subjectif",
+  "Très subjectif",
+];
+
 /** Diverging green→red for polarity; sequential for centrality. */
 const POLARITY_COLORS: Record<string, string> = {
   "Très positif": "#2f6b52",
@@ -94,6 +102,15 @@ const CENTRALITY_COLORS: Record<string, string> = {
   Marginal: "#b8b3ac",
   "Non abordé": "#9a9a9a",
 };
+// Subjectivity runs factual → opinionated, so it gets its own sequential ramp
+// rather than borrowing polarity's diverging one: objective is not "good".
+const SUBJECTIVITY_COLORS: Record<string, string> = {
+  "Très objectif": "#3d6b7d",
+  "Plutôt objectif": "#7ba3b0",
+  Mixte: "#c2b8a3",
+  "Plutôt subjectif": "#d99a63",
+  "Très subjectif": "#b5622a",
+};
 
 /** Sort keys by a known ordinal scale, leaving unknown values alphabetical at the end. */
 export function orderBy(keys: string[], scale: string[]): string[] {
@@ -106,7 +123,14 @@ export function orderBy(keys: string[], scale: string[]): string[] {
 
 /** Colour for an ordinal sentiment value, or undefined to use the palette. */
 export function ordinalColor(label: string, scale: string[]): string | undefined {
-  const table = scale === POLARITY_ORDER ? POLARITY_COLORS : scale === CENTRALITY_ORDER ? CENTRALITY_COLORS : null;
+  const table =
+    scale === POLARITY_ORDER
+      ? POLARITY_COLORS
+      : scale === CENTRALITY_ORDER
+        ? CENTRALITY_COLORS
+        : scale === SUBJECTIVITY_ORDER
+          ? SUBJECTIVITY_COLORS
+          : null;
   return table?.[label];
 }
 

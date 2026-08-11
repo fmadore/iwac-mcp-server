@@ -53,14 +53,17 @@ const GROUP_FIELDS = ["year", "newspaper", "country"] as const;
 
 /**
  * Fields a semantic scatter may colour by. `polarity` is the stable public name
- * for the default model's polarity column, whose real name changed with the
- * 2026-07-31 sentiment rename; both dataset spellings are accepted as aliases so
- * a saved call keeps working.
+ * for the default model's polarity column; the raw dataset spelling is aliased
+ * onto it so a call written against the column name keeps working.
+ *
+ * The generation-1 column names are deliberately NOT aliased. They still exist
+ * on the Hub, but they hold a different model's reading — accepting
+ * `gemini_polarite` here would colour the scatter by one model while the legend
+ * says another, which is worse than the self-correcting valid_values error.
  */
 const COLOR_FIELDS = ["country", "newspaper", "subject", "lda_topic_label", "polarity"] as const;
 
 const COLOR_ALIASES: Record<string, string> = {
-  gemini_polarite: "polarity",
   [sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity]: "polarity",
 };
 

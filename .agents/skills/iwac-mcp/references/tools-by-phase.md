@@ -25,7 +25,7 @@ Overall collection statistics: subset record counts, articles by country, date r
 ### get_country_comparison
 Compare statistics across the 5 article countries (Nigeria has no press articles).
 - No parameters
-- Returns per-country article counts, newspaper counts, date ranges, and a per-country `polarity` breakdown with `polarity_model` naming the model that produced it (`gemini-3-flash-preview`)
+- Returns per-country article counts, newspaper counts, date ranges, and a per-country `polarity` breakdown with `polarity_model` naming the model that produced it (`gpt-5-6-luna`)
 
 ### get_newspaper_stats
 Newspaper-level statistics.
@@ -85,9 +85,10 @@ Search the 4,697 authority records by name.
 - Returns: id, title, type, description, frequency, first_occurrence, last_occurrence, countries, url
 
 ### search_by_sentiment
-Filter articles by **`gemini-3-flash-preview`** sentiment labels (exact match, accents optional). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other two agree.
+Filter articles by **`gpt-5-6-luna`** sentiment labels (exact match, accents optional). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other two agree.
 - `polarity` (optional): Très positif | Positif | Neutre | Négatif | Très négatif | Non applicable
 - `centrality` (optional): Très central | Central | Secondaire | Marginal | Non abordé
+- `subjectivity` (optional): Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif. Filterable since v2.0.0, when generation 2 turned this field from a 1-5 rating into a closed label vocabulary — a numeric value now errors. Unscored where the model answered `Non abordé`, so this filter excludes those rows too. It is the weakest of the three scales: use it to *find* articles to read, not to count them
 - `country` (optional, exact name), `subject` (optional)
 - `limit` (default 20, max 100), `offset`
 
@@ -220,8 +221,8 @@ Counts of matching items per year (or month) — one call replaces paging throug
 ### get_sentiment_distribution *(`model` added v0.13.0; model-exact ids since the 2026-07-31 dataset rename)*
 Aggregated AI sentiment counts.
 - `country` (optional, exact name), `newspaper` (optional), `subject` (optional)
-- `model` (optional, validated): `gemini-3-flash-preview` (default) | `gpt-5-mini` | `ministral-14b-2512` | **all**. The old vendor handles `gemini` / `chatgpt` / `mistral` still work and resolve to these ids, which is what the payload echoes back — quote the id, never the vendor
-- Returns `polarity_distribution`, `centrality_distribution` and `subjectivity` (mean, median and per-level counts on the **1-5** scale — it is an ordinal rating, not a proportion, so never report the mean as a percentage)
+- `model` (optional, validated): `gpt-5-6-luna` (default) | `mistral-small-2603` | `deepseek-v4-flash-0731` | **all**. Vendor shorthand (`chatgpt` / `mistral` / `deepseek`) resolves to these ids, which is what the payload echoes back — quote the id, never the vendor. The generation-1 ids (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) are **refused by name**, not substituted
+- Returns `polarity_distribution`, `centrality_distribution` and `subjectivity` — a distribution over the five French labels plus `scored` / `unscored` and a `mean_rank` / `median_rank` derived by ranking the labels 1-5. That rank is a position on a five-point scale, never a percentage. The block also carries a `caveat`: quote it whenever you quote the number
 - With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity, pairwise and unanimously) and `agreement_matrix` (where the first two part company)
 
 **Tip:** `get_sentiment_distribution(subject="Laïcité", country="Burkina Faso")` gives the polarity distribution for laïcité articles in BF specifically; compare against the unfiltered country baseline.
@@ -230,7 +231,7 @@ Aggregated AI sentiment counts.
 
 **Coverage is near-total but no longer complete** (measured 2026-07-31): 12,286 of 12,356 articles carry sentiment: the 70 most recently added are unscored and drop out of every distribution. Compare `scored_by_all` against `total_articles` rather than assuming they match.
 
-**Reliability differs sharply by scale.** Polarity and centrality are solid (leave-one-out κ ≈ 0.61–0.78); **subjectivity is not** (κ 0.435–0.460, and each model reproduces its own answer only 47–71% of the time on re-runs), so report the 1-5 rating as weak evidence with that caveat, or not at all. On *centrality* specifically, `ministral-14b-2512` is a systematic outlier (κ 0.182) — a 2-of-3 majority there is the other two outvoting Mistral, not a three-model consensus.
+**Reliability differs sharply by scale.** Polarity and centrality are the solid ones; **subjectivity is not** (pairwise κ 0.093–0.470, and `deepseek-v4-flash-0731` reproduces its own answer only 47% of the time on a re-run), so report it as weak evidence with that caveat, or not at all. On *centrality* specifically, `mistral-small-2603` is a systematic outlier (κ 0.244–0.270 pairwise against 0.511–0.725 for the others) — a 2-of-3 majority there is the other two outvoting Mistral, not a three-model consensus.
 
 ### get_topic_distribution *(v0.13.0)*
 How a set spreads across the 30 precomputed LDA topics (12,234 of 12,287 articles are classified), each labelled by its top terms. Topics were assigned offline over the full text, so they describe what a piece is **about** rather than which words it contains — the fastest way to map an unfamiliar corpus without keyword guessing.
@@ -275,7 +276,7 @@ The items nearest a given one in meaning, by cosine similarity over the stored e
 
 ### get_semantic_map *(v0.13.0)*
 A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. **Needs no API key.**
-- `subset` (optional); filter block; `color_by` (country | newspaper | subject | lda_topic_label | polarity — `gemini-3-flash-preview`'s label); `limit` (default 300, max 2000)
+- `subset` (optional); filter block; `color_by` (country | newspaper | subject | lda_topic_label | polarity — `gpt-5-6-luna`'s label); `limit` (default 300, max 2000)
 - **Read `explained_variance` before concluding anything.** Two components carry ~18% of the variance for an unfiltered article set, ~25% for a filtered one — so items drawn close together are not necessarily similar. Report it as a rough spread, not as clusters.
 - This is PCA, not UMAP: it preserves global spread rather than local neighbourhoods, and is not comparable to the semantic landscapes on islam.zmo.de.
 - The payload scales with `limit`; keep it low unless a chart will be drawn.
@@ -289,16 +290,16 @@ A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. 
 ### Countries
 Exact names: `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo`, `Nigeria` (all six are accepted everywhere; `Nigeria` simply yields 0 press articles — a real finding, not an error). Accents are optional (`Bénin` works); partial names (`Burkina`) are invalid and now error.
 
-### Polarity scale (articles, `gemini-3-flash-preview`)
-Très positif (1,400) | Positif (5,984) | Neutre (3,999) | Négatif (569) | Très négatif (24) | Non applicable (310) — plus 70 unscored (counts verified 2026-07-31)
+### Polarity scale (articles, `gpt-5-6-luna`)
+Très positif (425) | Positif (6,149) | Neutre (5,020) | Négatif (376) | Très négatif (45) | Non applicable (290) — plus 51 unscored (counts verified 2026-08-11)
 
-### Centrality scale (articles, `gemini-3-flash-preview`)
-Très central (8,130) | Central (1,538) | Marginal (1,366) | Secondaire (942) | Non abordé (310) — plus 70 unscored
+### Centrality scale (articles, `gpt-5-6-luna`)
+Très central (8,215) | Central (1,562) | Marginal (1,122) | Secondaire (1,116) | Non abordé (290) — plus 51 unscored
 
-### Subjectivity (articles, `gemini-3-flash-preview`)
-Score 1 (very objective) → 5 (very subjective). The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
+### Subjectivity scale (articles, `gpt-5-6-luna`)
+Très objectif (1,144) | Plutôt objectif (7,906) | Mixte (314) | Plutôt subjectif (1,915) | Très subjectif (736) — plus 341 unscored, which are exactly this model's `Non abordé` rows and the 51 unscanned ones. An ordinal **label**, not a number. The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
 
-The same three scales exist for `gpt-5-mini` and `ministral-14b-2512`; reach them with `get_sentiment_distribution(model=…)`.
+The same three scales exist for `mistral-small-2603` and `deepseek-v4-flash-0731`; reach them with `get_sentiment_distribution(model=…)`. They differ substantially — Mistral reads 2,088 articles as Très positif where Luna reads 425 — which is why a figure has to name its model.
 
 ### Index types
 Personnes (2,833) | Lieux (683) | Organisations (413) | Notices d'autorité (312) | Événements (242) | Sujets (214)

@@ -18,16 +18,30 @@ import {
   resolveSentimentModel,
   rowsToMap,
   runListQuery,
+  retiredSentimentModel,
   SENTIMENT_MODEL_IDS,
   SENTIMENT_MODELS,
   sentimentCols,
   structuredResult,
+  subjectivityRank,
+  SUBJECTIVITY_VALUES,
   textResult,
   toolMeta,
   validateEnum,
   type SentimentModel,
   type Server,
 } from "./_shared.js";
+
+/**
+ * Shipped with every subjectivity block. Measured on the generation-2 pilot
+ * (2026-07-29): pairwise κ 0.093-0.470, and one model reproduced its own answer
+ * on a re-run only 47% of the time. That is weak enough that a reader who gets
+ * the number without the caveat will over-read it, and the number is cheap
+ * enough to ship that withholding it entirely is worse.
+ */
+const SUBJECTIVITY_CAVEAT =
+  "Weakest of the three scales: inter-model agreement κ 0.093-0.470 and self-consistency as low as 47% on " +
+  "re-run. Treat as weak evidence and never report it without this caveat; polarity and centrality are far stronger.";
 
 // Small, stable envelope → worth a structured-output contract. Distributions
 // are optional because the sentiment columns may be absent from a revision.
@@ -54,7 +68,8 @@ export function registerSentimentTools(server: Server): void {
       description:
         `Filter articles by ${DEFAULT_SENTIMENT_MODEL.id} sentiment labels (accent/case-insensitive exact ` +
         "match). One model's reading, not a consensus — two other models scored the same articles and often " +
-        "disagree; get_sentiment_distribution with model:\"all\" shows by how much.",
+        "disagree; get_sentiment_distribution with model:\"all\" shows by how much. `subjectivity` is much the " +
+        "weakest of the three scales, so treat a set selected on it as a lead to read rather than as a finding.",
       inputSchema: z.object({
         polarity: z
           .string()
@@ -64,6 +79,13 @@ export function registerSentimentTools(server: Server): void {
           .string()
           .optional()
           .describe("Très central | Central | Secondaire | Marginal | Non abordé"),
+        subjectivity: z
+          .string()
+          .optional()
+          .describe(
+            `${SUBJECTIVITY_VALUES.join(" | ")} — least to most subjective. Unscored where the model ` +
+              "answered Non abordé, so this filter also excludes those.",
+          ),
         country: countryParam(),
         subject: z.string().optional(),
         limit: z.number().int().optional().describe("Default 20, max 100"),
@@ -76,6 +98,8 @@ export function registerSentimentTools(server: Server): void {
       if (polarity.err) return errorResult(polarity.err);
       const centrality = validateEnum(args.centrality, CENTRALITY_VALUES, "centrality");
       if (centrality.err) return errorResult(centrality.err);
+      const subjectivity = validateEnum(args.subjectivity, SUBJECTIVITY_VALUES, "subjectivity");
+      if (subjectivity.err) return errorResult(subjectivity.err);
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
       const limit = resolveLimit(args.limit, 20, 100);
@@ -86,21 +110,21 @@ export function registerSentimentTools(server: Server): void {
 
       // A requested filter whose column this revision lacks is an error, not a
       // dropped clause: silently returning the unfiltered corpus reads as "every
-      // article is Très négatif". Reachable on a cache predating the 2026-07-31
-      // sentiment column rename.
-      if (polarity.canonical) {
-        if (!schema.has(cols.polarity)) {
-          return errorResult({ error: `This dataset revision has no ${cols.polarity} column, so polarity cannot be filtered` });
+      // article is Très négatif". Reachable on a cache predating the
+      // generation-2 sentiment columns.
+      for (const f of [
+        { field: "polarity", value: polarity.canonical, column: cols.polarity },
+        { field: "centrality", value: centrality.canonical, column: cols.centrality },
+        { field: "subjectivity", value: subjectivity.canonical, column: cols.subjectivity },
+      ]) {
+        if (!f.value) continue;
+        if (!schema.has(f.column)) {
+          return errorResult({
+            error: `This dataset revision has no ${f.column} column, so ${f.field} cannot be filtered`,
+          });
         }
-        where.push(foldedEquals(cols.polarity));
-        params.push(polarity.canonical);
-      }
-      if (centrality.canonical) {
-        if (!schema.has(cols.centrality)) {
-          return errorResult({ error: `This dataset revision has no ${cols.centrality} column, so centrality cannot be filtered` });
-        }
-        where.push(foldedEquals(cols.centrality));
-        params.push(centrality.canonical);
+        where.push(foldedEquals(f.column));
+        params.push(f.value);
       }
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
@@ -129,8 +153,10 @@ export function registerSentimentTools(server: Server): void {
         `corpus independently — ${SENTIMENT_MODEL_IDS.join(", ")} — so model:"all" returns each one's ` +
         "distribution plus how often they AGREE. Treat disagreement as a fact about the judgement rather than " +
         "noise: in a set where the three models split on polarity, no single model's number should be quoted " +
-        "alone. Articles were scored whether or not their full text ships, so these shares are not subject to " +
-        "the OCR coverage limit; compare scored_by_all against total_articles for the residual gap.",
+        "alone. All three scales are ordinal French labels; subjectivity is much the weakest and ships a caveat " +
+        "to quote with it. Articles were scored whether or not their full text ships, so these shares are not " +
+        "subject to the OCR coverage limit; compare scored_by_all against total_articles for the residual gap " +
+        "(the ~51 non-francophone articles are unscored by design).",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         country: countryParam(),
@@ -141,8 +167,9 @@ export function registerSentimentTools(server: Server): void {
           .optional()
           .describe(
             `${SENTIMENT_MODEL_IDS.join(" | ")} | all — default ${DEFAULT_SENTIMENT_MODEL.id}; ` +
-              '"all" adds the cross-model agreement. The vendor shorthands gemini/chatgpt/mistral are ' +
-              "also accepted and resolve to the model that ran.",
+              '"all" adds the cross-model agreement. The vendor shorthands chatgpt/mistral/deepseek also ' +
+              "resolve to the model that ran. The generation-1 models (gemini-3-flash-preview, gpt-5-mini, " +
+              "ministral-14b-2512) are no longer served and return an error rather than a substitute.",
           ),
       }),
       outputSchema: SENTIMENT_DISTRIBUTION_OUTPUT,
@@ -158,7 +185,17 @@ export function registerSentimentTools(server: Server): void {
       const wantsAll = raw !== undefined && raw.toLowerCase() === "all";
       const resolved = raw === undefined || raw === "" ? DEFAULT_SENTIMENT_MODEL : resolveSentimentModel(raw);
       if (!wantsAll && !resolved) {
-        return errorResult({ error: `Invalid model: ${raw}`, valid_values: [...SENTIMENT_MODEL_IDS, "all"] });
+        // A retired handle names a real annotator that this server no longer
+        // serves, so it gets its own error rather than the generic one — and is
+        // never quietly re-pointed at the same vendor's successor, which scored
+        // the corpus differently.
+        const retired = raw ? retiredSentimentModel(raw) : undefined;
+        return errorResult({
+          error: retired
+            ? `Model '${raw}' is ${retired}. This server serves the generation-2 campaign only.`
+            : `Invalid model: ${raw}`,
+          valid_values: [...SENTIMENT_MODEL_IDS, "all"],
+        });
       }
       const requested = wantsAll ? "all" : (resolved as SentimentModel).id;
       const where: string[] = [];
@@ -219,30 +256,50 @@ export function registerSentimentTools(server: Server): void {
             ),
           );
         }
-        // Subjectivity is an INTEGER 1-5 rating, not a 0-1 proportion, so the
-        // scale ships with the numbers: a bare mean of 2.12 reads as "21%
-        // subjective" to anyone who assumes the usual normalised score. The
-        // per-level counts come along because five buckets cost almost nothing
-        // and say more than any average of an ordinal rating.
+        // Subjectivity is an ordinal LABEL, so the distribution is the answer and
+        // the scalars are derived: mean_rank/median_rank come from ranking the
+        // five labels 1-5 in TypeScript, not from anything stored. They are named
+        // `_rank` for that reason — a bare `mean: 2.12` reads as "21% subjective"
+        // to anyone assuming a normalised score, and here it is not even a score.
         if (schema.has(cols.subjectivity)) {
-          const col = q(cols.subjectivity);
-          const row = await queryOne(
-            `SELECT ROUND(AVG(${col}), 3) AS mean, ROUND(median(${col}), 3) AS med, COUNT(${col}) AS scored
-             FROM ${viewName("articles")} ${whereSql}`,
-            params,
+          const distribution = rowsToMap(
+            await query(
+              `SELECT ${q(cols.subjectivity)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
+              params,
+            ),
           );
-          if (row?.mean != null) {
+          const ranked = Object.entries(distribution)
+            .map(([label, n]) => ({ rank: subjectivityRank(label), n }))
+            .filter((e): e is { rank: number; n: number } => e.rank !== undefined)
+            .sort((a, b) => a.rank - b.rank);
+          const scored = Object.values(distribution).reduce((a, b) => a + b, 0);
+          if (scored) {
+            const rankedN = ranked.reduce((a, e) => a + e.n, 0);
+            // Median of an ordinal: the rank at which the cumulative count
+            // crosses the halfway mark, not an average of the two middle values
+            // — halfway between "Plutôt objectif" and "Mixte" is not a label.
+            let cumulative = 0;
+            let median: number | undefined;
+            for (const e of ranked) {
+              cumulative += e.n;
+              if (cumulative >= rankedN / 2) {
+                median = e.rank;
+                break;
+              }
+            }
             out.subjectivity = {
-              scale: "1-5 (1 = most factual, 5 = most opinionated)",
-              mean: Number(row.mean),
-              median: Number(row.med),
-              scored: Number(row.scored),
-              distribution: rowsToMap(
-                await query(
-                  `SELECT CAST(${col} AS VARCHAR) AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
-                  params,
-                ),
-              ),
+              scale: `${SUBJECTIVITY_VALUES.join(" | ")} (ordinal, least to most subjective)`,
+              scored,
+              unscored: total - scored,
+              distribution,
+              ...(rankedN
+                ? {
+                    mean_rank: Math.round((ranked.reduce((a, e) => a + e.rank * e.n, 0) / rankedN) * 1000) / 1000,
+                    median_rank: median,
+                    rank_scale: "1 = Très objectif … 5 = Très subjectif; derived here, not stored",
+                  }
+                : {}),
+              caveat: SUBJECTIVITY_CAVEAT,
             };
           }
         }
@@ -294,7 +351,7 @@ export function registerSentimentTools(server: Server): void {
 
         // Where the disagreement actually goes: how the first model's label
         // maps onto the second's. "They disagree 46% of the time" is much less
-        // useful than "gpt-5-mini reads as Neutre what gemini calls Négatif".
+        // useful than "mistral-small-2603 reads as Très positif what Luna calls Positif".
         const [a, b] = models;
         const cells = await query(
           `SELECT ${q(sentimentCols(a).polarity)} AS ra, ${q(sentimentCols(b).polarity)} AS rb, COUNT(*) AS c

@@ -284,11 +284,28 @@ await call("get_newspaper_stats", { country: "Niger" }, {
 });
 await call("search_by_sentiment", { polarity: "tres positif", limit: 2 }, {
   // Bounded on BOTH sides: a filter that silently stopped being applied would
-  // return the whole corpus and still clear a lower bound on its own.
+  // return the whole corpus and still clear a lower bound on its own. The band
+  // is wide because it is per-model — gpt-5-6-luna reads 425 articles as Très
+  // positif where mistral-small-2603 reads 2,088 — so it tests that filtering
+  // happens, not what any one model concluded.
   check: (p) =>
-    p.total_matches > 1000 && p.total_matches < 10_000
+    p.total_matches > 100 && p.total_matches < 5_000
       ? null
       : `"Très positif" matched ${p.total_matches}, which is not a filtered subset of ~12,300 articles`,
+});
+// The label vocabulary must be the generation-2 one. A 1-5 rating here used to
+// be valid; if it still matched anything, the server would be reading a
+// generation-1 column behind a generation-2 vocabulary.
+await call("search_by_sentiment", { subjectivity: "tres subjectif", limit: 2 }, {
+  check: (p) =>
+    p.total_matches > 100 && p.total_matches < 5_000
+      ? null
+      : `"Très subjectif" matched ${p.total_matches}, which is not a filtered subset of ~12,300 articles`,
+});
+await call("search_by_sentiment", { subjectivity: "4", limit: 1 }, {
+  expectError: true,
+  checkBody: (b) =>
+    b.includes("Très objectif") ? null : "a numeric subjectivity should error with the label vocabulary",
 });
 await call("get_sentiment_distribution", { country: "Benin" }, {
   structured: true,
@@ -297,7 +314,7 @@ await call("get_sentiment_distribution", { country: "Benin" }, {
 await call("get_country_comparison", {}, {
   structured: true,
   check: (p) => {
-    if (p.polarity_model !== "gemini-3-flash-preview") return `polarity_model wrong: ${p.polarity_model}`;
+    if (p.polarity_model !== "gpt-5-6-luna") return `polarity_model wrong: ${p.polarity_model}`;
     return p.countries?.some((c) => c.polarity && Object.keys(c.polarity).length)
       ? null
       : "no country carries polarity — the sentiment column is not being read";
@@ -432,29 +449,39 @@ await call("get_sentiment_distribution", { model: "all" }, {
     if (p.models?.length !== 3) return `expected 3 models, got ${p.models}`;
     const a = p.agreement;
     if (!a) return "no agreement block";
-    // 12,286 of 12,356 as of 2026-07-31 — the 70 newest articles are unscored,
-    // so this is deliberately not asserted equal to total_articles.
-    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all three (was 12,286)`;
-    // ~54% unanimous as of 2026-07-31. A jump to 100% would mean the three
+    // 12,305 of 12,356 — the ~51 non-francophone articles are unscored by
+    // design, so this is deliberately not asserted equal to total_articles.
+    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all three (was 12,305)`;
+    // ~43% unanimous across generation 2. A jump to 100% would mean the three
     // columns had collapsed onto one another upstream.
-    if (a.unanimous_percent < 30 || a.unanimous_percent > 95)
+    if (a.unanimous_percent < 25 || a.unanimous_percent > 95)
       return `three-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
-    // The models must be named for what actually ran. The dataset dropped its
-    // vendor-slot column prefixes on 2026-07-31 precisely because nothing
-    // recorded which model had produced a score; a vendor handle reappearing
-    // here means the server has fallen back to guessing.
-    const expected = ["gemini-3-flash-preview", "gpt-5-mini", "ministral-14b-2512"];
+    // The models must be named for what actually ran, and they must be the
+    // generation-2 three: a generation-1 id reappearing here means the registry
+    // has been re-pointed at columns whose prompt and dtype differ.
+    const expected = ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731"];
     const missing = expected.filter((m) => !p.models.includes(m));
     if (missing.length) return `models should be the exact model ids, missing ${missing} (got ${p.models})`;
-    const subj = p.by_model?.["gemini-3-flash-preview"]?.subjectivity;
-    if (subj && (subj.mean < 1 || subj.mean > 5)) return `subjectivity mean ${subj.mean} is not on the 1-5 scale`;
+    // Subjectivity is an ordinal LABEL in generation 2. A numeric bucket key
+    // here would mean the server is reading a generation-1 column.
+    const subj = p.by_model?.["gpt-5-6-luna"]?.subjectivity;
+    if (!subj?.distribution?.["Plutôt objectif"]) return `subjectivity is not keyed by label: ${JSON.stringify(subj)}`;
+    if (subj.mean_rank < 1 || subj.mean_rank > 5) return `mean_rank ${subj.mean_rank} is off the 1-5 ranking`;
+    if (!subj.caveat) return "subjectivity must ship its reliability caveat";
     return null;
   },
 });
-// The pre-rename vendor handle still resolves, and answers with the model id.
+// Vendor shorthand resolves, and answers with the model id.
 await call("get_sentiment_distribution", { model: "chatgpt" }, {
   structured: true,
-  check: (p) => (p.model === "gpt-5-mini" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
+  check: (p) => (p.model === "gpt-5-6-luna" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
+});
+// Generation 1 is dropped: its ids must fail by name rather than answer with
+// the same vendor's generation-2 model.
+await call("get_sentiment_distribution", { model: "gpt-5-mini" }, {
+  expectError: true,
+  checkBody: (b) =>
+    b.includes("generation-2") ? null : `a generation-1 id should be refused by name, got: ${b.slice(0, 200)}`,
 });
 await call("get_article", { article_id: 67613 }, {
   check: (p) => (p.description_ai ? null : "get_article lacks description_ai"),

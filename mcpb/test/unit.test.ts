@@ -35,8 +35,14 @@ import {
   requireHijriColumns,
   resolveHijriMonth,
   resolveLimit,
+  resolveSentimentModel,
+  retiredSentimentModel,
   rowsToMap,
+  SENTIMENT_MODEL_IDS,
+  sentimentCols,
   structuredResult,
+  subjectivityRank,
+  SUBJECTIVITY_VALUES,
   TEXT_COLS,
   textResult,
   TITLE_COL,
@@ -402,12 +408,12 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
     articles: new Set([
       "o:id", "iwac_url", "identifier", "title", "author", "newspaper", "country", "pub_date",
       "subject", "spatial", "language", "nb_pages", "descriptionAI",
-      // Named for the model that scored the corpus, per the 2026-07-31 dataset
-      // rename. Spelling them wrong here would not fail — colsFor drops absent
-      // columns — so the projection assertion below is what actually guards it.
-      "gemini_3_flash_preview_polarite",
-      "gemini_3_flash_preview_centralite_islam_musulmans",
-      "gemini_3_flash_preview_subjectivite_score", "nb_mots",
+      // Named for the generation-2 model that scored the corpus. Spelling them
+      // wrong here would not fail — colsFor drops absent columns — so the
+      // projection assertion below is what actually guards it.
+      "gpt_5_6_luna_polarite",
+      "gpt_5_6_luna_centralite_islam_musulmans",
+      "gpt_5_6_luna_subjectivite_score", "nb_mots",
       "Richesse_Lexicale_OCR", "Lisibilite_OCR", "OCR",
     ]),
     index: new Set([
@@ -519,15 +525,54 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
     // real column name here is what would catch a stale prefix in the
     // descriptor — colsFor silently drops anything the schema lacks.
     const detail = colsFor("articles", FULL.articles, "detail");
-    assert.match(detail, /gemini_3_flash_preview_polarite AS "polarity"/);
-    assert.match(detail, /gemini_3_flash_preview_centralite_islam_musulmans AS "centrality"/);
-    assert.match(detail, /gemini_3_flash_preview_subjectivite_score AS "subjectivity"/);
+    assert.match(detail, /gpt_5_6_luna_polarite AS "polarity"/);
+    assert.match(detail, /gpt_5_6_luna_centralite_islam_musulmans AS "centrality"/);
+    assert.match(detail, /gpt_5_6_luna_subjectivite_score AS "subjectivity"/);
   });
 
   it("drops columns missing from the live schema instead of throwing", () => {
     const thin = new Set(["o:id", "title"]);
     const cols = colsFor("articles", thin, "summary");
     assert.equal(cols, '"o:id" AS "id", "title"');
+  });
+});
+
+// The registry is the ONE place a sentiment model or column prefix is named, so
+// these guard the invariant that survives the next campaign: a handle either
+// names a model this server serves, or fails loudly. Nothing in between.
+describe("sentiment model registry (generation 2)", () => {
+  it("serves the three generation-2 models and builds their column names", () => {
+    assert.deepEqual(SENTIMENT_MODEL_IDS, ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731"]);
+    const deepseek = resolveSentimentModel("deepseek");
+    assert.ok(deepseek, "deepseek should resolve");
+    const cols = sentimentCols(deepseek);
+    assert.equal(cols.polarity, "deepseek_v4_flash_0731_polarite");
+    assert.equal(cols.centrality, "deepseek_v4_flash_0731_centralite_islam_musulmans");
+    assert.equal(cols.subjectivity, "deepseek_v4_flash_0731_subjectivite_score");
+  });
+
+  it("resolves ids, vendor shorthand and raw column prefixes alike", () => {
+    for (const handle of ["gpt-5-6-luna", "GPT_5_6_Luna", " gpt 5 6 luna ", "chatgpt", "openai"]) {
+      assert.equal(resolveSentimentModel(handle)?.id, "gpt-5-6-luna", handle);
+    }
+    assert.equal(resolveSentimentModel("mistral_small_2603")?.id, "mistral-small-2603");
+  });
+
+  // The load-bearing one. A generation-1 id must not quietly land on the same
+  // vendor's generation-2 model: they scored the corpus differently, so the
+  // answer would be right-shaped and wrong.
+  it("refuses retired handles instead of re-pointing them at a successor", () => {
+    for (const retired of ["gpt-5-mini", "gemini-3-flash-preview", "ministral-14b-2512", "gemini", "ministral"]) {
+      assert.equal(resolveSentimentModel(retired), undefined, `${retired} must not resolve`);
+      assert.ok(retiredSentimentModel(retired), `${retired} must explain itself`);
+    }
+    assert.equal(retiredSentimentModel("llama"), undefined); // never a model here, so just unknown
+  });
+
+  it("ranks the subjectivity labels 1-5 and nothing else", () => {
+    assert.deepEqual(SUBJECTIVITY_VALUES.map(subjectivityRank), [1, 2, 3, 4, 5]);
+    assert.equal(subjectivityRank(" Mixte "), 3);
+    for (const bad of ["", "2", "Non abordé", "Très positif"]) assert.equal(subjectivityRank(bad), undefined, bad);
   });
 });
 
