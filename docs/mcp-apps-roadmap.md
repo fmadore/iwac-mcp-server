@@ -267,9 +267,13 @@ Recorded because each of these was a measured finding, not a preference.
    listing exactly that string. `test/app.test.mjs` now pins the server's copy
    to the SDK constant.
 
-4. **Subjectivity is an integer 1–5 rating, not a 0–1 proportion.** A bare mean
-   of 2.12 reads as "21% subjective" to anyone assuming normalisation, so the
-   scale ships with the number and the per-level counts come along.
+4. **Subjectivity is an ordinal label, and never a 0–1 proportion.** It was an
+   integer 1–5 rating under generation 1; generation 2 stores one of five French
+   labels (Très objectif → Très subjectif) while keeping the `…_score` column
+   name, so the name gives no warning that the dtype changed. Either way a bare
+   mean of 2.12 reads as "21% subjective" to anyone assuming normalisation, so
+   the tool returns the label distribution and names its scalars `mean_rank` /
+   `median_rank` — derived by ranking the labels, not stored.
 
 5. **The non-French readability caveat is 9 articles, not ~45.** The ~45
    Ewé/Kabiyè/Dendi figure covers the whole collection; the *articles* subset is
