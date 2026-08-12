@@ -14,6 +14,7 @@ import {
   type Row,
 } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
+import { VIEW_DATA_META_KEY } from "../viewContract.js";
 
 /** The McpServer type, aliased once so tool modules don't repeat the import path. */
 export type Server = import("@modelcontextprotocol/server").McpServer;
@@ -116,6 +117,39 @@ export function structuredResult(payload: unknown): {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(compacted, bigintReplacer) }],
     structuredContent: compacted,
+  };
+}
+
+/**
+ * Like `structuredResult`, but splits the payload in two: what the MODEL reads
+ * and what only the CHART reads.
+ *
+ * The model half goes out as `content` + `structuredContent` exactly as before.
+ * The view half rides in `_meta` under {@link VIEW_DATA_META_KEY}, which MCP
+ * Apps forwards to the iframe untouched but no host puts in the model's
+ * context. `src/app/charts.ts` merges the two back into one flat object before
+ * dispatching to a view, so views are unaware of the split.
+ *
+ * Use this ONLY where the view half is redundant for reasoning (scatter
+ * coordinates, a per-year-per-topic matrix) and the model half still answers
+ * the question on its own. A host with no MCP Apps support renders no chart at
+ * all, so anything moved here is invisible to that user; moving the actual
+ * answer would be a silent regression for them, not an optimisation. See
+ * src/viewContract.ts.
+ */
+export function viewResult(
+  payload: unknown,
+  viewData: Record<string, unknown>,
+): {
+  content: { type: "text"; text: string }[];
+  structuredContent: Record<string, unknown>;
+  _meta: Record<string, unknown>;
+} {
+  const compacted = compactValue(payload) as Record<string, unknown>;
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(compacted, bigintReplacer) }],
+    structuredContent: compacted,
+    _meta: { [VIEW_DATA_META_KEY]: compactValue(viewData) },
   };
 }
 

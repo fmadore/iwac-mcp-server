@@ -20,8 +20,9 @@ import { chips, empty, type BasePayload, type ViewContext, type ViewOptions, typ
 import { esc } from "./theme.js";
 import { setTheme } from "./theme.js";
 import { VIEWS } from "./views/index.js";
+import { VIEW_DATA_META_KEY } from "../viewContract.js";
 
-const app = new App({ name: "IWAC charts", version: "2.0.0" });
+const app = new App({ name: "IWAC charts", version: "3.0.0" });
 const root = document.getElementById("root") as HTMLElement;
 
 /** Last payload rendered, so a failed re-call can fall back to it. */
@@ -40,18 +41,29 @@ let optionsView: string | undefined;
  * Tools ship the same object as `structuredContent` AND as JSON text; prefer
  * the structured half and fall back so the app still works if that changes.
  * Error results carry only the text block, which is why the fallback matters.
+ *
+ * Chart-heavy tools additionally split their payload (see tools/_shared.ts
+ * `viewResult`): the dense series a chart plots but a model cannot read travels
+ * in `_meta` instead of being billed to the conversation. It is merged back in
+ * here, so every view still receives ONE flat payload and none of them needs to
+ * know the split exists. The view half wins on key collision, because it carries the
+ * full series where the model half may hold only a summary of it.
  */
 function readPayload(result: unknown): BasePayload {
   const r = result as {
     structuredContent?: BasePayload;
     content?: { type: string; text?: string }[];
+    _meta?: Record<string, unknown>;
     isError?: boolean;
   };
-  if (r?.structuredContent) return r.structuredContent;
+  const viewData = r?._meta?.[VIEW_DATA_META_KEY] as BasePayload | undefined;
+  const merge = (base: BasePayload): BasePayload => (viewData ? { ...base, ...viewData } : base);
+
+  if (r?.structuredContent) return merge(r.structuredContent);
   const text = r?.content?.find((c) => c.type === "text")?.text;
   if (!text) return { error: "The tool returned no readable result." };
   try {
-    return JSON.parse(text) as BasePayload;
+    return merge(JSON.parse(text) as BasePayload);
   } catch {
     return { error: "The tool result was not valid JSON." };
   }

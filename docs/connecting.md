@@ -94,6 +94,27 @@ synthesis instead of a raw data dump.
 Download `iwac-mcp-skill.zip` from the same release, then in Claude Desktop open
 **Customize → Skills → + → Create skill → Upload a skill** and select the zip.
 
+This is the supported way to add the skill, and the one to use. An installed
+skill is matched against your question automatically, before any tool runs.
+
+<details>
+<summary>Prototype: the server also serves the skill as <code>skill://</code> resources</summary>
+
+Recent builds embed the skill and expose it as MCP resources:
+`skill://iwac-mcp/SKILL.md`, its four `skill://iwac-mcp/references/…` files, and
+a `skill://iwac-mcp` catalogue listing them with SHA-256 digests. A client that
+has not installed the skill can read it from the server instead. Nothing is
+loaded until something asks for it.
+
+**This is a prototype and may change or disappear.** It tracks
+[SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
+a draft proposal that has not been accepted, and it is served through ordinary
+MCP resources because the proposed `skills/*` methods do not exist in any SDK
+yet. Nothing about it is guaranteed between releases. Install the `.zip` above
+and treat this as a fallback, not a feature.
+
+</details>
+
 ### Optional: semantic search
 
 Twenty-seven tools work out of the box. Three extra tools find articles,
@@ -155,6 +176,21 @@ items) and **`fetch`** (read one item in full). The IWAC server provides both,
 returning titles and canonical `islam.zmo.de` links that deep research cites in
 its report. Add the connector as in Option A, then select it as a source when you
 start a deep research run.
+
+### Getting the research workflow without the skill
+
+The `.zip` skill is a Claude Desktop / Claude Code feature; there is nothing to
+install in ChatGPT. Two things carry the same guidance to a connector:
+
+- **Prompts.** The server publishes `iwac_research` and `iwac_overview`, which
+  mirror the skill's workflow. Use these; they are the supported route.
+- **`skill://` resources (prototype).** The server also exposes the skill itself
+  as MCP resources. Whether you can reach them depends on the client's support
+  for reading resources, and the interface is experimental. See the note under
+  [Add the research skill](#2-add-the-research-skill--strongly-recommended).
+
+Failing both, asking for "a cited synthesis, searching in French" gets you most
+of the way.
 
 ---
 

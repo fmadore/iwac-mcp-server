@@ -85,6 +85,11 @@ const INSTRUCTIONS =
   "TRANSLITERATION: Arabic-Islamic terms appear in FRENCH transliteration — search the French " +
   "form and try variants: Tabaski or Aïd el-Kébir (not 'Eid al-Adha'); Korité or Aïd el-Fitr; " +
   "Maouloud/Mouloud (not 'Mawlid'); charia (not 'sharia'); confrérie; Wahhabisme.\n\n" +
+  "RESEARCH WORKFLOW: this server also serves its own operating manual as a resource. If you do not " +
+  "already have the `iwac-mcp` skill loaded, read `skill://iwac-mcp/SKILL.md` before a substantial " +
+  "research task. It carries the five-phase method, French search strategy and reporting " +
+  "conventions these tools assume. Its reference files (`skill://iwac-mcp/references/…`, listed in " +
+  "`skill://iwac-mcp`) are meant to be read on demand, not upfront.\n\n" +
   "CITATIONS: every result has a `url` field such as " +
   "https://islam.zmo.de/s/afrique_ouest/item/28576 — always cite IWAC items using this full " +
   'URL (rendered as a markdown link), never a short form like "art. #28576" or "item 28576".\n\n' +

@@ -592,14 +592,38 @@ await call("get_topic_distribution", {}, {
     return null;
   },
 });
+// over_time splits its answer: the model gets each band's SHAPE, the chart gets
+// the per-year matrix through `_meta` (src/viewContract.ts). Both halves are
+// checked here, because a split that dropped the series on the floor would otherwise
+// look like a pass, since the model half alone still parses.
 await call("get_topic_distribution", { over_time: true, top_n: 1 }, {
-  check: (p) => {
-    if (!p.periods?.length) return "over_time returned no periods";
-    const bands = Object.keys(p.series_by_topic ?? {});
+  check: (p, _body, res) => {
+    if (p.periods || p.series_by_topic) return "the raw per-year series must not be in the model's half";
+    if (!p.span?.length) return "over_time returned no span";
+    const trend = p.trend_by_topic ?? {};
+    if (!Object.keys(trend).length) return "over_time returned no per-topic trend summary";
+    for (const [label, t] of Object.entries(trend)) {
+      if (!t.peak_year || !t.first || !t.last) return `trend for '${label}' is missing first/last/peak`;
+      if (t.first > t.peak_year || t.peak_year > t.last) return `trend for '${label}' has peak outside [first,last]`;
+      if (t.median_year < t.first || t.median_year > t.last) return `trend for '${label}' has median outside its span`;
+    }
+
+    const view = res._meta?.["islam.zmo.de/viewData"];
+    if (!view) return "no view data in _meta, so the chart would have nothing to plot";
+    if (!view.periods?.length) return "view half carries no periods";
+    const bands = Object.keys(view.series_by_topic ?? {});
     if (!bands.includes("(other topics)")) return `top_n=1 should fold the rest into one band, got ${bands}`;
     // The bands must still total the classified count, or the area chart lies.
-    const summed = bands.reduce((a, b) => a + Object.values(p.series_by_topic[b]).reduce((x, y) => x + y, 0), 0);
+    const summed = bands.reduce((a, b) => a + Object.values(view.series_by_topic[b]).reduce((x, y) => x + y, 0), 0);
     if (summed !== p.classified) return `bands sum to ${summed}, classified is ${p.classified}`;
+    // The summary must describe the series it replaced, not drift from it.
+    for (const [label, t] of Object.entries(trend)) {
+      const byYear = view.series_by_topic[label];
+      if (!byYear) return `trend summarises '${label}', absent from the series`;
+      const realTotal = Object.values(byYear).reduce((a, b) => a + b, 0);
+      if (t.total !== realTotal) return `trend total for '${label}' is ${t.total}, series sums to ${realTotal}`;
+      if (byYear[t.peak_year] !== t.peak_count) return `trend peak for '${label}' does not match the series`;
+    }
     return null;
   },
 });
@@ -658,12 +682,25 @@ await call("get_cooccurrence", { field: "subject", top_n: 3 }, {
   },
 });
 
+// The point cloud is chart-only data: a 2-D PCA coordinate is an artefact of
+// this projection, not a fact the model can reason from, so it travels in
+// `_meta` and the model gets per-group counts instead.
 await call("get_semantic_map", { color_by: "country" }, {
   structured: true,
-  check: (p) => {
+  check: (p, _body, res) => {
     if (p.projected !== 6) return `expected all 6 fixture articles projected, got ${p.projected}`;
-    if (!p.points?.every((x) => Number.isFinite(x.x) && Number.isFinite(x.y))) return "a point has no finite coordinates";
-    if (!p.points.every((x) => x.group)) return "color_by=country did not populate group";
+    if (p.points) return "coordinates must not be in the model's half";
+    const points = res._meta?.["islam.zmo.de/viewData"]?.points;
+    if (!points?.length) return "no points in _meta, so the chart would render an empty scatter";
+    if (points.length !== p.projected) return `_meta has ${points.length} points, projected says ${p.projected}`;
+    if (!points.every((x) => Number.isFinite(x.x) && Number.isFinite(x.y))) return "a point has no finite coordinates";
+    if (!points.every((x) => x.group)) return "color_by=country did not populate group";
+    // The group counts the model is given must describe the cloud it replaced.
+    const tally = {};
+    for (const x of points) tally[x.group] = (tally[x.group] ?? 0) + 1;
+    if (JSON.stringify(p.groups) !== JSON.stringify(tally)) {
+      return `groups ${JSON.stringify(p.groups)} does not match the plotted points ${JSON.stringify(tally)}`;
+    }
     const [a, b] = p.explained_variance ?? [];
     if (!(a > 0 && b >= 0 && a + b <= 1.0001)) return `explained_variance ${p.explained_variance} is not a share`;
     if (a < b) return "components should be ordered by variance";
@@ -679,9 +716,10 @@ await call("get_semantic_map", { color_by: "country" }, {
 for (const value of ["polarity", "gpt_5_6_luna_polarite"]) {
   await call("get_semantic_map", { color_by: value }, {
     structured: true,
-    check: (p) => {
+    check: (p, _body, res) => {
       if (p.color_by !== "polarity") return `color_by=${value} should echo "polarity", got ${p.color_by}`;
-      if (!p.points?.every((x) => x.group)) return `color_by=${value} did not populate group`;
+      const points = res._meta?.["islam.zmo.de/viewData"]?.points;
+      if (!points?.every((x) => x.group)) return `color_by=${value} did not populate group`;
       return null;
     },
   });

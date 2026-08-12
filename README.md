@@ -75,6 +75,40 @@ Download `iwac-mcp-skill.zip` from the same release, then:
   truth is `.agents/skills/iwac-mcp/`; keep project-local copies there rather
   than duplicating the same skill under `.claude/`.
 
+  Installing it this way is still worth doing: an installed skill is matched
+  against your question automatically, before any tool is called.
+
+#### The server also serves the skill (`skill://`, prototype)
+
+> **Prototype.** This is an experiment tracking a draft spec, not a supported
+> interface. The URIs and the catalogue shape may change or be withdrawn
+> without a major version bump. Installing the skill from the `.zip` above is
+> still the supported path on Claude Desktop and Claude Code. Do not rely on
+> `skill://` in anything you build.
+
+Every build also embeds the skill and exposes it as MCP resources, so a client
+that has not installed it can still read it:
+
+| Resource | What it is |
+| --- | --- |
+| `skill://iwac-mcp` | Catalogue: every file with its size and SHA-256 digest |
+| `skill://iwac-mcp/SKILL.md` | The workflow itself |
+| `skill://iwac-mcp/references/…` | The four reference files, read on demand |
+
+This matters most for the remote HTTP endpoint, where there is no release
+artifact to download: add the connector and the manual comes with it. The
+server's handshake instructions point at `skill://iwac-mcp/SKILL.md`, and
+nothing is pushed into the context until something asks for it.
+
+The shape follows [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)
+("Skills over MCP"), **an open draft PR against the MCP spec: not accepted, and
+subject to change**. Its `skills/list` / `skills/get` methods do not exist in
+`@modelcontextprotocol/server` 2.0.0, so rather than hand-roll methods no client
+calls, the same catalogue is served through plain `resources/list` +
+`resources/read`, which every current client already speaks. If the SEP lands,
+the real methods become a thin adapter over this data and the URIs stay put; if
+it changes shape or is rejected, this moves with it.
+
 ## What it gives Claude
 
 37 possible read-only tools across seven IWAC subsets. **34 work out of the
@@ -193,7 +227,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 2.0.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 3.0.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -201,7 +235,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {2.0.0},
+  version   = {3.0.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

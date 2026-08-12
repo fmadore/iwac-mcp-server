@@ -39,7 +39,7 @@ npm run install-bindings                    # fetch the 4 macOS/Windows binaries
 npm run typecheck                           # tsc --noEmit (type safety)
 npm run lint                                # biome (linter only, no formatting)
 npm run build                               # esbuild -> server/index.js (single file)
-npm test                                    # unit + offline fixture + HTTP round-trips + token budget
+npm test                                    # unit + fixture + app + skills + HTTP round-trips + token budget
 npm run test:live                           # full smoke test against the real dataset
 npm run test:tokens -- --update             # re-baseline the token budget after an intended change
 ```
@@ -64,7 +64,9 @@ npm run test:tokens -- --update             # re-baseline the token budget after
 `test/fixture-server.test.mjs` spawns the built server over stdio against
 synthetic parquet fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1`,
 `test/http-server.test.mjs` does the same over the `--http` transport
-(bearer auth, /health, body cap, a real Streamable-HTTP MCP call), and
+(bearer auth, /health, body cap, a real Streamable-HTTP MCP call),
+`test/skills.test.mjs` reads every `skill://` resource back off the wire and
+compares it byte-for-byte against the file on disk, and
 `test/token-budget.test.mjs` gates what the server costs a model — no network,
 runs in seconds. `npm run test:live` (smoke-test.mjs) exercises every tool
 against the real Hugging Face dataset; its pinned counts double as a
@@ -185,7 +187,9 @@ Environment variables (all transports unless noted):
 | `node_modules/`              | Runtime externals: `@duckdb/*` + `@google/genai`|
 | `Dockerfile`                 | GHCR image for the remote HTTP deployment       |
 | `biome.json`                 | Lint configuration (`npm run lint`)             |
+| `src/viewContract.ts`        | The one constant shared by the server and app bundles |
 | `scripts/bundle.mjs`         | esbuild config (single-file bundle)             |
+| `scripts/collect-skills.mjs` | Collect `.agents/skills/` for the `skill://` resources |
 | `scripts/duckdb-bindings.mjs`| Shared helper: fetch/extract platform bindings  |
 | `scripts/install-duckdb-bindings.mjs` | Fetch the 4 macOS/Windows bindings     |
 | `scripts/pack-platforms.mjs` | Build one `.mcpb` per OS (Windows, macOS)       |
@@ -261,6 +265,48 @@ Environment variables (all transports unless noted):
   the real postMessage handshake, so the payload shapes, the CSP rules, the size
   budget and the interactive round trip are all covered without a browser.
   The plan this grew from is [`../docs/mcp-apps-roadmap.md`](../docs/mcp-apps-roadmap.md).
+- Model/view payload split: a chart's data and a model's data are not the same
+  data. MCP Apps hands the view the whole `CallToolResult`, `_meta` included,
+  while the model reads only `content` and `structuredContent`, so data a chart
+  needs but a model cannot use can ride in `_meta` instead of being billed to
+  every conversation. `viewResult()` in `src/tools/_shared.ts` performs the
+  split under the key in `src/viewContract.ts` (the only module both bundles
+  import); `readPayload()` in `src/app/charts.ts` merges it back, so no view
+  knows the difference. Measured on the real dataset,
+  `get_semantic_map(color_by="country")` went from **13,490 to 172 tokens** and
+  `get_topic_distribution(over_time, top_n=15)` from 5,983 to 2,218.
+
+  The rule is that only data which is *redundant for reasoning* may move: a host
+  without MCP Apps draws no chart, so anything in `_meta` is invisible to that
+  user, and moving the answer there would be a silent regression rather than an
+  optimisation. The model therefore gains a summary computed from what it lost
+  (`trend_by_topic`, `groups`), and `test/fixture-server.test.mjs` asserts the
+  summary matches the series it replaced. This is also why only two tools do it:
+  `get_temporal_distribution` spends 99% of its payload on `distribution` and
+  `get_field_distribution` 79% on `values`, but there the dense field *is* the
+  answer. See [`../docs/mcp-apps-roadmap.md`](../docs/mcp-apps-roadmap.md) §2.4.
+- Skills over MCP (**prototype**): `scripts/collect-skills.mjs` walks
+  `../.agents/skills/` at build time (parsing each `SKILL.md` frontmatter,
+  hashing every file, deriving a one-line summary from each document's own lede),
+  and `scripts/bundle.mjs` inlines the tree as `__IWAC_SKILLS__` (92 kb), under
+  the same single-file constraint as the chart HTML.
+  `src/tools/skills.ts` then registers `skill://iwac-mcp` (a catalogue with
+  SHA-256 digests) plus one resource per file. The point is the remote HTTP
+  endpoint, where there is no release artifact to download.
+
+  This tracks [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
+  **an open draft PR against the spec, not an accepted extension**. Its
+  `skills/list` / `skills/get` methods and the
+  `io.modelcontextprotocol/skills` capability do not exist in
+  `@modelcontextprotocol/server` 2.0.0, so rather than hand-roll methods no
+  client calls, the catalogue is served through plain `resources/list` +
+  `resources/read`. Treat the URIs as unstable: if the SEP lands, the real
+  methods become a thin adapter over this same data; if it changes or is
+  rejected, this follows. The `.zip` on the GitHub release remains the supported
+  way to install the skill. Nothing is injected into instructions or tool
+  descriptions. Resources are pull-only, which is the SEP's own position that
+  the host decides when to disclose. Discovery costs one paragraph in
+  `INSTRUCTIONS` (+105 always-on tokens).
 - Prompts: `iwac_research` (brief/extended) and `iwac_overview` in
   `src/prompts.ts` carry the skill's workflow to clients that cannot install the
   skill (ChatGPT via the remote connector). They mirror

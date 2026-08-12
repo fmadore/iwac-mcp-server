@@ -1,7 +1,7 @@
 {
   "tokenizer": "o200k_base",
-  "footprint": 14298,
-  "instructions": 1407,
+  "footprint": 14469,
+  "instructions": 1512,
   "tools": {
     "search": 629,
     "fetch": 350,
@@ -18,11 +18,11 @@
     "get_newspaper_stats": 237,
     "get_country_comparison": 205,
     "get_temporal_distribution": 822,
-    "get_topic_distribution": 650,
+    "get_topic_distribution": 696,
     "get_field_distribution": 631,
     "get_cooccurrence": 551,
     "get_place_distribution": 577,
-    "get_semantic_map": 687,
+    "get_semantic_map": 707,
     "get_similar_items": 452,
     "get_lexical_metrics": 594,
     "search_publications": 465,

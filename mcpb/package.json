@@ -1,6 +1,6 @@
 {
   "name": "iwac-mcp-server-bundle",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Node MCP server for the Islam West Africa Collection, packaged as a Claude Desktop extension (.mcpb).",
   "private": true,
   "type": "module",
@@ -40,7 +40,7 @@
     "start": "node server/index.js",
     "start:http": "node server/index.js --http",
     "clean": "rimraf server",
-    "test": "npm run test:unit && npm run test:fixture && npm run test:app && npm run test:http && npm run test:tokens",
+    "test": "npm run test:unit && npm run test:fixture && npm run test:app && npm run test:skills && npm run test:http && npm run test:tokens",
     "test:unit": "tsx --test test/unit.test.ts test/hf-cache.test.ts",
     "test:fixture": "node scripts/make-fixtures.mjs && node test/fixture-server.test.mjs",
     "test:http": "node scripts/make-fixtures.mjs && node test/http-server.test.mjs",
@@ -53,6 +53,7 @@
     "pack-skill": "git -C .. archive --format=zip --prefix=iwac-mcp/ -o iwac-mcp-skill.zip HEAD:.agents/skills/iwac-mcp",
     "make-server-json": "node scripts/make-server-json.mjs",
     "test:app": "node scripts/make-fixtures.mjs && node test/app.test.mjs",
+    "test:skills": "node scripts/make-fixtures.mjs && node test/skills.test.mjs",
     "test:tokens": "node scripts/make-fixtures.mjs && node scripts/make-stress-fixtures.mjs && node test/token-budget.test.mjs"
   },
   "dependencies": {

@@ -145,6 +145,40 @@
     response ceiling at `limit=100`. Neither is wrong — the caller asked — but
     they are the two that a wider row would push over.
 
+- [x] **Split chart data from model data** (done). A tool that draws a chart
+  answers two audiences, and MCP Apps forwards `_meta` to the view while the
+  model reads only `content` / `structuredContent`, so the series can ride in
+  `_meta`. `get_semantic_map(color_by)` fell from **13 490 to 172 tokens** and
+  `get_topic_distribution(over_time, top_n=15)` from 5 983 to 2 218, for +171
+  always-on. Only data that is *redundant for reasoning* moves: the model gains
+  a summary computed from what it lost, asserted against the series in
+  `test/fixture-server.test.mjs`. Deliberately **not** applied to
+  `get_temporal_distribution` or `get_field_distribution`, whose dense field is
+  the answer: density is not the criterion, redundancy is. See
+  `docs/mcp-apps-roadmap.md` §2.4.
+
+- [ ] **Decide the fate of the `skill://` prototype.** The skill is embedded at
+  build time (`scripts/collect-skills.mjs`) and served as resources
+  (`src/tools/skills.ts`), so remote-HTTP callers get the research workflow with
+  no separate download. It follows
+  [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
+  **an open draft PR** whose `skills/list` / `skills/get` methods and
+  `io.modelcontextprotocol/skills` capability exist in no SDK, so the catalogue
+  rides on plain `resources/*` instead. Flagged as a prototype in the README,
+  `docs/connecting.md` and `mcpb/README.md`; the `.zip` stays the supported
+  install. Revisit when the SEP resolves:
+
+  - If **accepted**, add the real methods as an adapter over the same catalogue
+    (the URIs and digests are already in the SEP's shape) and drop the prototype
+    warnings. Check whether the SDK ships `registerSkill` first.
+  - If **changed**, the collector is the only thing that needs to move; the URI
+    scheme and the catalogue live in one file each.
+  - If **rejected**, decide whether serving the skill as plain resources is
+    worth keeping on its own merits. It probably is, for the remote endpoint,
+    but then it should be documented as ours rather than as a spec preview.
+  - Either way, note the skill is a **build-time snapshot**: editing
+    `.agents/skills/` needs a rebuild to reach clients over MCP.
+
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 
 > Governing rule: all AI enrichment is precomputed offline as HF columns and

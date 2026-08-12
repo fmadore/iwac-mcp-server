@@ -236,8 +236,9 @@ Aggregated AI sentiment counts.
 ### get_topic_distribution *(v0.13.0)*
 How a set spreads across the 30 precomputed LDA topics (12,234 of 12,287 articles are classified), each labelled by its top terms. Topics were assigned offline over the full text, so they describe what a piece is **about** rather than which words it contains — the fastest way to map an unfamiliar corpus without keyword guessing.
 - `subset` (optional): articles (default) | references (references have their own 33-topic model)
-- filter block; `min_prob` (0-1; mean assignment probability is 0.34, so 0.5 is already strong); `over_time` (per-year counts for the leading topics); `top_n` (bands in `over_time`, default 8)
+- filter block; `min_prob` (0-1; mean assignment probability is 0.34, so 0.5 is already strong); `over_time` (adds the time dimension); `top_n` (bands in `over_time`, default 8)
 - Returns `topics` (label, count, `avg_prob`) sorted by count, and `classified` vs `total_matches` — unclassified items are disclosed, not hidden
+- `over_time` returns `trend_by_topic` (per band: `total`, `first`, `last`, `peak_year`, `peak_count`, `median_year`) plus the overall `span`. That is the trend **summarised**; the full per-year series goes to the chart, not to you. `median_year` is the year by which half the band's coverage had appeared, which is what separates a topic that faded from one that is new. For an actual year-by-year table, call `get_temporal_distribution` with a `subject` or `keyword` filter.
 
 ### get_field_distribution *(v0.13.0)*
 Rank the values of one multi-valued field across a set. One tool for four questions: which places this coverage names, who signs it, what subjects dominate, what languages appear.
@@ -279,7 +280,8 @@ A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. 
 - `subset` (optional); filter block; `color_by` (country | newspaper | subject | lda_topic_label | polarity — `gpt-5-6-luna`'s label); `limit` (default 300, max 2000)
 - **Read `explained_variance` before concluding anything.** Two components carry ~18% of the variance for an unfiltered article set, ~25% for a filtered one — so items drawn close together are not necessarily similar. Report it as a rough spread, not as clusters.
 - This is PCA, not UMAP: it preserves global spread rather than local neighbourhoods, and is not comparable to the semantic landscapes on islam.zmo.de.
-- The payload scales with `limit`; keep it low unless a chart will be drawn.
+- **You do not receive the point coordinates.** They are chart data, because a 2-D PCA position is an artefact of this projection rather than a fact about the item, so they go to the view and you get `projected`, `explained_variance` and, with `color_by`, per-group counts in `groups`. Never cite an item from this map; find it through `search` or `get_similar_items` instead.
+- Because of that the payload no longer scales with `limit`, so a large `limit` is now cheap for you and only costs the chart. `get_similar_items` remains the tool for "what is near this item".
 
 ---
 

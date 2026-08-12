@@ -14,6 +14,7 @@ import * as esbuild from "esbuild";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { collectSkills } from "./collect-skills.mjs";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
@@ -164,6 +165,22 @@ button:disabled{opacity:.6;cursor:default}
 // budget; this line is so the number is visible while iterating.
 console.log(`  ui resource   ${(Buffer.byteLength(uiHtml) / 1024).toFixed(1)}kb`);
 
+// --- Agent Skills ----------------------------------------------------------
+// The repo's skill tree, inlined as `skill://` resources (see src/tools/skills.ts
+// for why it is served from the server at all). Same single-file constraint as
+// the UI above: a .mcpb has no sibling assets to read at runtime.
+//
+// This is content, not code, so esbuild's output summary would hide it exactly
+// as it hides the UI string. Report it for the same reason: a new reference
+// file is one `git add` away from doubling it.
+const skills = collectSkills(rootDir);
+const skillsJson = JSON.stringify(skills);
+for (const skill of skills.skills) {
+  const kb = skill.files.reduce((a, f) => a + f.bytes, 0) / 1024;
+  console.log(`  skill         ${skill.name}: ${skill.files.length} files, ${kb.toFixed(1)}kb`);
+}
+if (skills.skills.length === 0) console.log("  skill         (none found, skill:// resources will be absent)");
+
 await esbuild.build({
   absWorkingDir: rootDir,
   entryPoints: [join(rootDir, "src", "index.ts")],
@@ -187,6 +204,7 @@ await esbuild.build({
   define: {
     __IWAC_VERSION__: JSON.stringify(pkg.version),
     __IWAC_UI_CHARTS__: JSON.stringify(uiHtml),
+    __IWAC_SKILLS__: JSON.stringify(skillsJson),
   },
   logLevel: "info",
 });

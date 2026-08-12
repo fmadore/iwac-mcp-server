@@ -110,6 +110,50 @@ So: **any aggregate expressible as SQL is cheap here**. Anything needing an
 offline layout over the whole corpus is not portable. Implementation narrowed
 that line usefully — see §8.
 
+### 2.4 A chart's data and a model's data are not the same data
+
+A tool that draws a chart answers two audiences at once, and they want different
+things. The chart needs every cell of the series. The model needs the claim the
+series supports, and cannot use raw coordinates at all: a 2-D PCA position is an
+artefact of the projection, not a fact about the item.
+
+Sending one payload to both meant the model paid for the chart. Measured against
+the real dataset, `get_semantic_map(color_by="country")` cost **13,490 tokens, of
+which 13,318 were point coordinates**, data no model can reason from, billed to
+every conversation that asked for the map.
+
+MCP Apps makes the split available: the spec types the tool-result notification's
+params as a whole `CallToolResult`, so the view receives `_meta` too, while the
+model reads only `content` and `structuredContent`. `viewResult()` in
+`tools/_shared.ts` puts the series under `islam.zmo.de/viewData` in `_meta`;
+`readPayload()` in `app/charts.ts` merges it back, so no view knows the
+difference. The key is defined once in `src/viewContract.ts`, the only module
+both bundles import.
+
+Measured, same build, before → after:
+
+| Call | Before | After | |
+|---|---:|---:|---|
+| `get_semantic_map(color_by="country")` | 13,490 | 172 | −99% |
+| `get_semantic_map()` | 11,688 | 154 | −99% |
+| `get_topic_distribution(over_time, top_n=15)` | 5,983 | 2,218 | −63% |
+| `get_topic_distribution(over_time)` | 4,186 | 1,847 | −56% |
+| `get_topic_distribution()` | 1,270 | 1,270 | unchanged |
+
+**The rule this follows, and its limit.** Only data that is *redundant for
+reasoning* may move. A host without MCP Apps renders no chart, so whatever goes
+into `_meta` is invisible to that user. Moving the actual answer there would be
+a silent regression for them, not an optimisation. So the model does not simply
+lose the series: it gains a summary computed from it. `get_topic_distribution`
+returns `trend_by_topic` (first/last/peak/median year per band), which answers
+"when did this peak" better than 65 raw cells would, and the fixture test asserts
+the summary matches the series it replaced.
+
+This is why the split does **not** generalise to the other chart tools.
+`get_temporal_distribution` spends 99% of its payload on `distribution`, and
+`get_field_distribution` 79% on `values`, but in both, that field *is* the
+answer. Density is not the criterion; redundancy is.
+
 ---
 
 ## 3. Data inventory

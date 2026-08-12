@@ -30,6 +30,7 @@ import {
   rowsToMap,
   sentimentCols,
   structuredResult,
+  viewResult,
   TEXT_COLS,
   TITLE_COL,
   toolMeta,
@@ -110,6 +111,11 @@ const TOPIC_OUTPUT = z.object({
   total_matches: z.number(),
   classified: z.number(),
   topics: z.array(z.looseObject({})),
+  // over_time only. The model gets the SHAPE of each band's series; the series
+  // itself rides in `_meta` for the chart (see `viewResult`), so `periods` /
+  // `series_by_topic` are absent from the model's copy.
+  span: z.array(z.string()).optional(),
+  trend_by_topic: z.record(z.string(), z.looseObject({})).optional(),
   periods: z.array(z.string()).optional(),
   series_by_topic: z.record(z.string(), z.record(z.string(), z.number())).optional(),
   note: z.string().optional(),
@@ -162,7 +168,11 @@ const SEMANTIC_MAP_OUTPUT = z.object({
   projected: z.number(),
   color_by: z.string().optional(),
   explained_variance: z.array(z.number()),
-  points: z.array(z.looseObject({})),
+  // Per-group counts, when color_by is set: the part of a scatter plot a model
+  // can actually reason about. The coordinates themselves ride in `_meta` (see
+  // `viewResult`), so `points` is absent from the model's copy.
+  groups: z.record(z.string(), z.number()).optional(),
+  points: z.array(z.looseObject({})).optional(),
   note: z.string(),
 });
 
@@ -353,6 +363,9 @@ export function registerAggregateTools(server: Server): void {
         })),
       };
 
+      // Set only when over_time produced a series: the chart's copy of it.
+      let viewOnly: Record<string, unknown> | null = null;
+
       if (args.over_time && schema.has("pub_date")) {
         const topN = Math.max(1, Math.min(15, args.top_n ?? 8));
         const leading = rows.slice(0, topN).map((r) => String(r.label));
@@ -377,13 +390,50 @@ export function registerAggregateTools(server: Server): void {
           series[key] ??= {};
           series[key][bucket] = (series[key][bucket] ?? 0) + Number(r.c);
         }
-        payload.periods = [...periods].sort();
-        payload.series_by_topic = series;
+        const sortedPeriods = [...periods].sort();
+        // The full matrix is bands × years, 16 × 65 cells on the unfiltered
+        // corpus and ~4.4k tokens, and it exists to be DRAWN. What a model can use
+        // from a trend is its shape, so it gets that instead: when each band
+        // peaks, and where its mass sits. Reading 65 raw cells to find the
+        // maximum is work the server can do once, exactly.
+        const shape: Record<string, unknown> = {};
+        for (const [label, byYear] of Object.entries(series)) {
+          const years = Object.keys(byYear).sort();
+          if (!years.length) continue;
+          let peak = years[0];
+          for (const y of years) if (byYear[y] > byYear[peak]) peak = y;
+          const totalForBand = years.reduce((a, y) => a + byYear[y], 0);
+          // Median year by cumulative count: says "half this topic's coverage
+          // predates X", which separates a topic that faded from one that is new.
+          let running = 0;
+          let median = years[0];
+          for (const y of years) {
+            running += byYear[y];
+            if (running >= totalForBand / 2) {
+              median = y;
+              break;
+            }
+          }
+          shape[label] = {
+            total: totalForBand,
+            first: years[0],
+            last: years[years.length - 1],
+            peak_year: peak,
+            peak_count: byYear[peak],
+            median_year: median,
+          };
+        }
+        payload.span = sortedPeriods.length ? [sortedPeriods[0], sortedPeriods[sortedPeriods.length - 1]] : [];
+        payload.trend_by_topic = shape;
+        payload.note =
+          `Per-topic trends are summarised (first/last/peak/median year); the full per-year series is rendered ` +
+          `in the chart. Call get_temporal_distribution with a subject or keyword filter for a year-by-year table.`;
         if (rows.length > topN) {
           payload.note =
             `Over-time bands cover the ${topN} largest topics; the remaining ${rows.length - topN} are summed ` +
-            `into "${OTHER}" so the bands still total the classified count.`;
+            `into "${OTHER}" so the bands still total the classified count. ${payload.note}`;
         }
+        viewOnly = { periods: sortedPeriods, series_by_topic: series };
       }
 
       if (classified < total) {
@@ -393,7 +443,7 @@ export function registerAggregateTools(server: Server): void {
           ` and are not in the distribution.` +
           (payload.note ? ` ${payload.note}` : "");
       }
-      return structuredResult(payload);
+      return viewOnly ? viewResult(payload, viewOnly) : structuredResult(payload);
     },
   );
 
@@ -847,25 +897,46 @@ export function registerAggregateTools(server: Server): void {
       // show, and it keeps a 500-point payload from tripling in size.
       const round = (v: number): number => Math.round(v * 1e4) / 1e4;
 
-      return structuredResult({
-        view: VIEW.semanticMap,
-        subset,
-        filters: echo,
-        total_matches: total,
-        projected: kept.length,
-        ...(colorBy ? { color_by: colorBy } : {}),
-        explained_variance: [round(explained[0]), round(explained[1])],
-        points: kept.map((k, i) => ({ ...k, x: round(points[i][0]), y: round(points[i][1]) })),
-        note:
-          `PCA over ${dim}-dimension embeddings, capturing ` +
-          `${Math.round((explained[0] + explained[1]) * 100)}% of the variance in these two axes. ` +
-          `PCA preserves global spread, not local neighbourhoods, so this is NOT the UMAP semantic landscape ` +
-          `published on islam.zmo.de and will not look like it. ` +
-          (total > kept.length
-            ? `${total - kept.length} of ${total} matching items are not plotted — an item is embedded only if ` +
-              `its full text ships in this public dataset.`
-            : ""),
-      });
+      const plotted = kept.map((k, i) => ({ ...k, x: round(points[i][0]), y: round(points[i][1]) }));
+
+      // Per-group counts stand in for the point cloud in the model's copy. A
+      // 2-D PCA coordinate is not a fact a model can reason from: it is an
+      // artefact of this projection, and the note already says the axes are not
+      // the published UMAP landscape. How many items fall in each group IS a
+      // fact, and it is the question a reader of the map would ask.
+      const groups: Record<string, number> = {};
+      if (colorBy) {
+        for (const p of plotted) {
+          const g = String((p as { group?: string }).group ?? "");
+          if (g) groups[g] = (groups[g] ?? 0) + 1;
+        }
+      }
+
+      // The coordinates go to the chart only: ~11.5k tokens of the ~11.7k this
+      // tool used to spend, for data the model cannot read. See viewResult.
+      return viewResult(
+        {
+          view: VIEW.semanticMap,
+          subset,
+          filters: echo,
+          total_matches: total,
+          projected: kept.length,
+          ...(colorBy ? { color_by: colorBy, groups } : {}),
+          explained_variance: [round(explained[0]), round(explained[1])],
+          note:
+            `PCA over ${dim}-dimension embeddings, capturing ` +
+            `${Math.round((explained[0] + explained[1]) * 100)}% of the variance in these two axes. ` +
+            `PCA preserves global spread, not local neighbourhoods, so this is NOT the UMAP semantic landscape ` +
+            `published on islam.zmo.de and will not look like it. ` +
+            `The ${kept.length} plotted points are rendered in the chart; their coordinates are not repeated here, ` +
+            `so cite items from search results rather than from this map. ` +
+            (total > kept.length
+              ? `${total - kept.length} of ${total} matching items are not plotted — an item is embedded only if ` +
+                `its full text ships in this public dataset.`
+              : ""),
+        },
+        { points: plotted },
+      );
     },
   );
 
