@@ -119,8 +119,8 @@ function summarise(text) {
 /**
  * Build the catalogue of every skill under `rootDir`/`SKILLS_DIR`.
  *
- * Returns `{ skills: [{ name, description, entry, files: [...] }] }`, where each
- * file carries `{ uri, path, mimeType, bytes, digest, text }`. `text` is the
+ * Returns `{ skills: [{ name, description, frontmatter, entry, files: [...] }] }`,
+ * where each file carries `{ uri, path, mimeType, bytes, digest, text }`. `text` is the
  * file content; the server bundle inlines it, because a `.mcpb` ships a
  * single-file server with no sibling assets to read at runtime (the same
  * constraint that forces the chart HTML inline; see scripts/bundle.mjs).
@@ -175,6 +175,13 @@ export function collectSkills(rootDir) {
     skills.push({
       name: front.name,
       description: front.description,
+      // The WHOLE parsed frontmatter, not just the two required keys. A host
+      // verifying a SEP-2640 `skills/list` entry re-reads SKILL.md and compares
+      // frontmatter field by field; reporting a subset would read as a
+      // discrepancy the moment anyone adds a `license:` or `compatibility:`
+      // line. `name`/`description` stay hoisted because the catalogue document
+      // and the instructions block index on them.
+      frontmatter: front,
       entry: `skill://${front.name}/SKILL.md`,
       files,
     });

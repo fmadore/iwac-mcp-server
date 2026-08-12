@@ -291,17 +291,21 @@ Environment variables (all transports unless noted):
   and `scripts/bundle.mjs` inlines the tree as `__IWAC_SKILLS__` (92 kb), under
   the same single-file constraint as the chart HTML.
   `src/tools/skills.ts` then registers `skill://iwac-mcp` (a catalogue with
-  SHA-256 digests) plus one resource per file. The point is the remote HTTP
-  endpoint, where there is no release artifact to download.
+  SHA-256 digests) plus one resource per file, and serves the extension's
+  `skills/list` / `skills/get` over that same catalogue. The point is the remote
+  HTTP endpoint, where there is no release artifact to download.
 
   This tracks [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
-  **an open draft PR against the spec, not an accepted extension**. Its
-  `skills/list` / `skills/get` methods and the
-  `io.modelcontextprotocol/skills` capability do not exist in
-  `@modelcontextprotocol/server` 2.0.0, so rather than hand-roll methods no
-  client calls, the catalogue is served through plain `resources/list` +
-  `resources/read`. Treat the URIs as unstable: if the SEP lands, the real
-  methods become a thin adapter over this same data; if it changes or is
+  **an open draft PR against the spec, not an accepted extension**. The SDK has
+  no dedicated support — there is no `registerSkill` and no skills capability —
+  but `ServerCapabilities` models `extensions` as a generic record and
+  `setRequestHandler` takes arbitrary method names, so the two mandatory methods
+  are a thin, type-safe adapter over data the collector already produced. What is
+  *not* served is the optional `resources/directory/read`: its root would be the
+  bare `skill://iwac-mcp`, which is already the catalogue document, and one URI
+  cannot be both `application/json` and `inode/directory`. The capability is
+  declared as `{}` accordingly, which forbids a conformant host from calling it.
+  Treat the URIs as unstable: if the SEP changes or is
   rejected, this follows. The `.zip` on the GitHub release remains the supported
   way to install the skill. Nothing is injected into instructions or tool
   descriptions. Resources are pull-only, which is the SEP's own position that

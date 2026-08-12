@@ -2,6 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { registerTools } from "./tools/register.js";
+import { SKILLS_CAPABILITY, servesSkills } from "./tools/skills.js";
 import { registerPrompts } from "./prompts.js";
 import { startHttpServer } from "./http.js";
 import { config } from "./config.js";
@@ -143,7 +144,14 @@ const CACHE_HINTS = {
 export function createServer(): McpServer {
   const server = new McpServer(
     { name: "iwac-mcp-server", version: VERSION },
-    { instructions: buildInstructions(), cacheHints: CACHE_HINTS },
+    {
+      instructions: buildInstructions(),
+      cacheHints: CACHE_HINTS,
+      // Draft SEP-2640, declared only when this build actually carries a skill,
+      // so a host never negotiates the extension against an empty catalogue.
+      // Merges with the tools/resources capabilities McpServer derives.
+      ...(servesSkills() ? { capabilities: { extensions: SKILLS_CAPABILITY } } : {}),
+    },
   );
   registerTools(server);
   registerPrompts(server);

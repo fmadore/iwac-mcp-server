@@ -158,24 +158,40 @@
   `docs/mcp-apps-roadmap.md` §2.4.
 
 - [ ] **Decide the fate of the `skill://` prototype.** The skill is embedded at
-  build time (`scripts/collect-skills.mjs`) and served as resources
-  (`src/tools/skills.ts`), so remote-HTTP callers get the research workflow with
-  no separate download. It follows
+  build time (`scripts/collect-skills.mjs`) and served two ways from one
+  catalogue (`src/tools/skills.ts`): as `skill://` resources, and through the
+  extension's own `skills/list` / `skills/get` behind the declared
+  `io.modelcontextprotocol/skills` capability. Remote-HTTP callers get the
+  research workflow with no separate download. It follows
   [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
-  **an open draft PR** whose `skills/list` / `skills/get` methods and
-  `io.modelcontextprotocol/skills` capability exist in no SDK, so the catalogue
-  rides on plain `resources/*` instead. Flagged as a prototype in the README,
+  **an open draft PR**. Flagged as a prototype in the README,
   `docs/connecting.md` and `mcpb/README.md`; the `.zip` stays the supported
   install. Revisit when the SEP resolves:
 
-  - If **accepted**, add the real methods as an adapter over the same catalogue
-    (the URIs and digests are already in the SEP's shape) and drop the prototype
-    warnings. Check whether the SDK ships `registerSkill` first.
+  - **Correction (2026-08-12).** This item previously deferred the methods on
+    the grounds that they and the capability "exist in no SDK". Half right: there
+    is no `registerSkill` and no dedicated capability, but `ServerCapabilities`
+    models `extensions` as a generic record and `setRequestHandler` takes
+    arbitrary method names, so the adapter was ~60 lines over the catalogue that
+    already existed. Ported from the sibling `amira-mcp-server`, which
+    implements the same SEP.
+  - **Still not served:** `resources/directory/read`, the SEP's one optional
+    method. Its root would be the bare `skill://iwac-mcp`, which is already the
+    catalogue document; one URI cannot be both `application/json` and
+    `inode/directory`. The capability is declared as `{}`, which forbids a
+    conformant host from calling it. Revisit only if a host needs directory
+    walking — `skills/list` already carries the complete manifest — and note it
+    would mean moving or dropping the catalogue document.
+  - **Cross-repo divergence to keep in view:** `amira-mcp-server` makes the
+    opposite trade (no catalogue document, bare URI as a directory resource,
+    `directoryRead: true`). Same SEP, same URI, two meanings. Fine while both are
+    prototypes; reconcile if the SEP lands.
   - If **changed**, the collector is the only thing that needs to move; the URI
-    scheme and the catalogue live in one file each.
-  - If **rejected**, decide whether serving the skill as plain resources is
-    worth keeping on its own merits. It probably is, for the remote endpoint,
-    but then it should be documented as ours rather than as a spec preview.
+    scheme, the catalogue and the methods live in one file each.
+  - If **rejected**, decide whether serving the skill this way is worth keeping
+    on its own merits. It probably is, for the remote endpoint, but then it
+    should be documented as ours rather than as a spec preview, and the
+    `skills/*` methods should go.
   - Either way, note the skill is a **build-time snapshot**: editing
     `.agents/skills/` needs a rebuild to reach clients over MCP.
 

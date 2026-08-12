@@ -1,4 +1,5 @@
-// `skill://` resources: the Agent Skill served from the server itself.
+// `skill://` resources and the SEP-2640 `skills/*` methods: the Agent Skill
+// served from the server itself.
 //
 // The point of this test is INTEGRITY, not that a resource exists. The skill is
 // inlined into the bundle at build time (scripts/collect-skills.mjs), so the
@@ -16,7 +17,11 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import { collectSkills, SKILLS_DIR } from "../scripts/collect-skills.mjs";
+
+/** `skills/*` are extension methods, absent from the client's spec table. */
+const ANY = z.looseObject({});
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -135,6 +140,86 @@ try {
   fail("reading a non-existent skill file resolved instead of erroring");
 } catch {
   // expected
+}
+
+// --- SEP-2640 methods --------------------------------------------------------
+// The methods and the resources read ONE catalogue, so the thing worth asserting
+// is that they cannot disagree: every digest `skills/list` reports is recomputed
+// here from the file on disk, and the frontmatter it reports is re-parsed from
+// the real SKILL.md. A manifest that drifts from the bytes served is exactly the
+// failure a host reads as tampering, and it would be silent from our side.
+const caps = client.getServerCapabilities();
+if (caps?.extensions?.["io.modelcontextprotocol/skills"] === undefined) {
+  fail("the io.modelcontextprotocol/skills capability is not declared");
+}
+// `directoryRead` is deliberately withheld: the bare skill:// URI is the
+// catalogue document here and cannot also be a directory resource.
+if (caps?.extensions?.["io.modelcontextprotocol/skills"]?.directoryRead) {
+  fail("directoryRead is advertised but resources/directory/read is not implemented");
+}
+// Declaring an extension must not cost the capabilities McpServer derives.
+if (!caps?.tools || !caps?.resources) fail("declaring extensions dropped the tools/resources capabilities");
+
+const list = await client.request({ method: "skills/list", params: {} }, ANY);
+if ((list.skills ?? []).length !== onDisk.skills.length) {
+  fail(`skills/list returned ${list.skills?.length} skill(s), disk has ${onDisk.skills.length}`);
+}
+if (list.cacheScope !== "public" || !(list.ttlMs > 0)) fail("skills/list carries no cache hint");
+
+for (const skill of onDisk.skills) {
+  const entryUri = `skill://${skill.name}/SKILL.md`;
+  const listed = (list.skills ?? []).find((s) => s.uri === entryUri);
+  if (!listed) {
+    fail(`skills/list has no entry at ${entryUri}`);
+    continue;
+  }
+
+  // Frontmatter is compared field by field by a conformant host, so a subset
+  // (or a stale copy) is a verification failure rather than a warning.
+  const front = listed.frontmatter ?? {};
+  if (front.name !== skill.name) fail(`skills/list ${entryUri}: frontmatter name '${front.name}'`);
+  if (front.description !== skill.description) {
+    fail(`skills/list ${entryUri}: frontmatter description does not match SKILL.md`);
+  }
+  const skillMd = readFileSync(path.join(root, ...SKILLS_DIR.split("/"), skill.name, "SKILL.md"), "utf8");
+  for (const key of Object.keys(front)) {
+    if (!new RegExp(`^${key}:`, "m").test(skillMd)) {
+      fail(`skills/list ${entryUri}: frontmatter reports '${key}', which is not in SKILL.md`);
+    }
+  }
+
+  // The manifest must be complete: every file exactly once, SKILL.md included.
+  const manifest = listed.resources ?? [];
+  if (manifest.length !== skill.files.length) {
+    fail(`skills/list ${entryUri}: manifest lists ${manifest.length} files, disk has ${skill.files.length}`);
+  }
+  if (new Set(manifest.map((r) => r.uri)).size !== manifest.length) {
+    fail(`skills/list ${entryUri}: manifest lists a file more than once`);
+  }
+  for (const file of skill.files) {
+    const entry = manifest.find((r) => r.uri === file.uri);
+    if (!entry) {
+      fail(`skills/list ${entryUri}: ${file.uri} missing from the manifest`);
+      continue;
+    }
+    const diskPath = path.join(root, ...SKILLS_DIR.split("/"), skill.name, ...file.path.split("/"));
+    const digest = `sha256:${createHash("sha256").update(readFileSync(diskPath, "utf8")).digest("hex")}`;
+    if (entry.digest !== digest) fail(`skills/list: ${file.uri} digest ${entry.digest} != ${digest} on disk`);
+  }
+
+  // skills/get answers for the same skill, identically.
+  const got = await client.request({ method: "skills/get", params: { uri: entryUri } }, ANY);
+  if (JSON.stringify(got.skill) !== JSON.stringify(listed)) {
+    fail(`skills/get ${entryUri}: entry differs from the one skills/list returned`);
+  }
+}
+
+// A URI that identifies no served skill is -32602, per the SEP.
+try {
+  await client.request({ method: "skills/get", params: { uri: "skill://absent/SKILL.md" } }, ANY);
+  fail("skills/get resolved an unknown skill instead of erroring");
+} catch (err) {
+  if (err?.code !== -32602) fail(`skills/get unknown skill: code ${err?.code}, expected -32602`);
 }
 
 await client.close();

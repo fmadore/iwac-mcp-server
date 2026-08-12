@@ -11,6 +11,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import { createHarness } from "./_harness.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -152,6 +153,23 @@ try {
 
   const tools = await client.listTools();
   if (tools.tools.length !== 34) fail(`expected 34 tools over HTTP with semantic off, got ${tools.tools.length}`);
+
+  // Skills over MCP on the remote leg. This transport is the whole reason the
+  // skill is served from the server at all — there is no release artifact to
+  // download at islam.zmo.de/mcp — so the capability and the methods are
+  // asserted here and not only on stdio, even though one factory builds both.
+  const httpCaps = client.getServerCapabilities();
+  if (httpCaps?.extensions?.["io.modelcontextprotocol/skills"] === undefined) {
+    fail("the skills capability is not declared over HTTP");
+  }
+  if (!httpCaps?.tools || !httpCaps?.resources) fail("declaring extensions dropped capabilities over HTTP");
+  const httpSkills = await client.request({ method: "skills/list", params: {} }, z.looseObject({}));
+  if (httpSkills.skills?.[0]?.uri !== "skill://iwac-mcp/SKILL.md") {
+    fail(`skills/list over HTTP returned '${httpSkills.skills?.[0]?.uri}'`);
+  }
+  if ((httpSkills.skills?.[0]?.resources ?? []).length !== 5) {
+    fail(`skills/list over HTTP: manifest has ${httpSkills.skills?.[0]?.resources?.length} files, expected 5`);
+  }
 
   const { call, failures: callFailures } = createHarness(client, { timeoutMs: 60_000 });
   await call("search_articles", { country: "Bénin" }, {

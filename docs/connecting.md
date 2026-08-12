@@ -106,12 +106,15 @@ a `skill://iwac-mcp` catalogue listing them with SHA-256 digests. A client that
 has not installed the skill can read it from the server instead. Nothing is
 loaded until something asks for it.
 
+A host that implements the draft extension can also discover the same catalogue
+through its `skills/list` / `skills/get` methods, which the server declares via
+the `io.modelcontextprotocol/skills` capability.
+
 **This is a prototype and may change or disappear.** It tracks
 [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
-a draft proposal that has not been accepted, and it is served through ordinary
-MCP resources because the proposed `skills/*` methods do not exist in any SDK
-yet. Nothing about it is guaranteed between releases. Install the `.zip` above
-and treat this as a fallback, not a feature.
+a draft proposal that has not been accepted. Nothing about it is guaranteed
+between releases. Install the `.zip` above and treat this as a fallback, not a
+feature.
 
 </details>
 

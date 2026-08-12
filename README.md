@@ -95,6 +95,11 @@ that has not installed it can still read it:
 | `skill://iwac-mcp/SKILL.md` | The workflow itself |
 | `skill://iwac-mcp/references/…` | The four reference files, read on demand |
 
+A host that implements the draft extension can instead discover the same
+catalogue through `skills/list` and `skills/get`, which the server declares via
+the `io.modelcontextprotocol/skills` capability. Both routes read one catalogue,
+so they cannot disagree.
+
 This matters most for the remote HTTP endpoint, where there is no release
 artifact to download: add the connector and the manual comes with it. The
 server's handshake instructions point at `skill://iwac-mcp/SKILL.md`, and
@@ -102,12 +107,13 @@ nothing is pushed into the context until something asks for it.
 
 The shape follows [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)
 ("Skills over MCP"), **an open draft PR against the MCP spec: not accepted, and
-subject to change**. Its `skills/list` / `skills/get` methods do not exist in
-`@modelcontextprotocol/server` 2.0.0, so rather than hand-roll methods no client
-calls, the same catalogue is served through plain `resources/list` +
-`resources/read`, which every current client already speaks. If the SEP lands,
-the real methods become a thin adapter over this data and the URIs stay put; if
-it changes shape or is rejected, this moves with it.
+subject to change**. Two routes reach the same catalogue: the `resources/*` one
+above, which every current client already speaks, and the extension's own
+`skills/list` / `skills/get`, for hosts that implement the draft. The SEP's one
+optional method, `resources/directory/read`, is **not** served — the bare
+`skill://iwac-mcp` is this server's catalogue document and cannot also be a
+directory resource — so the capability is declared without `directoryRead`.
+If the SEP changes shape or is rejected, all of this moves with it.
 
 ## What it gives Claude
 
