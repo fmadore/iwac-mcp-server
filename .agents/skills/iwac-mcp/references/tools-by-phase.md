@@ -85,7 +85,7 @@ Search the 4,697 authority records by name.
 - Returns: id, title, type, description, frequency, first_occurrence, last_occurrence, countries, url
 
 ### search_by_sentiment
-Filter articles by **`gpt-5-6-luna`** sentiment labels (exact match, accents optional). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other two agree.
+Filter articles by **`gpt-5-6-luna`** sentiment labels (exact match, accents optional). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other three agree.
 - `polarity` (optional): Très positif | Positif | Neutre | Négatif | Très négatif | Non applicable
 - `centrality` (optional): Très central | Central | Secondaire | Marginal | Non abordé
 - `subjectivity` (optional): Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif. Filterable since v2.0.0, when generation 2 turned this field from a 1-5 rating into a closed label vocabulary — a numeric value now errors. Unscored where the model answered `Non abordé`, so this filter excludes those rows too. It is the weakest of the three scales: use it to *find* articles to read, not to count them
@@ -127,14 +127,17 @@ The 1,771 audiovisual items (August 2026 — the subset grew 38× from the 47 of
 - **47 deposited recordings** (DVD/CD), 45 of them Nigerian in Hausa/Arabic — the original subset, with `creator`, `source` and `media_url`.
 
 AI summaries are empty for all 1,771 and only 50 transcriptions ship publicly, so the item's own **`description`** (filled for 1,465 rows — the YouTube blurb, or a bilingual synopsis on the deposited recordings) is the real text surface here. Search rows carry a 320-character `description_snippet`; `get_audiovisual` returns it whole.
-- `country` (optional — Burkina Faso | Togo | Benin | Nigeria; Niger and Côte d'Ivoire have no audiovisual items), `limit` (default 20, max 50), `offset`
-- Returns: id, title, creator, publisher, country, date, medium, extent, subject, spatial, language, description_snippet, media_url, url
+
+**Three links, three meanings** (since v3.2.0): `url` is the IWAC catalogue page — the one to cite; `external_url` is where a harvested video plays; `media_url` is a deposited file. A row carries one of the latter two, never both, and `source_type` (`youtube` | `deposited`) says which. Do not read a missing `media_url` as a broken record.
+- `country` (optional — Burkina Faso | Togo | Benin | Nigeria; Niger and Côte d'Ivoire have no audiovisual items), `publisher` (optional substring on the channel), `source_type` (optional, validated), `limit` (default 20, max 50), `offset`
+- Returns: id, title, creator, publisher, country, date, medium, duration_seconds, subject, spatial, language, description_snippet, source_type, external_url, media_url, url
 
 ### search_audiovisual
 Search the audiovisual subset by title/metadata, **description** and **transcription**. Carrying the description roughly doubles keyword reach (measured 2026-08-17: "ramadan" 190 → 317 items, "imam" 230 → 358).
 - `keyword` (optional): substring over title, creator, publisher, subject, spatial, language, source, the description (1,465/1,771 rows), the transcription (`OCR`, 50/1,771) and AI description where present
-- `country` (optional), `language` (optional exact pipe value — Français 1,715, Haoussa ~43, Mooré 10, Arabe, Anglais), `medium` (Vidéo sur le web | DVD | CD — carrier media, validated, accents optional), `subject` (optional exact tag, but only 27 rows carry one), `limit` (default 20, max 50), `offset`
+- `country` (optional), `language` (optional exact pipe value — Français 1,715, Haoussa ~43, Mooré 10, Arabe, Anglais), `medium` (Vidéo sur le web | DVD | CD — carrier media, validated, accents optional), `publisher` (optional substring: the channel or broadcaster — RTB 639, AEEM Togo 532, CERFI 409), `source_type` (`youtube` | `deposited`, validated), `subject` (optional exact tag, but only 27 rows carry one), `limit` (default 20, max 50), `offset`
 - Returns the same summary fields as `list_audiovisual`
+- **Prefer `publisher` over `subject` here.** 1,769 of 1,771 rows name a channel and only 27 carry a subject tag, so the channel is the one facet that actually partitions this subset — and it is a meaningful one: a state broadcaster (RTB) and a student association (AEEM Togo) are different kinds of source, not just different names
 
 ### search_images *(new July 2026)*
 The 30 fieldwork photographs (mosques, radio stations, schools, signage, street scenes). Captions are almost absent (2/30), so prefer `subject`/`spatial` filters or `semantic_search_images` over keywords.
@@ -180,7 +183,7 @@ Full archival-document detail (metadata, AI description, capped OCR).
 ### get_audiovisual
 Full audiovisual metadata.
 - `audiovisual_id` (int)
-- Returns id, identifier, title, creator, publisher, country, date, media_url, medium, duration (`extent`), subject, spatial, language, source, `transcription` (where one exists — 4/47), and IWAC URL.
+- Returns id, identifier, title, creator, publisher, country, date, `source_type`, the item's links (`url` = IWAC page, `external_url` = watch URL, `media_url` = deposited file, `thumbnail`, `iiif_manifest`), medium, `type`, `rights`, `contributor`, both duration forms (`duration_seconds` and the ISO-8601 `extent`), subject, spatial, language, source, the full `description`, and `transcription` where one exists (50/1,771).
 
 ### get_image *(new July 2026)*
 Full photograph record.
@@ -225,17 +228,17 @@ Counts of matching items per year (or month) — one call replaces paging throug
 ### get_sentiment_distribution *(`model` added v0.13.0; model-exact ids since the 2026-07-31 dataset rename)*
 Aggregated AI sentiment counts.
 - `country` (optional, exact name), `newspaper` (optional), `subject` (optional)
-- `model` (optional, validated): `gpt-5-6-luna` (default) | `mistral-small-2603` | `deepseek-v4-flash-0731` | **all**. Vendor shorthand (`chatgpt` / `mistral` / `deepseek`) resolves to these ids, which is what the payload echoes back — quote the id, never the vendor. The generation-1 ids (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) are **refused by name**, not substituted
+- `model` (optional, validated): `gpt-5-6-luna` (default) | `mistral-small-2603` | `deepseek-v4-flash-0731` | `gemma-4-31b-it` | **all**. Vendor shorthand (`chatgpt` / `mistral` / `deepseek` / `gemma` or `google`) resolves to these ids, which is what the payload echoes back — quote the id, never the vendor. The generation-1 ids (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) are **refused by name**, not substituted, and so is bare `gemini`: Google's generation-2 member is Gemma, a different model line
 - Returns `polarity_distribution`, `centrality_distribution` and `subjectivity` — a distribution over the five French labels plus `scored` / `unscored` and a `mean_rank` / `median_rank` derived by ranking the labels 1-5. That rank is a position on a five-point scale, never a percentage. The block also carries a `caveat`: quote it whenever you quote the number
-- With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity, pairwise and unanimously) and `agreement_matrix` (where the first two part company)
+- With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity — six pairwise counts and one unanimous count for four models) and `agreement_matrix` (where the first two part company)
 
 **Tip:** `get_sentiment_distribution(subject="Laïcité", country="Burkina Faso")` gives the polarity distribution for laïcité articles in BF specifically; compare against the unfiltered country baseline.
 
-**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the three models agree unanimously on polarity for only 6,667 of the 12,286 articles all three scored (54%). That number is the confidence floor: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable.
+**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the four models agree unanimously on polarity for only 4,488 of the 12,298 articles they all scored (**36%**). That number is the confidence floor: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable. The first three alone reached 43%, so a figure copied from an older draft will overstate the agreement.
 
-**Coverage is near-total but no longer complete** (measured 2026-07-31): 12,286 of 12,356 articles carry sentiment: the 70 most recently added are unscored and drop out of every distribution. Compare `scored_by_all` against `total_articles` rather than assuming they match.
+**Coverage is near-total but not complete** (measured 2026-08-17): 12,298 of 12,349 articles carry sentiment from every model; the 51 missing are the non-French/English ones, skipped by design. Compare `scored_by_all` against `total_articles` rather than assuming they match.
 
-**Reliability differs sharply by scale.** Polarity and centrality are the solid ones; **subjectivity is not** (pairwise κ 0.093–0.470, and `deepseek-v4-flash-0731` reproduces its own answer only 47% of the time on a re-run), so report it as weak evidence with that caveat, or not at all. On *centrality* specifically, `mistral-small-2603` is a systematic outlier (κ 0.244–0.270 pairwise against 0.511–0.725 for the others) — a 2-of-3 majority there is the other two outvoting Mistral, not a three-model consensus.
+**Reliability differs sharply by scale** (κ measured full-corpus, all six model pairs). Polarity (0.26–0.57) and centrality (0.46–0.72) are the solid ones; **subjectivity is not** (0.16–0.47, and `deepseek-v4-flash-0731` reproduces its own answer only 47% of the time on a re-run), so report it as weak evidence with that caveat, or not at all. On *centrality* specifically, `mistral-small-2603` is a systematic outlier (its pairs run 0.46–0.53 against 0.67–0.72 for the non-Mistral ones, `gemma-4-31b-it` included) — a 3-of-4 majority there is the others outvoting Mistral, not a panel consensus.
 
 ### get_topic_distribution *(v0.13.0)*
 How a set spreads across the 30 precomputed LDA topics (12,234 of 12,287 articles are classified), each labelled by its top terms. Topics were assigned offline over the full text, so they describe what a piece is **about** rather than which words it contains — the fastest way to map an unfamiliar corpus without keyword guessing.
@@ -297,15 +300,15 @@ A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. 
 Exact names: `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo`, `Nigeria` (all six are accepted everywhere; `Nigeria` simply yields 0 press articles — a real finding, not an error). Accents are optional (`Bénin` works); partial names (`Burkina`) are invalid and now error.
 
 ### Polarity scale (articles, `gpt-5-6-luna`)
-Très positif (425) | Positif (6,149) | Neutre (5,020) | Négatif (376) | Très négatif (45) | Non applicable (290) — plus 51 unscored (counts verified 2026-08-11)
+Très positif (425) | Positif (6,146) | Neutre (5,017) | Négatif (375) | Très négatif (45) | Non applicable (290) — plus 51 unscored (counts verified 2026-08-17)
 
 ### Centrality scale (articles, `gpt-5-6-luna`)
-Très central (8,215) | Central (1,562) | Marginal (1,122) | Secondaire (1,116) | Non abordé (290) — plus 51 unscored
+Très central (8,210) | Central (1,561) | Marginal (1,122) | Secondaire (1,115) | Non abordé (290) — plus 51 unscored
 
 ### Subjectivity scale (articles, `gpt-5-6-luna`)
-Très objectif (1,144) | Plutôt objectif (7,906) | Mixte (314) | Plutôt subjectif (1,915) | Très subjectif (736) — plus 341 unscored, which are exactly this model's `Non abordé` rows and the 51 unscanned ones. An ordinal **label**, not a number. The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
+Très objectif (1,144) | Plutôt objectif (7,900) | Mixte (314) | Plutôt subjectif (1,914) | Très subjectif (736) — plus 341 unscored, which are exactly this model's `Non abordé` rows and the 51 unscanned ones. An ordinal **label**, not a number. The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
 
-The same three scales exist for `mistral-small-2603` and `deepseek-v4-flash-0731`; reach them with `get_sentiment_distribution(model=…)`. They differ substantially — Mistral reads 2,088 articles as Très positif where Luna reads 425 — which is why a figure has to name its model.
+The same three scales exist for `mistral-small-2603`, `deepseek-v4-flash-0731` and `gemma-4-31b-it`; reach them with `get_sentiment_distribution(model=…)`. They differ substantially — Mistral reads 2,087 articles as Très positif where Luna reads 425, and Gemma reads 7,275 as Neutre where Luna reads 5,017 — which is why a figure has to name its model. Gemma matches Luna's completeness (its 294 unscored subjectivity rows are exactly its own `Non abordé` ones plus the 51), so an unscored row is an abstention, not a gap.
 
 ### Index types
 Personnes (2,833) | Lieux (683) | Organisations (413) | Notices d'autorité (312) | Événements (242) | Sujets (214)

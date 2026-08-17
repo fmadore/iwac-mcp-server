@@ -356,7 +356,7 @@ await call("get_index_entry", { entry_id: 99999 }, { expectError: true });
 await call("get_collection_stats", {}, {
   structured: true,
   check: (p) => {
-    const expected = { articles: 6, publications: 3, references: 4, documents: 2, audiovisual: 2, images: 3, index: 7 };
+    const expected = { articles: 6, publications: 3, references: 4, documents: 2, audiovisual: 3, images: 3, index: 7 };
     for (const [k, v] of Object.entries(expected)) {
       if (p.subset_counts?.[k] !== v) return `subset_counts.${k} = ${p.subset_counts?.[k]}, expected ${v}`;
     }
@@ -851,22 +851,46 @@ await call("get_lexical_metrics", { group_by: "country" }, {
   check: (p) => (p.groups?.some((g) => g.group === "Benin") ? null : "country grouping missing Benin"),
 });
 
-// Cross-model sentiment: three models, and how far they agree. Every model
+// Cross-model sentiment: the whole panel, and how far it agrees. Every model
 // identifier here is the EXACT generation-2 model that scored the corpus,
 // because a polarity share is meaningless without knowing what produced it.
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,
   check: (p) => {
-    if (String(p.models) !== "gpt-5-6-luna,mistral-small-2603,deepseek-v4-flash-0731") return `models wrong: ${p.models}`;
+    if (String(p.models) !== "gpt-5-6-luna,mistral-small-2603,deepseek-v4-flash-0731,gemma-4-31b-it")
+      return `models wrong: ${p.models}`;
     if (!p.by_model?.["mistral-small-2603"]?.polarity_distribution) return "per-model distributions missing";
+    if (!p.by_model?.["gemma-4-31b-it"]?.polarity_distribution) return "the fourth model's distribution is missing";
     if (p.agreement?.scored_by_all !== 6) return `all 6 fixture articles are scored, got ${p.agreement?.scored_by_all}`;
-    // 102 (Positif) and 105 (Neutre) match across all three; the rest split.
-    if (p.agreement.unanimous !== 2) return `expected 2 unanimous articles, got ${p.agreement.unanimous}`;
-    if (p.agreement.unanimous_percent !== 33) return `expected 33%, got ${p.agreement.unanimous_percent}`;
-    if (p.agreement.pairwise?.["gpt-5-6-luna~mistral-small-2603"] === undefined) return "pairwise agreement missing";
+    // Only 105 (Neutre) survives all four. 102 was unanimous among the first
+    // three and gemma reads it Neutre — the row that proves a fourth member
+    // actually moves the agreement number rather than riding along with it.
+    if (p.agreement.unanimous !== 1) return `expected 1 unanimous article, got ${p.agreement.unanimous}`;
+    if (p.agreement.unanimous_percent !== 17) return `expected 17%, got ${p.agreement.unanimous_percent}`;
+    // 4 models → 6 unordered pairs, not 3.
+    if (Object.keys(p.agreement.pairwise ?? {}).length !== 6)
+      return `expected 6 pairwise counts, got ${JSON.stringify(p.agreement.pairwise)}`;
+    if (p.agreement.pairwise?.["gpt-5-6-luna~gemma-4-31b-it"] === undefined) return "pairwise agreement missing a pair";
     if (p.agreement_matrix?.rows !== "gpt-5-6-luna") return "confusion matrix rows should be the default model";
     return null;
   },
+});
+// The newest panel member, asked for by id and by vendor shorthand. `google`
+// resolving here is the deliberate counterpart to `gemini` still being refused
+// below: one is a vendor, the other a model line that never ran generation 2.
+await call("get_sentiment_distribution", { model: "gemma-4-31b-it" }, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "gemma-4-31b-it") return `model not echoed, got ${p.model}`;
+    if (p.polarity_distribution?.Neutre !== 4)
+      return `gemma reads 4 of 6 fixture rows Neutre, got ${JSON.stringify(p.polarity_distribution)}`;
+    if (p.subjectivity?.scored !== 6) return `gemma scores every fixture row, got ${JSON.stringify(p.subjectivity)}`;
+    return null;
+  },
+});
+await call("get_sentiment_distribution", { model: "google" }, {
+  structured: true,
+  check: (p) => (p.model === "gemma-4-31b-it" ? null : `the google shorthand should resolve to Gemma, got ${p.model}`),
 });
 await call("get_sentiment_distribution", { model: "mistral-small-2603" }, {
   structured: true,
@@ -957,13 +981,75 @@ await call("search_audiovisual", { medium: "vinyl" }, {
   checkBody: (b) => (b.includes("valid_values") ? null : "invalid medium should error with valid_values"),
 });
 await call("list_audiovisual", {}, {
-  check: (p) => (p.total_matches === 2 && p.results?.[0]?.media_url ? null : `expected 2 audiovisual items with media_url, got ${p.total_matches}`),
+  check: (p) => {
+    if (p.total_matches !== 3) return `expected 3 audiovisual items, got ${p.total_matches}`;
+    // Newest first, so the harvested video leads: it has a watch URL and NO
+    // file, and a row must show which of the two it is without a second call.
+    const first = p.results?.[0];
+    if (first?.id !== "603") return `expected the newest row first, got ${first?.id}`;
+    if (first?.source_type !== "youtube") return "list rows should carry source_type";
+    if (!first?.external_url?.includes("youtube.com")) return "a harvested row must expose its watch URL";
+    if (first?.media_url) return "a harvested row has no file, so it must not advertise a media_url";
+    if (first?.duration_seconds !== 411) return `expected the duration in seconds, got ${first?.duration_seconds}`;
+    if (!p.results?.some((r) => r.media_url)) return "the deposited rows should still expose media_url";
+    return null;
+  },
+});
+// The two cohorts are separable, and each filter finds the right one. Until the
+// fixture held a harvested row, both of these passed by matching nothing.
+await call("list_audiovisual", { source_type: "youtube" }, {
+  check: (p) => (p.total_matches === 1 ? null : `source_type=youtube should match 1, got ${p.total_matches}`),
+});
+await call("list_audiovisual", { source_type: "deposited" }, {
+  check: (p) => (p.total_matches === 2 ? null : `source_type=deposited should match 2, got ${p.total_matches}`),
+});
+await call("list_audiovisual", { source_type: "vhs" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "an invalid source_type should error with valid_values"),
+});
+// The subset is no longer Nigeria-only: country must select either cohort.
+await call("list_audiovisual", { country: "Burkina Faso" }, {
+  check: (p) => {
+    if (p.total_matches !== 1) return `Burkina Faso should match the harvested video, got ${p.total_matches}`;
+    return p.results?.[0]?.id === "603" ? null : `wrong row for Burkina Faso: ${p.results?.[0]?.id}`;
+  },
+});
+await call("list_audiovisual", { country: "Nigeria" }, {
+  check: (p) => (p.total_matches === 2 ? null : `Nigeria should still match the deposited pair, got ${p.total_matches}`),
+});
+// The channel facet: 27 of 1,771 real rows carry a subject, 1,769 carry a
+// publisher, so this is the one that has to work. Substring, because nobody
+// types "RTB - Radiodiffusion Télévision du Burkina".
+await call("search_audiovisual", { publisher: "RTB" }, {
+  check: (p) => (p.total_matches === 1 ? null : `publisher substring should match the channel, got ${p.total_matches}`),
+});
+await call("search_audiovisual", { publisher: "radiodiffusion television" }, {
+  check: (p) => (p.total_matches === 1 ? null : "publisher matching must be accent- and case-insensitive"),
 });
 await call("get_audiovisual", { audiovisual_id: 601 }, {
   check: (p) => {
     if (!p.media_url || p.medium !== "CD") return "get_audiovisual missing media_url/medium";
+    if (p.source_type !== "deposited") return "get_audiovisual should say which cohort the row is from";
     if (!p.transcription) return "get_audiovisual should expose the OCR transcription";
     if (!p.description?.includes("matafiyi")) return "get_audiovisual should expose the full description";
+    if (p.duration_seconds !== 3480 || p.extent !== "PT58M") return "get_audiovisual should expose both duration forms";
+    if (!p.rights) return "get_audiovisual should expose rights";
+    return null;
+  },
+});
+// The record #20 was opened for: three links with three meanings. The IWAC page
+// is the citable one, the watch URL is where the video plays, and media_url —
+// absent here — is a file. Inferring "every PDF is a file" was the old contract.
+await call("get_audiovisual", { audiovisual_id: 603 }, {
+  check: (p) => {
+    if (!p.url?.includes("/item/603")) return "get_audiovisual should return the IWAC catalogue page";
+    if (p.external_url !== "https://www.youtube.com/watch?v=xcGWG5msEEs") return `wrong watch URL: ${p.external_url}`;
+    if (p.media_url) return "a harvested row must not report a media file it does not have";
+    if (p.iiif_manifest) return "a harvested row has a 0-canvas manifest, so it must not advertise one";
+    if (p.publisher !== "RTB - Radiodiffusion Télévision du Burkina") return "the channel should be the publisher";
+    if (p.creator) return "harvested rows carry no creator";
+    if (!p.description?.includes("Ouagadougou")) return "the blurb is the only text this row has";
+    if (p.transcription) return "this row has no transcription";
     return null;
   },
 });

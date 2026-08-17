@@ -249,6 +249,16 @@ export const COUNTRIES = ["Benin", "Burkina Faso", "Côte d'Ivoire", "Niger", "N
 export const MEDIUM_VALUES = ["Vidéo sur le web", "DVD", "CD"] as const;
 
 /**
+ * Audiovisual `source_type`: which of the subset's two populations a row belongs
+ * to. `youtube` rows (1,724 as of 2026-08-17, still being harvested) have a watch
+ * URL and no file; `deposited` rows (47) have a file, a `creator` and an IIIF
+ * manifest. This is the split to filter on — `medium` describes the carrier and
+ * `type` is the same value for every row in the subset, so neither separates the
+ * two cohorts reliably.
+ */
+export const SOURCE_TYPE_VALUES = ["youtube", "deposited"] as const;
+
+/**
  * The standard `country` filter parameter, built once so the ~12 tools that take
  * it share ONE wording instead of copy-paste drift. `nigeria: false` (the
  * default for article-backed tools) omits Nigeria from the enumerated values —
@@ -267,10 +277,10 @@ export function countryParam(opts: { nigeria?: boolean; note?: string } = {}) {
     .describe(`Exact country name: ${values} (accents optional)${opts.note ? `. ${opts.note}` : ""}`);
 }
 
-/** AI polarity labels (articles); same six-point scale for all three models. */
+/** AI polarity labels (articles); same six-point scale for every panel model. */
 export const POLARITY_VALUES = ["Très positif", "Positif", "Neutre", "Négatif", "Très négatif", "Non applicable"] as const;
 
-/** AI centrality labels (articles); same five-point scale for all three models. */
+/** AI centrality labels (articles); same five-point scale for every panel model. */
 export const CENTRALITY_VALUES = ["Très central", "Central", "Secondaire", "Marginal", "Non abordé"] as const;
 
 /**
@@ -308,16 +318,18 @@ export interface SentimentModel {
 }
 
 /**
- * The three models of the generation-2 annotation campaign, each covering the
- * 12,305 French- and English-language articles (the 51 Ewé/Kabiyè/Dendi/untagged
+ * The four models of the generation-2 annotation campaign, each covering the
+ * 12,298 French- and English-language articles (the 51 Ewé/Kabiyè/Dendi/untagged
  * ones are skipped deliberately: the prompt is French, and a French-prompted
- * model returns confident but unusable output for them).
+ * model returns confident but unusable output for them). All four ran the same
+ * prompt (fingerprint d14ace9ac192), which is what makes them comparable to each
+ * other and not to generation 1.
  *
  * Generation 1 (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) is
  * NOT served here. Its columns still exist on the Hub, but the archive's own
  * annotations were emptied on 2026-08-07 and the two generations differ in
  * model, prompt AND subjectivity dtype — so mixing them in one vocabulary would
- * put three-way comparisons one typo away from confounding all three. Retired
+ * put cross-model comparisons one typo away from confounding all three. Retired
  * handles get a named error instead; see RETIRED_SENTIMENT_MODELS.
  *
  * Only vendor shorthand is aliased. A retired EXACT model id is never remapped
@@ -329,20 +341,29 @@ export const SENTIMENT_MODELS: SentimentModel[] = [
   { id: "gpt-5-6-luna", prefix: "gpt_5_6_luna", aliases: ["chatgpt", "openai", "gpt", "luna"] },
   { id: "mistral-small-2603", prefix: "mistral_small_2603", aliases: ["mistral"] },
   { id: "deepseek-v4-flash-0731", prefix: "deepseek_v4_flash_0731", aliases: ["deepseek"] },
+  // The Google-family member since 2026-08-14, routed through OpenRouter rather
+  // than the Gemini API. `google` resolves here — a vendor shorthand naming the
+  // vendor's generation-2 member, exactly as `mistral` and `chatgpt` do — while
+  // `gemini` stays refused: Gemini is a different product line that scored this
+  // corpus in generation 1 only, so re-pointing it here would be the silent
+  // substitution this registry exists to prevent.
+  { id: "gemma-4-31b-it", prefix: "gemma_4_31b_it", aliases: ["gemma", "google"] },
 ];
 
 /**
  * Handles that named a real annotator once and must not be silently re-pointed.
- * Generation 1's three ids, plus the vendor shorthands with no generation-2
- * successor (`gemini` — the Gemini slot ran in generation 1 only, and
- * `ministral`, a distinct Mistral product line from Mistral Small).
+ * Generation 1's three ids, plus the product-line shorthands whose generation-2
+ * namesake does not exist: `gemini` (the Gemini slot ran in generation 1 only —
+ * Gemma 4 31B holds the Google slot now, but it is not Gemini) and `ministral`
+ * (a distinct Mistral product line from Mistral Small).
  */
 export const RETIRED_SENTIMENT_MODELS: Record<string, string> = {
   "gemini-3-flash-preview": "generation 1, dropped from this server",
   "gpt-5-mini": "generation 1, dropped from this server",
   "ministral-14b-2512": "generation 1, dropped from this server",
-  gemini: "the Gemini slot scored the corpus in generation 1 only; generation 2 has no Gemini member",
-  google: "the Gemini slot scored the corpus in generation 1 only; generation 2 has no Gemini member",
+  gemini:
+    "the Gemini slot scored the corpus in generation 1 only; generation 2's Google-family member is " +
+    "gemma-4-31b-it, a different model line — ask for it by name (or use the shorthand 'google')",
   ministral: "Ministral 14B is generation 1; Mistral Small 2603 is a different model, ask for it by name",
 };
 
@@ -352,19 +373,31 @@ export const RETIRED_SENTIMENT_MODELS: Record<string, string> = {
  * get_country_comparison. Those name it explicitly rather than implying a
  * consensus — get_sentiment_distribution with model:"all" is the tool for that.
  *
- * gpt-5-6-luna and not one of the other two: it is complete on all three fields
- * (its only subjectivity gaps are exactly its `Non abordé` rows, a principled
- * abstention rather than a dropped answer), where deepseek-v4-flash-0731 omits
- * ~489 scores it owed; and the Mistral family is a persistent outlier on
- * centrality (κ 0.244-0.270 pairwise against 0.511-0.725 for the others), which
- * is a bad thing for a default to make invisible.
+ * gpt-5-6-luna and not one of the other three, for three reasons that still hold
+ * after gemma-4-31b-it joined the panel:
+ *
+ *  - It is complete on all three fields — its only subjectivity gaps are exactly
+ *    its `Non abordé` rows, a principled abstention rather than a dropped answer
+ *    — where deepseek-v4-flash-0731 omits ~489 scores it owed.
+ *  - It sits near the centre of the panel rather than at an edge: mean pairwise
+ *    polarity agreement 65.7% against Mistral Small's 54.6%, and the Mistral
+ *    family is a persistent outlier on centrality, which is a bad thing for a
+ *    default to make invisible.
+ *  - Moving the default is not a neutral act. Every inline `polarity` value this
+ *    server has ever returned is Luna's, and re-pointing it would silently
+ *    re-label all of them while nothing in the payload shape changed.
+ *
+ * ADDING a model must therefore leave this line alone. gemma-4-31b-it is equally
+ * complete (its 294 unscored subjectivity rows are likewise exactly its
+ * `Non abordé` ones) and agrees with Luna more than any other pair bar
+ * DeepSeek↔Gemma — but "as good as the default" is not a reason to become it.
  */
 export const DEFAULT_SENTIMENT_MODEL: SentimentModel = SENTIMENT_MODELS[0];
 
 /** Canonical ids, for `valid_values` in an error and for tool descriptions. */
 export const SENTIMENT_MODEL_IDS: string[] = SENTIMENT_MODELS.map((m) => m.id);
 
-/** The three scored columns of one model. */
+/** The three scored columns (polarity, centrality, subjectivity) of one model. */
 export function sentimentCols(m: SentimentModel): {
   polarity: string;
   centrality: string;
@@ -707,7 +740,8 @@ export function likeFilterIfExists(
  * predicate would make `Mosquée` match `Construction mosquée`, or `state` match
  * `Islamic State in the Greater Sahara`, which turns curated filters into noisy
  * keyword searches — and, for country specifically, would conflate Niger with
- * Nigeria (references store "Niger|Nigeria"; audiovisual is 100% Nigeria).
+ * Nigeria (references store "Niger|Nigeria", and audiovisual now spans Burkina
+ * Faso, Togo, Benin and Nigeria, so both sides of that pair carry rows).
  * Single-valued columns like `articles.country` behave identically, which is why
  * country needs no predicate of its own.
  */
@@ -967,8 +1001,9 @@ const ALL_ARTICLE_VIEWS: FieldView[] = ["detail", "fetch", "summary", "sentiment
 
 /**
  * The sentiment columns projected onto article rows. One model's, not a blend:
- * the three disagree often enough that averaging them here would invent a
- * reading no annotator produced. `requires` drops them on a revision that
+ * the panel disagrees often enough (unanimous on polarity for 36% of the corpus)
+ * that averaging it here would invent a reading no annotator produced.
+ * `requires` drops them on a revision that
  * predates the generation-2 columns rather than throwing. `subjectivity` is a
  * French label here, not a number — see SUBJECTIVITY_VALUES.
  */
@@ -1164,19 +1199,49 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
     ...ID_URL(["detail", "fetch", "summary"]),
     { expr: "identifier", views: ["detail"] },
     { expr: "added_date", views: ["detail"] },
+    // A YouTube row has NO file: its media carries only a thumbnail derivative,
+    // so `PDF` is empty and `iiif_manifest` would resolve to a 0-canvas
+    // manifest. Both stay detail/fetch-only and, being empty, are dropped from
+    // those rows by the result compaction rather than advertising a file that
+    // is not there.
     { expr: "iiif_manifest", views: ["detail", "fetch"] },
     { expr: "PDF", alias: "media_url", requires: ["PDF"], views: ["detail", "fetch", "summary"] },
     { expr: "thumbnail", views: ["detail", "fetch"] },
+    // Where the item can actually be watched — the canonical YouTube watch URL
+    // for the 1,724 harvested rows, empty for the deposited ones (whose file
+    // IS `media_url`). Carried in search rows as well as detail: `media_url` is
+    // filled for 47 of 1,771 rows, so before this column a page of results
+    // offered no way to reach the recording, and the caller had no way to tell
+    // an item with no file from an item with no link. The two are named
+    // differently on purpose — `external_url` is a page to open, `media_url` a
+    // file to fetch — matching how references names its outbound link.
+    { expr: '"URL"', alias: "external_url", requires: ["URL"], views: ["detail", "fetch", "summary"] },
+    // Which of the two populations a row belongs to (`youtube` | `deposited`).
+    // Two tokens that make every other absence on the row legible; without it,
+    // "no media_url, no creator, no transcription" reads as a broken record
+    // rather than as an embedded video.
+    { expr: "source_type", views: ["detail", "fetch", "summary"] },
     { expr: "title", views: ["detail", "fetch", "summary"], searchable: true },
     { expr: "creator", views: ["detail", "fetch", "summary"], searchable: true },
+    // For a harvested row this is the CHANNEL (RTB, AEEM Togo, CERFI…), which is
+    // the strongest single facet the YouTube cohort has — 27 of 1,771 rows carry
+    // a subject, but 1,769 carry a publisher. Hence the dedicated filter on
+    // search_audiovisual rather than keyword-only reach.
     { expr: "publisher", views: ["detail", "fetch", "summary"], searchable: true },
     { expr: "country", views: ["detail", "fetch", "summary"] },
     { expr: "pub_date", alias: "date", requires: ["pub_date"], views: ["detail", "fetch", "summary"] },
     { expr: "volume", views: ["detail", "fetch"] },
     { expr: "issue", views: ["detail", "fetch"] },
     { expr: "is_part_of", views: ["detail", "fetch"] },
-    { expr: "extent", views: ["detail", "fetch", "summary"] },
+    // `extent` is an ISO-8601 duration ("PT6M51S"), not prose, so search rows
+    // carry the integer seconds instead and the raw string stays on the detail
+    // record. Both are filled for every row.
+    { expr: "duration_seconds", views: ["detail", "fetch", "summary"] },
+    { expr: "extent", views: ["detail", "fetch"] },
     { expr: "medium", views: ["detail", "fetch", "summary"] },
+    { expr: "type", views: ["detail"] },
+    { expr: "rights", views: ["detail"] },
+    { expr: "contributor", views: ["detail"] },
     { expr: "subject", views: ["detail", "fetch", "summary"], searchable: true },
     { expr: "spatial", views: ["detail", "fetch", "summary"], searchable: true },
     { expr: "language", views: ["detail", "fetch", "summary"], searchable: true },

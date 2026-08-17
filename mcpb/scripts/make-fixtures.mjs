@@ -106,13 +106,20 @@ const SUBSET_SQL = {
       -- the way the parquet does so the aggregate path is tested on a string.
       gpt_5_6_luna_subjectivite_score VARCHAR, nb_mots BIGINT, nb_pages BIGINT,
       "Richesse_Lexicale_OCR" DOUBLE, "Lisibilite_OCR" DOUBLE, iwac_url VARCHAR,
-      -- LDA topics and the two further sentiment models, so the aggregate
+      -- LDA topics and the three further sentiment models, so the aggregate
       -- tools have something to aggregate.
       lda_topic_id DOUBLE, lda_topic_prob DOUBLE, lda_topic_label VARCHAR,
       mistral_small_2603_polarite VARCHAR, mistral_small_2603_centralite_islam_musulmans VARCHAR,
       mistral_small_2603_subjectivite_score VARCHAR,
       deepseek_v4_flash_0731_polarite VARCHAR, deepseek_v4_flash_0731_centralite_islam_musulmans VARCHAR,
       deepseek_v4_flash_0731_subjectivite_score VARCHAR,
+      -- The fourth panel member (2026-08-17). Its values deliberately break the
+      -- unanimity the other three had on row 102, mirroring what adding it did
+      -- to the real corpus (4-way agreement on polarity 36.5%, against 43.1%
+      -- for the first three): a fixture where the newest model never changes an
+      -- aggregate cannot fail when a fourth model is dropped from the panel.
+      gemma_4_31b_it_polarite VARCHAR, gemma_4_31b_it_centralite_islam_musulmans VARCHAR,
+      gemma_4_31b_it_subjectivite_score VARCHAR,
       -- Toy 4-d embeddings, not the real 768. The PCA projection does not care
       -- about dimensionality, and these are laid out as two separable clusters
       -- (the hadj/pilgrimage rows against the rest) so the projection has a
@@ -124,17 +131,19 @@ const SUBSET_SQL = {
        'La Nation', 'Benin', '1995-06-15', 'Pèlerinage|Religion', 'Cotonou|La Mecque', 'Français',
        'Reportage sur le départ des pèlerins béninois pour La Mecque.',
        'Cette année encore, le pèlerinage à La Mecque mobilise des centaines de fidèles depuis Cotonou. Les autorités saluent l''organisation du hadj.',
-       'Neutre', 'Central', 'Plutôt objectif', 120, 1, 0.62, 41.5, '${IWAC}101', 12, 0.47, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 'Plutôt objectif', 'Positif', 'Central', 'Plutôt objectif', [0.90, 0.10, 0.05, 0.02]),
+       'Neutre', 'Central', 'Plutôt objectif', 120, 1, 0.62, 41.5, '${IWAC}101', 12, 0.47, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 'Plutôt objectif', 'Positif', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Très objectif', [0.90, 0.10, 0.05, 0.02]),
       ('102', 'iwac-102', 'Ramadan à Ouagadougou', 'B. Ouedraogo',
        'Sidwaya', 'Burkina Faso', '2003-01-10', 'Mosquée|Ramadan', 'Ouagadougou', 'Français',
        'Le mois de jeûne vécu dans les mosquées de la capitale burkinabè.',
        'Le ramadan à Ouagadougou rassemble les fidèles dans les mosquées chaque soir.',
-       'Positif', 'Central', 'Plutôt objectif', 95, 1, 0.58, 38.2, '${IWAC}102', 25, 0.39, 'fête - prière - ramadan', 'Positif', 'Central', 'Plutôt objectif', 'Positif', 'Très central', 'Mixte', [0.05, 0.92, 0.08, 0.01]),
+       -- gemma reads this one Neutre where the other three say Positif: the row
+       -- that stops the fixture's unanimity count from being a constant.
+       'Positif', 'Central', 'Plutôt objectif', 95, 1, 0.58, 38.2, '${IWAC}102', 25, 0.39, 'fête - prière - ramadan', 'Positif', 'Central', 'Plutôt objectif', 'Positif', 'Très central', 'Mixte', 'Neutre', 'Central', 'Très objectif', [0.05, 0.92, 0.08, 0.01]),
       ('103', 'iwac-103', 'La communauté musulmane célèbre la fin du ramadan', '',
        'Fraternité Matin', 'Côte d''Ivoire', '2010-11-01', 'Ramadan', 'Abidjan', 'Français',
        'Célébrations de la Korité à Abidjan.',
        'La Korité a été célébrée dans la joie à Abidjan. La communauté musulmane appelle à la paix.',
-       'Très positif', 'Très central', 'Très objectif', 88, 1, 0.6, 40.0, '${IWAC}103', 25, 0.41, 'fête - prière - ramadan', 'Très positif', 'Très central', 'Très objectif', 'Positif', 'Très central', 'Plutôt objectif', [0.02, 0.88, 0.12, 0.04]),
+       'Très positif', 'Très central', 'Très objectif', 88, 1, 0.6, 40.0, '${IWAC}103', 25, 0.41, 'fête - prière - ramadan', 'Très positif', 'Très central', 'Très objectif', 'Positif', 'Très central', 'Plutôt objectif', 'Positif', 'Très central', 'Très objectif', [0.02, 0.88, 0.12, 0.04]),
       ('104', 'iwac-104', 'L''islam au Niger : nouvelles associations', 'C. Issoufou',
        'Le Sahel', 'Niger', '2019-05-20', 'Islam', 'Niamey', 'Français',
        'Panorama des associations islamiques nigériennes.',
@@ -143,17 +152,19 @@ const SUBSET_SQL = {
        -- declines to score ~489 articles it did place on the other two scales,
        -- so a fixture where every row is scored would never exercise the
        -- unscored reconciliation.
-       'Neutre', 'Secondaire', 'Mixte', 76, 1, 0.55, 37.1, '${IWAC}104', 6, 0.32, 'association - islam - organisation', 'Neutre', 'Secondaire', 'Mixte', 'Négatif', 'Marginal', '', [0.10, 0.15, 0.90, 0.03]),
+       'Neutre', 'Secondaire', 'Mixte', 76, 1, 0.55, 37.1, '${IWAC}104', 6, 0.32, 'association - islam - organisation', 'Neutre', 'Secondaire', 'Mixte', 'Négatif', 'Marginal', '', 'Neutre', 'Marginal', 'Très objectif', [0.10, 0.15, 0.90, 0.03]),
       ('105', 'iwac-105', 'Dossier: le hadj expliqué', 'D. Lawson',
        'Togo-Presse', 'Togo', '1987-03-02', 'Pèlerinage', 'Lomé', 'Français',
        'Long dossier pédagogique sur le pèlerinage.',
        repeat('Le pèlerinage à La Mecque commence bientôt, selon les autorités locales. ', 450),
-       'Neutre', 'Central', 'Plutôt objectif', 32000, 4, 0.5, 35.0, '${IWAC}105', 12, 0.51, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Plutôt objectif', [0.86, 0.14, 0.02, 0.05]),
+       -- The one row all FOUR models read the same way, so the unanimity path is
+       -- still exercised rather than only the disagreement path.
+       'Neutre', 'Central', 'Plutôt objectif', 32000, 4, 0.5, 35.0, '${IWAC}105', 12, 0.51, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Plutôt objectif', [0.86, 0.14, 0.02, 0.05]),
       ('106', 'iwac-106', 'Polémique autour d''une mosquée', '',
        'Le Matinal', 'Benin', '2001-09-14', 'Mosquée', 'Porto-Novo', 'Français',
        'Conflit foncier autour d''un projet de mosquée.',
        'La construction d''une mosquée à Porto-Novo suscite une vive polémique.',
-       'Négatif', 'Très central', 'Plutôt subjectif', 102, 1, 0.61, 39.4, '${IWAC}106', 12, 0.28, 'imam - mosquée - prière', 'Négatif', 'Très central', 'Plutôt subjectif', 'Très négatif', 'Très central', 'Très subjectif', [0.08, 0.20, 0.85, 0.09]);
+       'Négatif', 'Très central', 'Plutôt subjectif', 102, 1, 0.61, 39.4, '${IWAC}106', 12, 0.28, 'imam - mosquée - prière', 'Négatif', 'Très central', 'Plutôt subjectif', 'Très négatif', 'Très central', 'Très subjectif', 'Négatif', 'Très central', 'Plutôt subjectif', [0.08, 0.20, 0.85, 0.09]);
   `,
 
   publications: `
@@ -226,32 +237,62 @@ const SUBSET_SQL = {
   audiovisual: `
     CREATE TABLE audiovisual (
       "o:id" VARCHAR, identifier VARCHAR, added_date VARCHAR, iwac_url VARCHAR,
-      iiif_manifest VARCHAR, "PDF" VARCHAR, thumbnail VARCHAR, title VARCHAR,
+      iiif_manifest VARCHAR, "PDF" VARCHAR, thumbnail VARCHAR, "URL" VARCHAR,
+      source_type VARCHAR, title VARCHAR,
       creator VARCHAR, publisher VARCHAR, country VARCHAR, pub_date VARCHAR,
       description VARCHAR, "descriptionAI" VARCHAR, volume VARCHAR, issue VARCHAR,
-      is_part_of VARCHAR, extent VARCHAR, medium VARCHAR, subject VARCHAR,
+      is_part_of VARCHAR, extent VARCHAR, duration_seconds BIGINT, medium VARCHAR,
+      type VARCHAR, rights VARCHAR, contributor VARCHAR, subject VARCHAR,
       spatial VARCHAR, language VARCHAR, source VARCHAR, "OCR" VARCHAR
     );
-    -- descriptionAI is empty for BOTH rows, mirroring the real subset (0/1,771
-    -- filled); the transcription in "OCR" is the only text these items have.
-    -- medium carries the dataset's real carrier vocabulary (MEDIUM_VALUES),
+    -- ONE class, TWO populations, and the fixture must carry both or the server's
+    -- audiovisual contract is only half tested (issue #20):
+    --
+    --   deposited (601, 602) — a real file in "PDF"/iiif, a creator, a physical
+    --     carrier, and Nigerian Hausa/Arabic content. 47 rows in the corpus.
+    --   youtube   (603)      — NO file at all: the media holds a thumbnail
+    --     derivative only, so "PDF" and iiif_manifest are empty and the video
+    --     lives at its "URL". No creator; the publisher is the CHANNEL. 1,724
+    --     rows in the corpus and climbing.
+    --
+    -- Getting this split wrong is not hypothetical: while the fixture held two
+    -- deposited Nigerian rows, country="Burkina Faso" and every YouTube-shaped
+    -- assumption passed the hermetic suite by never being exercised.
+    --
+    -- descriptionAI is empty for ALL rows, mirroring the real subset (0/1,771
+    -- filled); description is the item's own blurb and, for 602 and 603, its
+    -- ONLY text — the post-harvest majority case (1,465 of 1,771 rows carry one;
+    -- 50 carry a transcription). 601 has both, so the rows cover the fetch body
+    -- order: transcription wins where there is one, description stands in where
+    -- not. medium carries the dataset's real carrier vocabulary (MEDIUM_VALUES),
     -- not the "audio"/"video" modality words this fixture used to invent — a
     -- fixture that agrees with itself but not with the corpus is how the medium
     -- filter shipped validating against values no row could ever hold.
-    -- description is the item's own blurb and, for 602, its ONLY text — the
-    -- post-harvest majority case (1,465 of 1,771 rows carry one; 50 carry a
-    -- transcription). 601 has both, so the two rows cover the fetch body order:
-    -- transcription wins where there is one, description stands in where not.
+    -- extent is an ISO-8601 duration, as in the parquet ("PT58M", not "58 min").
     INSERT INTO audiovisual VALUES
-      ('601', 'av-601', '2023-05-01', '${IWAC}601', '', 'https://example.org/media/601.mp3', '',
+      ('601', 'av-601', '2023-05-01', '${IWAC}601', 'https://islam.zmo.de/iiif/3/601/manifest',
+       'https://example.org/media/601.mp3', '', '', 'deposited',
        'Tafsir du Ramadan à Kano', 'Sheikh Abubakar', 'Radio Kano', 'Nigeria', '2020-04-25',
        'Sheikh Abubakar explains the fasting rules that apply to a traveller.|Sheikh Abubakar ya bayyana hukuncin azumi ga matafiyi.',
-       '', '', '', 'Série Tafsir', '58 min', 'CD', 'Ramadan|Tafsir', 'Kano', 'Haoussa', 'Radio Kano',
+       '', '', '', 'Série Tafsir', 'PT58M', 3480, 'CD',
+       'Enregistrement vidéo', 'In Copyright - Rights-Holder(s) Unlocatable or Unidentifiable',
+       'Aleksei Akseshin|Vincent Favier', 'Ramadan|Tafsir', 'Kano', 'Haoussa', 'Radio Kano',
        'Bismillah. Sannu da zuwa. Tafsirin yau yana magana kan azumin Ramadan da sadaka.'),
-      ('602', 'av-602', '2023-06-12', '${IWAC}602', '', 'https://example.org/media/602.mp4', '',
+      ('602', 'av-602', '2023-06-12', '${IWAC}602', '', 'https://example.org/media/602.mp4', '', '', 'deposited',
        'Friday sermon in Abuja', 'Imam Yusuf', '', 'Nigeria', '2021-06-11',
        'Retransmission intégrale du prêche, suivie d''un appel à la concorde entre les communautés.',
-       '', '', '', '', '41 min', 'Vidéo sur le web', 'Prêche', 'Abuja', 'Arabe|Anglais', '', '');
+       '', '', '', '', 'PT41M', 2460, 'DVD',
+       'Enregistrement vidéo', 'In Copyright - Rights-Holder(s) Unlocatable or Unidentifiable',
+       'Aleksei Akseshin|Vincent Favier', 'Prêche', 'Abuja', 'Arabe|Anglais', '', ''),
+      -- The harvested cohort: Burkinabè, francophone, no file, no creator, no
+      -- transcription — reachable only by title, channel and its own blurb.
+      ('603', 'av-603', '2024-05-21', '${IWAC}603', '', '',
+       'https://islam.zmo.de/files/medium/603.jpg', 'https://www.youtube.com/watch?v=xcGWG5msEEs', 'youtube',
+       'FAIB : installation du nouveau président', '',
+       'RTB - Radiodiffusion Télévision du Burkina', 'Burkina Faso', '2024-05-20',
+       'La Fédération des associations islamiques du Burkina a installé son nouveau bureau à Ouagadougou, en présence des responsables coutumiers et religieux.',
+       '', '', '', '', 'PT6M51S', 411, 'Vidéo sur le web',
+       'Enregistrement vidéo', 'In Copyright', 'Frédérick Madore', '', 'Ouagadougou', 'Français', '', '');
   `,
 
   images: `

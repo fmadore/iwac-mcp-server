@@ -1,14 +1,14 @@
 {
   "tokenizer": "o200k_base",
-  "footprint": 14469,
+  "footprint": 14880,
   "instructions": 1512,
   "tools": {
     "search": 629,
-    "fetch": 350,
+    "fetch": 358,
     "search_articles": 490,
     "get_article": 254,
-    "search_by_sentiment": 379,
-    "get_sentiment_distribution": 656,
+    "search_by_sentiment": 380,
+    "get_sentiment_distribution": 716,
     "search_index": 236,
     "get_index_entry": 136,
     "list_subjects": 158,
@@ -32,9 +32,9 @@
     "get_reference": 151,
     "search_documents": 267,
     "get_document": 253,
-    "search_audiovisual": 286,
-    "list_audiovisual": 197,
-    "get_audiovisual": 147,
+    "search_audiovisual": 474,
+    "list_audiovisual": 299,
+    "get_audiovisual": 199,
     "search_images": 394,
     "get_image": 149
   }

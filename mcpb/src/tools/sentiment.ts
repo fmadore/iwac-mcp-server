@@ -33,15 +33,18 @@ import {
 } from "./_shared.js";
 
 /**
- * Shipped with every subjectivity block. Measured on the generation-2 pilot
- * (2026-07-29): pairwise κ 0.093-0.470, and one model reproduced its own answer
+ * Shipped with every subjectivity block. Pairwise κ across the four generation-2
+ * models, measured on the whole 2026-08-17 revision, runs 0.16-0.47 — the
+ * weakest of the three scales by a wide margin (centrality runs 0.46-0.72 on the
+ * same rows) — and on the 2026-07-29 pilot one model reproduced its own answer
  * on a re-run only 47% of the time. That is weak enough that a reader who gets
  * the number without the caveat will over-read it, and the number is cheap
  * enough to ship that withholding it entirely is worse.
  */
 const SUBJECTIVITY_CAVEAT =
-  "Weakest of the three scales: inter-model agreement κ 0.093-0.470 and self-consistency as low as 47% on " +
-  "re-run. Treat as weak evidence and never report it without this caveat; polarity and centrality are far stronger.";
+  "Weakest of the three scales: inter-model agreement κ 0.16-0.47 across the four models, and self-consistency as " +
+  "low as 47% on re-run. Treat as weak evidence and never report it without this caveat; polarity and centrality " +
+  "are far stronger.";
 
 // Small, stable envelope → worth a structured-output contract. Distributions
 // are optional because the sentiment columns may be absent from a revision.
@@ -67,9 +70,10 @@ export function registerSentimentTools(server: Server): void {
       ...toolMeta("Filter articles by AI sentiment"),
       description:
         `Filter articles by ${DEFAULT_SENTIMENT_MODEL.id} sentiment labels (accent/case-insensitive exact ` +
-        "match). One model's reading, not a consensus — two other models scored the same articles and often " +
-        "disagree; get_sentiment_distribution with model:\"all\" shows by how much. `subjectivity` is much the " +
-        "weakest of the three scales, so treat a set selected on it as a lead to read rather than as a finding.",
+        `match). One model's reading, not a consensus — ${SENTIMENT_MODEL_IDS.length - 1} other models scored the ` +
+        'same articles and often disagree; get_sentiment_distribution with model:"all" shows by how much. ' +
+        "`subjectivity` is much the weakest of the three scales, so treat a set selected on it as a lead to read " +
+        "rather than as a finding.",
       inputSchema: z.object({
         polarity: z
           .string()
@@ -149,11 +153,12 @@ export function registerSentimentTools(server: Server): void {
     {
       ...toolMeta("Aggregate AI sentiment"),
       description:
-        "Aggregate AI polarity, centrality and subjectivity across a filter set. Three models scored the " +
-        `corpus independently — ${SENTIMENT_MODEL_IDS.join(", ")} — so model:"all" returns each one's ` +
-        "distribution plus how often they AGREE. Treat disagreement as a fact about the judgement rather than " +
-        "noise: in a set where the three models split on polarity, no single model's number should be quoted " +
-        "alone. All three scales are ordinal French labels; subjectivity is much the weakest and ships a caveat " +
+        `Aggregate AI polarity, centrality and subjectivity across a filter set. ${SENTIMENT_MODEL_IDS.length} ` +
+        `models scored the corpus independently — ${SENTIMENT_MODEL_IDS.join(", ")} — so model:"all" returns ` +
+        "each one's distribution plus how often they AGREE. Treat disagreement as a fact about the judgement " +
+        "rather than noise: corpus-wide the panel is unanimous on polarity for only ~36% of articles, so in a " +
+        "set where the models split no single one's number should be quoted alone. All three scales are ordinal " +
+        "French labels; subjectivity is much the weakest and ships a caveat " +
         "to quote with it. Articles were scored whether or not their full text ships, so these shares are not " +
         "subject to the OCR coverage limit; compare scored_by_all against total_articles for the residual gap " +
         "(the ~51 non-francophone articles are unscored by design).",
@@ -167,9 +172,11 @@ export function registerSentimentTools(server: Server): void {
           .optional()
           .describe(
             `${SENTIMENT_MODEL_IDS.join(" | ")} | all — default ${DEFAULT_SENTIMENT_MODEL.id}; ` +
-              '"all" adds the cross-model agreement. The vendor shorthands chatgpt/mistral/deepseek also ' +
-              "resolve to the model that ran. The generation-1 models (gemini-3-flash-preview, gpt-5-mini, " +
-              "ministral-14b-2512) are no longer served and return an error rather than a substitute.",
+              `"all" adds the cross-model agreement. The vendor shorthands ` +
+              `${SENTIMENT_MODELS.map((m) => m.aliases[0]).join("/")} also resolve to the model that ran. The ` +
+              "generation-1 models (gemini-3-flash-preview, gpt-5-mini, ministral-14b-2512) are no longer served " +
+              "and return an error rather than a substitute — and 'gemini' is refused rather than read as " +
+              "gemma-4-31b-it, which is a different model line.",
           ),
       }),
       outputSchema: SENTIMENT_DISTRIBUTION_OUTPUT,

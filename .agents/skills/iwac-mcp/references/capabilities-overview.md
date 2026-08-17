@@ -40,7 +40,7 @@ Because reports are date-stamped and location-specific, the collection also supp
 - **Curated themes** — 214 subject tags (Hadj, Laïcité, Ramadan, Éducation islamique…) for precise, pre-classified slices.
 - **People, organisations, places** — find the canonical name among the 4,700 index records, then pull every article that mentions it.
 - **Conceptual (semantic) search** in any language, when keywords would miss paraphrases — "Islamic education reform" also surfaces madrasa-modernisation pieces.
-- **Tone and framing** — nearly every article carries AI sentiment labels (polarity, centrality, subjectivity) from three independent models, so you can also ask how far the models agree before trusting a reading.
+- **Tone and framing** — nearly every article carries AI sentiment labels (polarity, centrality, subjectivity) from four independent models, so you can also ask how far the models agree before trusting a reading. They agree on tone for barely a third of the corpus, which is itself worth knowing.
 - **Trends over time** — chart how coverage of a topic rose and fell year by year (per country or outlet), directly, without leafing through the articles themselves.
 - **The shape of a body of material** — instead of reading a set, describe it: which of 30 automatically-derived topics it falls into, which subjects or places or bylines dominate it, what gets discussed alongside what, where on a map it points, how its prose reads. Useful when you don't yet know what to search for.
 - **Finding the same story twice** — given one article, surface the pieces closest to it in meaning, which is how syndicated reports and rewrites show up.

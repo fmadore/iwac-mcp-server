@@ -266,6 +266,51 @@ if (avId) {
 } else {
   fail("search_audiovisual returned no id to drill into");
 }
+// The harvested cohort, which the deposited-row checks above cannot see. These
+// rows have NO file, so before v3.2.0 a page of results offered no way to reach
+// the video and no way to tell "no file" from "broken record" (issue #20). Only
+// the live dataset can catch a schema drift here: the fixture agrees with itself.
+const yt = await call("search_audiovisual", { source_type: "youtube", limit: 5 }, {
+  check: (p) => {
+    if (!(p.total_matches > 1000)) return `expected the harvested majority, got ${p.total_matches}`;
+    const row = p.results?.[0];
+    if (!row) return "no harvested row returned";
+    if (row.source_type !== "youtube") return `source_type not echoed on the row: ${row.source_type}`;
+    if (!row.external_url) return "a harvested row must carry the URL where the video plays";
+    if (row.media_url) return "a harvested row has no file, so media_url must stay absent";
+    if (!(row.duration_seconds > 0)) return `expected a duration in seconds, got ${row.duration_seconds}`;
+    return null;
+  },
+});
+const ytId = yt?.results?.[0]?.id;
+if (ytId) {
+  await call("get_audiovisual", { audiovisual_id: Number(ytId) }, {
+    check: (p) => {
+      if (!p.url?.includes("/item/")) return "get_audiovisual missing the IWAC page";
+      if (!p.external_url) return "get_audiovisual missing the watch URL for a harvested row";
+      if (!p.publisher) return "a harvested row should name its channel";
+      if (!p.rights) return "get_audiovisual missing rights";
+      return null;
+    },
+  });
+} else {
+  fail("no harvested audiovisual row to drill into");
+}
+await call("search_audiovisual", { source_type: "deposited", limit: 1 }, {
+  check: (p) => (p.total_matches > 0 && p.total_matches < 200 ? null : `deposited count looks wrong: ${p.total_matches}`),
+});
+await call("search_audiovisual", { source_type: "vhs" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("valid_values") ? null : "an invalid source_type should error with valid_values"),
+});
+// The channel facet, and the country the subset used not to have. Both are
+// substring/pipe matches on live values, so a rename upstream shows up here.
+await call("search_audiovisual", { publisher: "RTB", limit: 1 }, {
+  check: (p) => (p.total_matches > 100 ? null : `the RTB channel should be well represented, got ${p.total_matches}`),
+});
+await call("list_audiovisual", { country: "Burkina Faso", limit: 1 }, {
+  check: (p) => (p.total_matches > 500 ? null : `Burkina Faso audiovisual looks wrong: ${p.total_matches}`),
+});
 await call("get_index_entry", { entry_id: 376 });
 
 // --- references -------------------------------------------------------------
@@ -510,20 +555,24 @@ await call("get_similar_items", { id: "999999999" }, {
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,
   check: (p) => {
-    if (p.models?.length !== 3) return `expected 3 models, got ${p.models}`;
+    if (p.models?.length !== 4) return `expected 4 models, got ${p.models}`;
     const a = p.agreement;
     if (!a) return "no agreement block";
-    // 12,305 of 12,356 — the ~51 non-francophone articles are unscored by
+    // 12,298 of 12,349 — the ~51 non-francophone articles are unscored by
     // design, so this is deliberately not asserted equal to total_articles.
-    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all three (was 12,305)`;
-    // ~43% unanimous across generation 2. A jump to 100% would mean the three
-    // columns had collapsed onto one another upstream.
-    if (a.unanimous_percent < 25 || a.unanimous_percent > 95)
-      return `three-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
+    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all four (was 12,298)`;
+    // ~36% unanimous across all four (43% for the first three). A jump to 100%
+    // would mean the columns had collapsed onto one another upstream.
+    if (a.unanimous_percent < 20 || a.unanimous_percent > 95)
+      return `four-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
+    // 4 models → 6 unordered pairs. A count of 3 would mean a member is being
+    // dropped before the agreement pass.
+    if (Object.keys(a.pairwise ?? {}).length !== 6)
+      return `expected 6 pairwise counts, got ${JSON.stringify(a.pairwise)}`;
     // The models must be named for what actually ran, and they must be the
-    // generation-2 three: a generation-1 id reappearing here means the registry
+    // generation-2 four: a generation-1 id reappearing here means the registry
     // has been re-pointed at columns whose prompt and dtype differ.
-    const expected = ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731"];
+    const expected = ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731", "gemma-4-31b-it"];
     const missing = expected.filter((m) => !p.models.includes(m));
     if (missing.length) return `models should be the exact model ids, missing ${missing} (got ${p.models})`;
     // Subjectivity is an ordinal LABEL in generation 2. A numeric bucket key
@@ -540,13 +589,32 @@ await call("get_sentiment_distribution", { model: "chatgpt" }, {
   structured: true,
   check: (p) => (p.model === "gpt-5-6-luna" ? null : `vendor alias should resolve to the model id, got ${p.model}`),
 });
+// The Google slot, whose two handles resolve differently ON PURPOSE: `google`
+// is a vendor and lands on that vendor's generation-2 member; `gemini` names a
+// model line that only ran generation 1, so it errors rather than being read as
+// Gemma. Asserted against the live columns because this is exactly the pair a
+// registry edit gets wrong.
+await call("get_sentiment_distribution", { model: "google" }, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "gemma-4-31b-it") return `the google shorthand should resolve to Gemma, got ${p.model}`;
+    const dist = p.polarity_distribution ?? {};
+    const scored = Object.values(dist).reduce((a, b) => a + b, 0);
+    if (scored < 12_000) return `gemma scored only ${scored} articles on polarity (was 12,298)`;
+    if (typeof p.subjectivity?.distribution?.["Très objectif"] !== "number")
+      return `gemma subjectivity is not keyed by label: ${JSON.stringify(p.subjectivity?.distribution)}`;
+    return null;
+  },
+});
 // Generation 1 is dropped: its ids must fail by name rather than answer with
 // the same vendor's generation-2 model.
-await call("get_sentiment_distribution", { model: "gpt-5-mini" }, {
-  expectError: true,
-  checkBody: (b) =>
-    b.includes("generation-2") ? null : `a generation-1 id should be refused by name, got: ${b.slice(0, 200)}`,
-});
+for (const retired of ["gpt-5-mini", "gemini"]) {
+  await call("get_sentiment_distribution", { model: retired }, {
+    expectError: true,
+    checkBody: (b) =>
+      b.includes("generation-2") ? null : `${retired} should be refused by name, got: ${b.slice(0, 200)}`,
+  });
+}
 await call("get_article", { article_id: 67613 }, {
   check: (p) => (p.description_ai ? null : "get_article lacks description_ai"),
 });

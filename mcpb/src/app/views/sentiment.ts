@@ -1,15 +1,20 @@
 // get_sentiment_distribution → the AI polarity and centrality mixes, and —
-// with model:"all" — how far the three models agree.
+// with model:"all" — how far the panel's models agree.
 //
 // All three vocabularies are ordinal French scales, so the slices go round in
 // scale order with a scale-carrying palette (diverging for polarity, sequential
 // for centrality and subjectivity). Alphabetical slices in arbitrary hues would
 // throw away the ordering, which is most of what these fields say.
 //
-// The cross-model half is deliberately blunt. When three models score the same
-// article and unanimously agree only about half the time, the honest headline
+// The cross-model half is deliberately blunt. When four models score the same
+// article and all four agree only about a third of the time, the honest headline
 // is the agreement rate, and the confusion matrix showing WHERE they part is
 // worth more than any one model's donut.
+//
+// Every count here comes from the payload's own `models` array, never from a
+// number written into the prose: the panel gained a fourth member in v3.2.0, and
+// a chart that says "three models" over four rings is worse than one that says
+// nothing.
 import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { donut, heatmapMatrix, horizontalBar, legend } from "../svg.js";
 import {
@@ -116,13 +121,13 @@ function singleModel(p: SentimentPayload, block: ModelBlock, model: string): Vie
         : null,
       `${model} scored articles whether or not their full text ships, so these shares are not affected by the ` +
         "OCR coverage limit — the reconciliation above is the only coverage gap.",
-      "Three models scored this corpus independently. Ask for all of them to see how far they agree before " +
+      "Several models scored this corpus independently. Ask for all of them to see how far they agree before " +
         "quoting any single one.",
     ],
     actions: [
       {
         id: "all",
-        label: "Compare all three models",
+        label: "Compare all models",
         run: (ctx) =>
           ctx.run("get_sentiment_distribution", {
             model: "all",
@@ -162,7 +167,7 @@ function singleModel(p: SentimentPayload, block: ModelBlock, model: string): Vie
   };
 }
 
-/** Panels for model:"all": three polarity rings, the agreement rates, and where they part. */
+/** Panels for model:"all": one polarity ring per model, the agreement rates, and where they part. */
 function allModels(p: SentimentPayload): ViewResult {
   const models = p.models ?? Object.keys(p.by_model ?? {});
   const byModel = p.by_model ?? {};
@@ -179,7 +184,7 @@ function allModels(p: SentimentPayload): ViewResult {
     ? horizontalBar({
         items: [
           ...pairs.map(([key, n]) => ({ label: key.replace("~", " ↔ "), value: n })),
-          { label: "all three", value: agreement?.unanimous ?? 0 },
+          { label: `all ${models.length}`, value: agreement?.unanimous ?? 0 },
         ],
         format: (v) => `${fmtInt(v)} (${fmtPct(scoredAll ? v / scoredAll : 0)})`,
         gutter: 180,
@@ -210,7 +215,7 @@ function allModels(p: SentimentPayload): ViewResult {
     : "";
 
   return {
-    title: "AI sentiment — three models compared",
+    title: `AI sentiment — ${models.length} models compared`,
     subtitle:
       `${fmtInt(p.total_articles ?? 0)} articles · unanimous on polarity for ` +
       `${fmtInt(agreement?.unanimous ?? 0)} (${agreement?.unanimous_percent ?? 0}%)`,
@@ -223,15 +228,15 @@ function allModels(p: SentimentPayload): ViewResult {
       ]),
     notes: [
       agreement && agreement.unanimous_percent !== undefined
-        ? `The three models agree on polarity for ${agreement.unanimous_percent}% of scored articles. Treat that ` +
-          `as the confidence floor for any single model's number quoted from this selection.`
+        ? `All ${models.length} models agree on polarity for ${agreement.unanimous_percent}% of scored articles. ` +
+          `Treat that as the confidence floor for any single model's number quoted from this selection.`
         : null,
       confusion
         ? "The confusion matrix blanks its agreeing diagonal, which holds most of the mass; the colour scale is " +
           "over the disagreements only."
         : null,
-      "All three scored the same articles, whether or not their full text ships — see scored_by_all above for " +
-        "how many carry all three judgements.",
+      `All ${models.length} scored the same articles, whether or not their full text ships — see scored_by_all ` +
+        `above for how many carry all ${models.length} judgements.`,
     ],
     actions: [
       {

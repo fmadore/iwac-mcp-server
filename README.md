@@ -175,14 +175,17 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
 - **12,000+ newspaper articles** from Benin, Burkina Faso, Côte d'Ivoire, Niger,
   and Togo, 1960s–present (mostly French), each with an AI abstract and AI
   sentiment analysis (polarity / centrality / subjectivity), scored
-  independently by `gpt-5-6-luna`, `mistral-small-2603` and
-  `deepseek-v4-flash-0731`
+  independently by four models — `gpt-5-6-luna` (the one the inline columns
+  report), `mistral-small-2603`, `deepseek-v4-flash-0731` and `gemma-4-31b-it`.
+  All four agree on polarity for only ~36% of articles, so
+  `get_sentiment_distribution(model="all")` is the honest way to quote a figure
 - **4,700+ authority records** (persons, organisations, places, events, subjects)
 - **1,500+ Islamic publications** (periodical issues, books) with full OCR
 - **860+ academic references**, half with abstracts
 - **1,700+ audiovisual items** — francophone web video from Burkina Faso, Togo
-  and Benin, plus deposited Nigerian Hausa/Arabic recordings — and archival
-  documents
+  and Benin (harvested from public channels, still growing, searchable by
+  channel and reachable through a watch URL), plus 47 deposited Nigerian
+  Hausa/Arabic recordings with files — and archival documents
 
 ## Architecture
 

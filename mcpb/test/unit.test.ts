@@ -21,6 +21,7 @@ import {
   COUNTRIES,
   countryParam,
   dateRangeFilter,
+  DEFAULT_SENTIMENT_MODEL,
   escapeLike,
   extractMatchingTocEntries,
   FAST_TEXT_COLS,
@@ -541,14 +542,31 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
 // these guard the invariant that survives the next campaign: a handle either
 // names a model this server serves, or fails loudly. Nothing in between.
 describe("sentiment model registry (generation 2)", () => {
-  it("serves the three generation-2 models and builds their column names", () => {
-    assert.deepEqual(SENTIMENT_MODEL_IDS, ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731"]);
+  it("serves the four generation-2 models and builds their column names", () => {
+    assert.deepEqual(SENTIMENT_MODEL_IDS, [
+      "gpt-5-6-luna",
+      "mistral-small-2603",
+      "deepseek-v4-flash-0731",
+      "gemma-4-31b-it",
+    ]);
     const deepseek = resolveSentimentModel("deepseek");
     assert.ok(deepseek, "deepseek should resolve");
     const cols = sentimentCols(deepseek);
     assert.equal(cols.polarity, "deepseek_v4_flash_0731_polarite");
     assert.equal(cols.centrality, "deepseek_v4_flash_0731_centralite_islam_musulmans");
     assert.equal(cols.subjectivity, "deepseek_v4_flash_0731_subjectivite_score");
+    const gemma = resolveSentimentModel("gemma-4-31b-it");
+    assert.ok(gemma, "gemma should resolve");
+    assert.equal(sentimentCols(gemma).polarity, "gemma_4_31b_it_polarite");
+    assert.equal(sentimentCols(gemma).subjectivity, "gemma_4_31b_it_subjectivite_score");
+  });
+
+  // Adding a model must NOT move the default: every inline `polarity` this
+  // server has returned is Luna's, so re-pointing it would silently re-label
+  // them all while nothing in the payload shape changed.
+  it("keeps gpt-5-6-luna as the single-model default", () => {
+    assert.equal(DEFAULT_SENTIMENT_MODEL.id, "gpt-5-6-luna");
+    assert.equal(sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity, "gpt_5_6_luna_polarite");
   });
 
   it("resolves ids, vendor shorthand and raw column prefixes alike", () => {
@@ -556,16 +574,25 @@ describe("sentiment model registry (generation 2)", () => {
       assert.equal(resolveSentimentModel(handle)?.id, "gpt-5-6-luna", handle);
     }
     assert.equal(resolveSentimentModel("mistral_small_2603")?.id, "mistral-small-2603");
+    // `google` is a VENDOR shorthand, so it lands on that vendor's generation-2
+    // member exactly as `mistral` and `chatgpt` do — see the `gemini` case below
+    // for the line this does not cross.
+    for (const handle of ["gemma", "gemma_4_31b_it", "google", "GOOGLE"]) {
+      assert.equal(resolveSentimentModel(handle)?.id, "gemma-4-31b-it", handle);
+    }
   });
 
   // The load-bearing one. A generation-1 id must not quietly land on the same
   // vendor's generation-2 model: they scored the corpus differently, so the
-  // answer would be right-shaped and wrong.
+  // answer would be right-shaped and wrong. `gemini` is the sharpest case —
+  // Google DOES have a generation-2 member now, but it is Gemma, a different
+  // model line, so the handle stays refused rather than being re-pointed.
   it("refuses retired handles instead of re-pointing them at a successor", () => {
     for (const retired of ["gpt-5-mini", "gemini-3-flash-preview", "ministral-14b-2512", "gemini", "ministral"]) {
       assert.equal(resolveSentimentModel(retired), undefined, `${retired} must not resolve`);
       assert.ok(retiredSentimentModel(retired), `${retired} must explain itself`);
     }
+    assert.match(retiredSentimentModel("gemini") ?? "", /gemma-4-31b-it/);
     assert.equal(retiredSentimentModel("llama"), undefined); // never a model here, so just unknown
   });
 

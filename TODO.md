@@ -204,7 +204,8 @@
 > this list (June 2026): references abstract 51% / subject 27%; publications TOC
 > **325/1,501** (complete for 17/25 series; Islam Info, An-Nasr Vendredi and
 > Islam Hebdo still have none), subject 87%, OCR 97% (median ~16k, max ~278k
-> tokens/issue); audiovisual descriptionAI **0/45**.
+> tokens/issue); audiovisual descriptionAI **0/1,771** (August 2026, after the
+> YouTube harvest — `description` covers 1,465 of those rows instead).
 
 ### Islamic calendar
 
@@ -263,17 +264,25 @@
   table/subset, so users can search *within* periodicals without loading a
   full (up to ~278k-token) OCR blob.
 
-### Audiovisual (47 rows)
+### Audiovisual (1,771 rows and growing — 47 deposited, the rest harvested)
 
 - [ ] **Populate `descriptionAI`** — the column exists but is empty for all
-  47 rows (`length(trim(...)) = 0`; a bare `COUNT()` claims 47/47 because the
-  parquet stores empty strings, not NULLs). Partly mitigated since July 2026:
-  the subset gained an `OCR` transcription column, which the server now serves
-  as the item body (`transcription` on `get_audiovisual`, `text` on `fetch`) and
-  searches — but only **4 of 47** rows have one, so AI descriptions remain the
-  browsable surface this subset needs.
-- [ ] **Transcribe the remaining 43 recordings** — Hausa/Arabic audio; the 4
-  existing transcriptions prove the column and the server path work end to end.
+  1,771 rows (`length(trim(...)) = 0`; a bare `COUNT()` claims full coverage
+  because the parquet stores empty strings, not NULLs). Mitigated twice over:
+  the subset gained an `OCR` transcription column in July 2026, and the harvest
+  brought each video's own `description` (1,465 rows), which the server searches
+  and serves as the body when no transcription exists. AI summaries would still
+  add the one thing neither gives — a consistent, quotable synopsis across both
+  cohorts.
+- [ ] **Transcribe the rest** — 50 of 1,771 rows carry a transcription. The
+  deposited Hausa/Arabic recordings are the hard ones; the francophone YouTube
+  cohort is now the larger prize and the easier transcription target, and it is
+  what would let `search_audiovisual` reach what was actually *said* rather than
+  what the channel wrote in its blurb.
+- [x] **Serve the harvested cohort honestly** — `source_type`, `external_url`,
+  `duration_seconds`, `rights`/`contributor`, a `publisher` (channel) filter and
+  two-cohort fixtures shipped in **v3.2.0**, closing
+  [#20](https://github.com/fmadore/iwac-mcp-server/issues/20).
 
 ### Images (30 rows, new July 2026)
 
