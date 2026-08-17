@@ -57,7 +57,7 @@ const INSTRUCTIONS =
   "in imprecise_date_count and are ABSENT from lunar counts, not zero. They do not exist for references " +
   "(an academic imprint date has no meaningful lunar reading).\n\n" +
   "FULL-TEXT COVERAGE: this is the public dataset, and OCR full text ships only for items whose " +
-  "content is public on islam.zmo.de — about 61% of articles (7,549/12,356) and 86% of " +
+  "content is public on islam.zmo.de — about 61% of articles (7,546/12,349) and 86% of " +
   "publications (1,298/1,501). Titles, subjects and AI abstracts (French AND English) are searchable for ALL items, so " +
   "nothing is invisible, but the full-text half of a keyword match covers only those shares. Call " +
   "get_collection_stats for the live `fulltext_coverage` figures, treat keyword totals as a floor " +

@@ -180,7 +180,9 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
 - **4,700+ authority records** (persons, organisations, places, events, subjects)
 - **1,500+ Islamic publications** (periodical issues, books) with full OCR
 - **860+ academic references**, half with abstracts
-- Archival documents and Nigerian audiovisual materials
+- **1,700+ audiovisual items** — francophone web video from Burkina Faso, Togo
+  and Benin, plus deposited Nigerian Hausa/Arabic recordings — and archival
+  documents
 
 ## Architecture
 
@@ -233,7 +235,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 3.0.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 3.1.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -241,7 +243,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {3.0.0},
+  version   = {3.1.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

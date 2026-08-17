@@ -210,8 +210,8 @@ await call("search", { query: "mosquée" }, {
   structured: true,
   check: (p) => (p.results?.some((r) => r.category === "images") ? null : "images subset missing from unified search"),
 });
-// Audiovisual items have no descriptionAI at all (0/47 in the real subset); the
-// transcription is their only text, so fetch must return it as `text`.
+// Audiovisual items have no descriptionAI at all (0/1,771 in the real subset);
+// the transcription is their only text, so fetch must return it as `text`.
 await call("fetch", { id: "audiovisual:601" }, {
   structured: true,
   check: (p) => {
@@ -947,8 +947,10 @@ await call("search_audiovisual", { language: "Haoussa" }, {
 await call("search_audiovisual", { language: "Anglais" }, {
   check: (p) => (p.total_matches === 1 ? null : "pipe language Arabe|Anglais should match Anglais"),
 });
-await call("search_audiovisual", { medium: "VIDEO" }, {
-  check: (p) => (p.total_matches === 1 ? null : `case-folded medium should match 1 video, got ${p.total_matches}`),
+// Unaccented and lower-cased: the real vocabulary is accented French
+// ("Vidéo sur le web"), so a caller typing it plainly must still match.
+await call("search_audiovisual", { medium: "video sur le web" }, {
+  check: (p) => (p.total_matches === 1 ? null : `case/accent-folded medium should match 1 video, got ${p.total_matches}`),
 });
 await call("search_audiovisual", { medium: "vinyl" }, {
   expectError: true,
@@ -959,13 +961,59 @@ await call("list_audiovisual", {}, {
 });
 await call("get_audiovisual", { audiovisual_id: 601 }, {
   check: (p) => {
-    if (!p.media_url || p.medium !== "audio") return "get_audiovisual missing media_url/medium";
+    if (!p.media_url || p.medium !== "CD") return "get_audiovisual missing media_url/medium";
     if (!p.transcription) return "get_audiovisual should expose the OCR transcription";
+    if (!p.description?.includes("matafiyi")) return "get_audiovisual should expose the full description";
     return null;
   },
 });
 await call("search_audiovisual", { keyword: "Tafsirin" }, {
   check: (p) => (p.total_matches === 1 ? null : `transcription text should be searchable, got ${p.total_matches}`),
+});
+// `description` is the only text 1,465 of the 1,771 real rows have, so it must be
+// in the search surface — and in the FAST half of it, since the unified `search`
+// only falls through to the heavy transcription scan when a page under-fills.
+await call("search_audiovisual", { keyword: "concorde" }, {
+  check: (p) => (p.total_matches === 1 ? null : `description text should be searchable, got ${p.total_matches}`),
+});
+await call("search", { query: "concorde" }, {
+  structured: true,
+  check: (p) =>
+    p.results?.some((r) => r.id === "audiovisual:602")
+      ? null
+      : "an audiovisual item should be findable through unified search by its description alone",
+});
+// Search rows carry a capped snippet, not the whole blurb; the full text is one
+// get_audiovisual away. Mirrors references' abstract_snippet.
+await call("search_audiovisual", { keyword: "Retransmission" }, {
+  check: (p) => {
+    const row = p.results?.[0];
+    if (!row) return "no row to inspect for the description snippet";
+    if (!row.description_snippet?.includes("Retransmission")) return "search rows should carry description_snippet";
+    if (row.description) return "search rows should carry the snippet, not the full description";
+    return null;
+  },
+});
+// 602 has a description and no transcription: `fetch` must answer with the
+// description rather than "(no full text available)", and say which it gave.
+await call("fetch", { id: "audiovisual:602" }, {
+  structured: true,
+  check: (p) => {
+    if (!p.text?.includes("Retransmission")) return `fetch should fall back to the description, got: ${String(p.text).slice(0, 60)}`;
+    if (p.text_source !== "description") return "fetch should disclose that `text` is the description, not a transcription";
+    if (p.metadata?.description) return "the description should not be repeated in metadata once it IS the text";
+    return null;
+  },
+});
+// 601 has both: the transcription is the body, and the description stays beside it.
+await call("fetch", { id: "audiovisual:601" }, {
+  structured: true,
+  check: (p) => {
+    if (!p.text?.includes("Tafsirin")) return "fetch should prefer the transcription over the description";
+    if (p.text_source) return "text_source should be absent when the body column supplied the text";
+    if (!p.metadata?.description) return "the description should ride in metadata when the transcription is the text";
+    return null;
+  },
 });
 
 // --- images (photographs) ------------------------------------------------------

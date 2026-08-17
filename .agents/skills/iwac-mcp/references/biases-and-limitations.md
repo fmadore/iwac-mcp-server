@@ -8,7 +8,7 @@ Systematic biases and constraints to disclose when producing research outputs.
 
 - **Overrepresentation** of Western-educated Muslim perspectives, state-affiliated media, and mainstream press framing
 - **Underrepresentation** of Arabic-language Islamic scholarship, Hausa-language media (especially Nigerian), vernacular-language religious discourse, and community-internal publications not mediated through French
-- **Partial mitigation:** The French-language press regularly gives voice to Arabic-speaking leaders (through interviews, reported speech, and coverage of their activities). The audiovisual subset also includes recordings in Hausa and Arabic.
+- **Partial mitigation:** The French-language press regularly gives voice to Arabic-speaking leaders (through interviews, reported speech, and coverage of their activities). The audiovisual subset carries some Hausa and Arabic (~43 items) and a little Mooré (10) -- but it is itself 97% French since the August 2026 web-video harvest, so it widens the *medium* far more than the *language*
 - **Implication:** Research questions about Islamic intellectual life, internal community debates, or non-francophone Muslim communities require acknowledging that IWAC captures primarily the French-language public sphere
 
 ## 2. Geographic Coverage Imbalance
@@ -22,7 +22,7 @@ The collection has **deep coverage** for some countries and **very thin coverage
 | Benin | 2,003 | Moderate: mixed secular and Islamic press |
 | Togo | 1,570 | Moderate: several newspapers across decades |
 | Niger | 1,061 | Thin: a **single outlet** (Le Sahel), **2018–2024 only**, inconsistent subject tagging |
-| Nigeria | 0 | No press articles at all — 47 audiovisual items only (July 2026) |
+| Nigeria | 0 | No press articles at all — 45 audiovisual recordings only |
 
 **IMPORTANT:** Niger and Nigeria are dramatically underrepresented compared to Benin, Burkina Faso, Côte d'Ivoire, and Togo. Niger coverage is one state newspaper over seven recent years — no historical depth, and many articles lack subject tagging (e.g., 0 articles tagged with "Hadj" despite Niger being a major hajj departure country). Nigeria has no press articles in the collection. Any cross-country comparison involving Niger or Nigeria must prominently disclose this gap. Patterns found in Niger data may reflect tagging gaps or the single-outlet/short-window bias rather than genuine differences.
 

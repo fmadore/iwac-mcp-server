@@ -36,7 +36,7 @@ const DESC_AI_SUBSETS = ["articles", "documents", "audiovisual"];
  * French: each uses vocabulary ("pilgrimage", "fasting") that appears nowhere
  * in the French text or the OCR, so a test matching one proves the English
  * column is really in the search surface rather than riding on a shared token.
- * Audiovisual is absent on purpose — 0/47 filled in the real subset.
+ * Audiovisual is absent on purpose — 0/1,771 filled in the real subset.
  */
 const DESC_AI_EN = {
   101: "Report on the pilgrimage of Beninese faithful to Mecca.",
@@ -228,20 +228,30 @@ const SUBSET_SQL = {
       "o:id" VARCHAR, identifier VARCHAR, added_date VARCHAR, iwac_url VARCHAR,
       iiif_manifest VARCHAR, "PDF" VARCHAR, thumbnail VARCHAR, title VARCHAR,
       creator VARCHAR, publisher VARCHAR, country VARCHAR, pub_date VARCHAR,
-      "descriptionAI" VARCHAR, volume VARCHAR, issue VARCHAR, is_part_of VARCHAR,
-      extent VARCHAR, medium VARCHAR, subject VARCHAR, spatial VARCHAR,
-      language VARCHAR, source VARCHAR, "OCR" VARCHAR
+      description VARCHAR, "descriptionAI" VARCHAR, volume VARCHAR, issue VARCHAR,
+      is_part_of VARCHAR, extent VARCHAR, medium VARCHAR, subject VARCHAR,
+      spatial VARCHAR, language VARCHAR, source VARCHAR, "OCR" VARCHAR
     );
-    -- descriptionAI is empty for BOTH rows, mirroring the real subset (0/47
+    -- descriptionAI is empty for BOTH rows, mirroring the real subset (0/1,771
     -- filled); the transcription in "OCR" is the only text these items have.
+    -- medium carries the dataset's real carrier vocabulary (MEDIUM_VALUES),
+    -- not the "audio"/"video" modality words this fixture used to invent — a
+    -- fixture that agrees with itself but not with the corpus is how the medium
+    -- filter shipped validating against values no row could ever hold.
+    -- description is the item's own blurb and, for 602, its ONLY text — the
+    -- post-harvest majority case (1,465 of 1,771 rows carry one; 50 carry a
+    -- transcription). 601 has both, so the two rows cover the fetch body order:
+    -- transcription wins where there is one, description stands in where not.
     INSERT INTO audiovisual VALUES
       ('601', 'av-601', '2023-05-01', '${IWAC}601', '', 'https://example.org/media/601.mp3', '',
        'Tafsir du Ramadan à Kano', 'Sheikh Abubakar', 'Radio Kano', 'Nigeria', '2020-04-25',
-       '', '', '', 'Série Tafsir', '58 min', 'audio', 'Ramadan|Tafsir', 'Kano', 'Haoussa', 'Radio Kano',
+       'Sheikh Abubakar explains the fasting rules that apply to a traveller.|Sheikh Abubakar ya bayyana hukuncin azumi ga matafiyi.',
+       '', '', '', 'Série Tafsir', '58 min', 'CD', 'Ramadan|Tafsir', 'Kano', 'Haoussa', 'Radio Kano',
        'Bismillah. Sannu da zuwa. Tafsirin yau yana magana kan azumin Ramadan da sadaka.'),
       ('602', 'av-602', '2023-06-12', '${IWAC}602', '', 'https://example.org/media/602.mp4', '',
        'Friday sermon in Abuja', 'Imam Yusuf', '', 'Nigeria', '2021-06-11',
-       '', '', '', '', '41 min', 'video', 'Prêche', 'Abuja', 'Arabe|Anglais', '', '');
+       'Retransmission intégrale du prêche, suivie d''un appel à la concorde entre les communautés.',
+       '', '', '', '', '41 min', 'Vidéo sur le web', 'Prêche', 'Abuja', 'Arabe|Anglais', '', '');
   `,
 
   images: `

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "iwac-mcp-server",
   "display_name": "Islam West Africa Collection (IWAC)",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
   "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual recordings, fieldwork photographs, archival documents, and academic references. Includes AI sentiment analysis (polarity/centrality/subjectivity, scored independently by gpt-5-6-luna, mistral-small-2603 and deepseek-v4-flash-0731), per-article AI abstracts, and per-year coverage timelines. All matching is accent- and case-insensitive.\n\n**No API key is required for the core tools** (cross-subset search/fetch, keyword search, filtering, statistics, timelines, item details). Three optional semantic-search tools use Gemini embeddings — over all articles, the publication series with tables of contents, and the photographs (cross-modal: describe what an image shows) — and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
   "author": {
@@ -175,15 +175,15 @@
     },
     {
       "name": "search_audiovisual",
-      "description": "Search audiovisual materials by keyword, transcription, and metadata (Nigeria; includes Hausa and Arabic recordings)."
+      "description": "Search audiovisual materials by keyword, transcription, and metadata (francophone web video from Burkina Faso, Togo and Benin; deposited Nigerian Hausa/Arabic recordings)."
     },
     {
       "name": "get_audiovisual",
-      "description": "Get full metadata, media URL, and transcription (where one exists) for a specific audiovisual record."
+      "description": "Get full metadata, description, media URL, and transcription (where one exists) for a specific audiovisual record."
     },
     {
       "name": "list_audiovisual",
-      "description": "List audiovisual materials (Nigeria; includes Hausa and Arabic recordings)."
+      "description": "List audiovisual materials (francophone web video from Burkina Faso, Togo and Benin; deposited Nigerian Hausa/Arabic recordings)."
     },
     {
       "name": "search_images",

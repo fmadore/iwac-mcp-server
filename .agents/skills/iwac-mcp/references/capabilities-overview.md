@@ -4,7 +4,7 @@ Source material for answering capability questions in plain language ("what can 
 
 ## What the collection is
 
-The Islam West Africa Collection (IWAC, <https://islam.zmo.de>) is a curated digital archive documenting Islam and Muslim life in francophone West Africa — Burkina Faso, Côte d'Ivoire, Benin, Togo and Niger (plus Nigerian audiovisual material) — from the 1960s to the 2020s. Where most digitisation projects in African studies focus on manuscripts, IWAC preserves the region's **print culture**: six decades of press coverage, and the publications Muslim communities produced about themselves.
+The Islam West Africa Collection (IWAC, <https://islam.zmo.de>) is a curated digital archive documenting Islam and Muslim life in francophone West Africa — Burkina Faso, Côte d'Ivoire, Benin, Togo and Niger (plus Nigerian audiovisual recordings) — from the 1960s to the 2020s. Where most digitisation projects in African studies focus on manuscripts, IWAC preserves the region's **print culture**: six decades of press coverage, and the publications Muslim communities produced about themselves.
 
 Six kinds of material:
 
@@ -12,7 +12,7 @@ Six kinds of material:
 - **~1,500 Islamic publications** — 25 periodicals produced by associations, mosques and schools (Islam Info, An-Nasr Vendredi, Plume Libre, ASSALAM, Le CERFIste…): the community's own voice, with concerns and theological positions often absent from the mainstream press.
 - **~4,700 index records** — curated authority entries for persons, organizations, places, events and subjects, linked to the articles that mention them.
 - **864 academic references** — scholarship on Islam in the region, mostly in French and English, with some other languages.
-- **26 association documents** (reports, flyers — mostly Burkina Faso) and **~47 audiovisual recordings** (Nigeria, incl. Hausa/Arabic).
+- **26 association documents** (reports, flyers — mostly Burkina Faso) and **~1,770 audiovisual items**: mainly francophone web video from Burkina Faso, Togo and Benin (broadcast reports, association and campus recordings, 2020s), plus 47 deposited Nigerian recordings in Hausa and Arabic.
 
 ## Why the press matters (talking points)
 

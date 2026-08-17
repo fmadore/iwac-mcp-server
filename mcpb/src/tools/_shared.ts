@@ -236,8 +236,17 @@ export function limitWarning(limit: ResolvedLimit): Record<string, unknown> {
 /** Canonical country names (HF storage form). Accents/case optional on input. */
 export const COUNTRIES = ["Benin", "Burkina Faso", "Côte d'Ivoire", "Niger", "Nigeria", "Togo"] as const;
 
-/** Audiovisual `medium` values (closed vocabulary in the dataset). */
-export const MEDIUM_VALUES = ["audio", "video"] as const;
+/**
+ * Audiovisual `medium` values (closed vocabulary in the dataset).
+ *
+ * These are CARRIER media, not modalities: "audio"/"video" were taken from the
+ * synthetic fixture rather than measured, and matched nothing in the real
+ * subset — every `medium` filter a caller could pass validation with returned
+ * zero rows, which is exactly the silent absence validateEnum exists to
+ * prevent. Measured against the 2026-08-17 revision: Vidéo sur le web 1,724,
+ * DVD 43, CD 1, empty 3.
+ */
+export const MEDIUM_VALUES = ["Vidéo sur le web", "DVD", "CD"] as const;
 
 /**
  * The standard `country` filter parameter, built once so the ~12 tools that take
@@ -940,11 +949,19 @@ const ID_URL = (views: FieldView[]): SubsetField[] => [
   { expr: "iwac_url", alias: "url", requires: ["iwac_url"], views },
 ];
 
+/**
+ * A free-text column truncated for SEARCH ROWS, the full value being carried by
+ * the same subset's detail view. Paired as two field entries — the snippet under
+ * its own alias in `summary`, the whole column in `detail`/`fetch` — so a page of
+ * results stays cheap without the caller losing access to the rest.
+ */
+const snippetExpr = (column: string, max = 320): string =>
+  `CASE WHEN ${q(column)} IS NULL OR length(trim(${q(column)})) = 0 THEN NULL ` +
+  `WHEN length(${q(column)}) <= ${max} THEN ${q(column)} ` +
+  `ELSE substr(${q(column)}, 1, ${max}) || '…' END`;
+
 /** Truncated abstract for reference search results (full text via get_reference). */
-const ABSTRACT_SNIPPET_EXPR =
-  `CASE WHEN "abstract" IS NULL OR length(trim("abstract")) = 0 THEN NULL ` +
-  `WHEN length("abstract") <= 320 THEN "abstract" ` +
-  `ELSE substr("abstract", 1, 320) || '…' END`;
+const ABSTRACT_SNIPPET_EXPR = snippetExpr("abstract");
 
 const ALL_ARTICLE_VIEWS: FieldView[] = ["detail", "fetch", "summary", "sentiment"];
 
@@ -1173,9 +1190,9 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       views: ["detail", "fetch"],
       searchable: true,
     },
-    // Empty corpus-wide today, like its French counterpart — carried so that
-    // populating the summaries later is a data change, not a schema change.
-    // Searched, never returned. See articles.descriptionAI_en.
+    // Empty corpus-wide today (0 of 1,771), like its French counterpart —
+    // carried so that populating the summaries later is a data change, not a
+    // schema change. Searched, never returned. See articles.descriptionAI_en.
     {
       expr: '"descriptionAI_en"',
       alias: "description_ai_en",
@@ -1183,10 +1200,22 @@ const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       views: [],
       searchable: true,
     },
+    // The item's own blurb — a YouTube video description for the harvested rows,
+    // a bilingual synopsis for the deposited ones — and for most of this subset
+    // the ONLY substantive text there is: `descriptionAI` is empty for all
+    // 1,771 rows and the transcription ships for 50, while `description` is
+    // filled for 1,465. It was carried by neither the search surface nor any
+    // view until 2026-08-17, which left the great majority of the post-harvest
+    // subset reachable by title and publisher alone. Deliberately NOT `heavy`
+    // (median ~205 characters): it belongs in the fast pass, so the unified
+    // `search` finds these videos without falling through to the OCR scan.
+    { expr: snippetExpr("description"), alias: "description_snippet", requires: ["description"], views: ["summary"] },
+    { expr: "description", views: ["detail", "fetch"], searchable: true },
     // The transcription column, added to the dataset in July 2026. It is the
-    // ONLY real text this subset has: `descriptionAI` is still empty for all 47
-    // rows, so leaving it as the body made every `fetch` on an audiovisual item
-    // answer "(no full text available)" while four transcriptions sat unread.
+    // ONLY real text this subset has: `descriptionAI` is still empty for all
+    // 1,771 rows, so leaving it as the body made every `fetch` on an audiovisual
+    // item answer "(no full text available)" while the transcriptions sat
+    // unread. Public for 50 rows after the 2026-08-17 harvest (OCR_is_public).
     {
       expr: '"OCR"',
       alias: "transcription",

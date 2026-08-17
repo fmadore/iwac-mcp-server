@@ -12,7 +12,13 @@ import { encode } from "gpt-tokenizer/encoding/o200k_base";
 // Pins against the LIVE dataset revision — these are the dataset-drift alarm.
 // After a dataset refresh, update them here (one place) if the checks fire.
 const EXPECTED = {
-  audiovisualTotal: 47, // 45 -> 47 in the July 2026 dataset refresh
+  // A FLOOR, not a pin. Audiovisual was a fixed deposit of 47 Nigerian
+  // recordings until the 2026-08-17 refresh turned it into a rolling harvest:
+  // 1,771 items, of which 1,724 are YouTube videos (Burkina Faso 1,100, Togo
+  // 536, Benin 90) still being ingested week by week. Pinning an exact count
+  // would now redden the weekly run on ordinary growth; the floor still catches
+  // the failure this guards against — the subset emptying or the view breaking.
+  audiovisualFloor: 1700,
   imagesTotal: 30, // images subset added in the July 2026 refresh
   nigerArticles: 1061,
   // 27 -> 32 in v0.13.0: get_topic_distribution, get_field_distribution,
@@ -24,14 +30,14 @@ const EXPECTED = {
   // Full text is masked per row in the PUBLIC dataset (OCR_is_public). These are
   // the July 2026 ratios; a change here means the upstream publication policy
   // or the masking pipeline moved, not that the server broke.
-  // 2026-07-29 refresh: articles 12,287 -> 12,356 and with_fulltext 7,480 ->
-  // 7,549 — the same +69, so the whole increment ships public OCR and the share
-  // stays 61%. Publications did not move. The user-facing copies (INSTRUCTIONS
-  // in src/index.ts and its mirror in the iwac-mcp skill) were brought to
-  // 7,549/12,356 on 2026-07-31; the per-column coverage figures in
+  // 2026-08-17 refresh: articles 12,356 -> 12,349 and with_fulltext 7,549 ->
+  // 7,546 — a net withdrawal of 7 items, 3 of them public-OCR, so the share
+  // holds at 61%. Publications did not move. The user-facing copies
+  // (INSTRUCTIONS in src/index.ts and its mirror in the iwac-mcp skill) were
+  // brought to 7,546/12,349 the same day; the per-column coverage figures in
   // references/tools-by-phase.md (LDA 12,234, embeddings 12,286, signed 9,664)
-  // predate the refresh and still want re-measuring together.
-  articlesWithFulltext: 7549,
+  // predate the July refresh and still want re-measuring together.
+  articlesWithFulltext: 7546,
   publicationsWithFulltext: 1298,
 };
 
@@ -173,23 +179,73 @@ await call("search_index", { keyword: "a", index_type: "evenements", limit: 1 },
 await call("list_subjects", { limit: 3 }, { check: (p) => (p.count === 3 ? null : "expected 3 subjects") });
 await call("list_locations", { country: "Burkina Faso", limit: 3 });
 await call("list_persons", { limit: 3 });
-// NB: audiovisual descriptionAI is empty corpus-wide in the current revision,
-// so rows legitimately carry no description_ai key. `medium` (3 of 47 rows) and
-// `media_url` (1 of 47) are likewise empty for individual items, and empty
-// strings are dropped from responses — so assert these across the page rather
-// than on results[0]. Pinning them to the first row made the check a hostage to
-// pub_date DESC ordering: the two items added in the July 2026 refresh carry no
-// medium and sort newest-first, which turned a projection assertion into a
-// dataset-drift alarm. What is actually under test is that the summary
-// projection carries the columns at all.
+// NB: audiovisual descriptionAI is empty corpus-wide in the current revision
+// (0 of 1,771), so rows legitimately carry no description_ai key. `medium` (3
+// rows empty) and `media_url` (only the 47 deposited items carry one; the 1,724
+// harvested web videos link out through `URL` instead) are likewise empty for
+// individual items, and empty strings are dropped from responses — so assert
+// these across the page rather than on results[0]. Pinning them to the first row
+// made the check a hostage to pub_date DESC ordering, which turned a projection
+// assertion into a dataset-drift alarm. What is actually under test is that the
+// summary projection carries the columns at all.
 await call("list_audiovisual", { limit: 5 }, {
   check: (p) => {
-    if (p.total_matches !== EXPECTED.audiovisualTotal) return `expected ${EXPECTED.audiovisualTotal} audiovisual items, got ${p.total_matches}`;
+    if (!(p.total_matches >= EXPECTED.audiovisualFloor))
+      return `expected at least ${EXPECTED.audiovisualFloor} audiovisual items, got ${p.total_matches}`;
     if (!p.results?.some((r) => r.medium)) return "list_audiovisual should expose medium";
+    return null;
+  },
+});
+// The deposited Nigerian recordings are the only ones with a media_url, and they
+// sort oldest — ask for them by country rather than hoping they land on page 1.
+await call("list_audiovisual", { country: "Nigeria", limit: 5 }, {
+  check: (p) => {
+    if (!(p.total_matches > 0)) return "the deposited Nigerian recordings have vanished from the subset";
     if (!p.results?.some((r) => r.media_url)) return "list_audiovisual should expose media_url";
     return null;
   },
 });
+// A validated filter whose vocabulary no row can satisfy is worse than no
+// validation: every accepted value returns a confident zero. MEDIUM_VALUES was
+// taken from the synthetic fixture ("audio" | "video") and matched nothing in
+// the real subset until 2026-08-17, and only the live dataset can catch that —
+// the hermetic test asserts the fixture agrees with itself. Same for the other
+// closed vocabularies, which the enum-error checks below cover from the miss
+// side only. Each accepted value must find rows.
+for (const medium of ["video sur le web", "DVD", "CD"]) {
+  await call("search_audiovisual", { medium, limit: 1 }, {
+    check: (p) => (p.total_matches > 0 ? null : `medium='${medium}' passes validation but matches no row`),
+  });
+}
+// `description` is the only substantive text most of this subset has — filled
+// for 1,465 of 1,771 rows against 50 transcriptions and zero AI summaries — and
+// it reached neither the search surface nor any response until 2026-08-17.
+// Measured on the live revision, carrying it takes audiovisual keyword reach for
+// "ramadan" from 190 items to 317 and for "imam" from 230 to 358.
+const avDesc = await call("search_audiovisual", { keyword: "ramadan", limit: 10 }, {
+  check: (p) => {
+    if (!(p.total_matches > 200)) return `audiovisual 'ramadan' fell to ${p.total_matches} — is description still searched?`;
+    if (!p.results?.some((r) => r.description_snippet)) return "search rows carry no description_snippet";
+    if (p.results?.some((r) => r.description)) return "search rows should carry the capped snippet, not the full description";
+    return null;
+  },
+});
+// Drill into a row that HAS a description: `fetch` must answer with it rather
+// than the "(no full text available)" placeholder, since 1,721 of 1,771 rows
+// carry no public transcription to serve as the body.
+const describedId = avDesc?.results?.find((r) => r.description_snippet)?.id;
+if (describedId) {
+  await call("fetch", { id: `audiovisual:${describedId}` }, {
+    structured: true,
+    check: (p) => {
+      if (p.text?.startsWith("(no full text")) return "an item with a description came back as textless";
+      if (!p.text_source && !p.metadata?.transcription) return "text arrived from neither the description nor a transcription";
+      return null;
+    },
+  });
+} else {
+  fail("no audiovisual result carried a description to drill into");
+}
 const avHits = await call("search_audiovisual", { language: "Haoussa", limit: 2 }, {
   check: (p) => {
     if (p.total_matches < 20) return `expected many Hausa audiovisual items, got ${p.total_matches}`;
@@ -411,14 +467,22 @@ await call("get_place_distribution", { top_n: 40 }, {
 });
 await call("get_semantic_map", { limit: 200, color_by: "country" }, {
   structured: true,
-  check: (p) => {
+  check: (p, _body, res) => {
     if (p.projected < 150) return `only ${p.projected} of 200 requested items projected`;
     const [a, b] = p.explained_variance ?? [];
     // 768-d text embeddings put ~13-18% in the first two components. Anything
     // near 1 would mean the vectors had collapsed; 0 would mean they are noise.
     if (!(a > 0.02 && a < 0.6)) return `PC1 explains ${a}, outside the plausible band for 768-d embeddings`;
     if (!(b > 0 && b <= a)) return `PC2 explains ${b}, which cannot exceed PC1`;
-    if (!p.points?.every((x) => Number.isFinite(x.x) && Number.isFinite(x.y))) return "non-finite coordinates";
+    // v3.0.0 moved the coordinates out of the model-facing payload and into the
+    // chart-only `_meta` channel (src/viewContract.ts). Reading them from `p`
+    // still "worked": `p.points?.every(...)` is undefined, which fails the
+    // check — so the split reported itself as non-finite coordinates on the
+    // first weekly run after it shipped. Read the channel the points are on.
+    const points = res._meta?.["islam.zmo.de/viewData"]?.points;
+    if (!points?.length) return "no points in _meta, so the chart would render an empty scatter";
+    if (points.length !== p.projected) return `_meta has ${points.length} points, projected says ${p.projected}`;
+    if (!points.every((x) => Number.isFinite(x.x) && Number.isFinite(x.y))) return "non-finite coordinates";
     return null;
   },
 });

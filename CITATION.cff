@@ -26,8 +26,8 @@ identifiers:
     value: 10.5281/zenodo.21805837
     description: "Concept DOI for all versions of the software."
 license: MIT
-version: 3.0.0
-date-released: "2026-08-07"
+version: 3.1.0
+date-released: "2026-08-17"
 keywords:
   - Model Context Protocol
   - MCP server

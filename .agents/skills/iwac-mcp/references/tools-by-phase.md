@@ -122,14 +122,18 @@ Search the 26 archival documents (Islamic association reports, flyers, project d
 - Call with no arguments to list all 26.
 
 ### list_audiovisual
-The ~47 audiovisual items (July 2026) — all Nigeria, incl. Hausa/Arabic recordings. (AI descriptions still empty for all 47; **4 items now carry a transcription**.)
-- `country` (optional), `limit` (default 20, max 50), `offset`
-- Returns: id, title, creator, publisher, country, date, medium, extent, subject, spatial, language, media_url, url
+The 1,771 audiovisual items (August 2026 — the subset grew 38× from the 47 of July). Two very different populations:
+- **1,724 harvested web videos** (YouTube), 1,715 of them in French: Burkina Faso 1,100, Togo 536, Benin 90. Mostly 2020-2026. Publishers are broadcasters and Muslim associations — RTB (639), AEEM Togo (532), CERFI (409). No `media_url` and no `creator`; the video lives at its source.
+- **47 deposited recordings** (DVD/CD), 45 of them Nigerian in Hausa/Arabic — the original subset, with `creator`, `source` and `media_url`.
+
+AI summaries are empty for all 1,771 and only 50 transcriptions ship publicly, so the item's own **`description`** (filled for 1,465 rows — the YouTube blurb, or a bilingual synopsis on the deposited recordings) is the real text surface here. Search rows carry a 320-character `description_snippet`; `get_audiovisual` returns it whole.
+- `country` (optional — Burkina Faso | Togo | Benin | Nigeria; Niger and Côte d'Ivoire have no audiovisual items), `limit` (default 20, max 50), `offset`
+- Returns: id, title, creator, publisher, country, date, medium, extent, subject, spatial, language, description_snippet, media_url, url
 
 ### search_audiovisual
-Search the audiovisual subset by title/metadata **and transcription**. Useful because AI descriptions are still empty.
-- `keyword` (optional): substring over title, creator, publisher, subject, spatial, language, source, the transcription (`OCR`, 4/47 rows) and AI description where present
-- `country` (optional), `language` (optional exact pipe value), `medium` (audio | video), `subject` (optional exact tag), `limit` (default 20, max 50), `offset`
+Search the audiovisual subset by title/metadata, **description** and **transcription**. Carrying the description roughly doubles keyword reach (measured 2026-08-17: "ramadan" 190 → 317 items, "imam" 230 → 358).
+- `keyword` (optional): substring over title, creator, publisher, subject, spatial, language, source, the description (1,465/1,771 rows), the transcription (`OCR`, 50/1,771) and AI description where present
+- `country` (optional), `language` (optional exact pipe value — Français 1,715, Haoussa ~43, Mooré 10, Arabe, Anglais), `medium` (Vidéo sur le web | DVD | CD — carrier media, validated, accents optional), `subject` (optional exact tag, but only 27 rows carry one), `limit` (default 20, max 50), `offset`
 - Returns the same summary fields as `list_audiovisual`
 
 ### search_images *(new July 2026)*

@@ -265,6 +265,8 @@ const FETCH_OUTPUT = z.object({
   category: z.string(),
   metadata: z.looseObject({}),
   text_truncated: z.boolean().optional(),
+  /** Set only when `text` is the item's description rather than its body column. */
+  text_source: z.string().optional(),
   recommended_tool: z.string().optional(),
   recommended_usage: z.looseObject({}).optional(),
 });
@@ -437,19 +439,35 @@ export function registerSearchTools(server: Server): void {
       const rawUrl = typeof row.url === "string" ? row.url.trim() : "";
       const title = rawTitle || `Untitled ${subset} item ${localId}`;
       const url = rawUrl || itemUrl(localId);
-      const rawText = typeof row.text === "string" ? row.text : row.text == null ? "" : String(row.text);
-      const capped = capText(rawText);
+      // When the body column is empty, fall back to the item's own description
+      // rather than declaring the item textless. Audiovisual is the case that
+      // matters: its body is the transcription, which ships for 50 of 1,771
+      // rows, while `description` is filled for 1,465 — answering "(no full text
+      // available)" with that text sitting one key away in `metadata` reads as
+      // an absence and is not one. Subsets whose body IS their description
+      // (images, index) alias it to `text` and so have nothing left to fall back
+      // on, which is why this needs no per-subset condition.
+      const bodyText = typeof row.text === "string" ? row.text : row.text == null ? "" : String(row.text);
+      const description = typeof row.description === "string" ? row.description : "";
+      const usedDescription = !bodyText.trim() && description.trim() !== "";
+      const capped = capText(usedDescription ? description : bodyText);
       const text = capped.text.trim() ? capped.text : "(no full text available for this item)";
 
       const metadata: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(row)) {
         if (k === "title" || k === "url" || k === "text") continue;
+        // Already returned as `text`; repeating it would bill the same prose twice.
+        if (k === "description" && usedDescription) continue;
         if (v === null || v === undefined) continue;
         if (typeof v === "string" && v.trim() === "") continue;
         metadata[k] = v;
       }
 
       const result: Record<string, unknown> = { id: rawId, title, text, url, category: subset, metadata };
+      // Say WHICH text arrived. A catalogue blurb and a transcription of what was
+      // actually said support very different claims, and the two are
+      // indistinguishable once both are just `text`.
+      if (usedDescription) result.text_source = "description";
       // Long OCR is capped here; point the caller at the keyword-excerpt tool for
       // the subset so they can pull just the passages they need instead of re-fetching.
       if (capped.truncated) {

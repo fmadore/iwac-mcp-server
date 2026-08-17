@@ -27,12 +27,12 @@ export function registerAudiovisualTools(server: Server): void {
     {
       ...toolMeta("Search audiovisual materials"),
       description:
-        "Search audiovisual materials by keyword and metadata. Keyword matches title, creator, publisher, subject, spatial, language, source, and AI description where present.",
+        "Search audiovisual materials by keyword and metadata: francophone web video from Burkina Faso, Togo and Benin (TV reports, association and campus recordings), plus deposited Nigerian Hausa/Arabic recordings. Keyword matches title, creator, publisher, subject, spatial, language, source, the item's own description (the richest text most of these items have) and its transcription where one exists.",
       inputSchema: z.object({
         keyword: z.string().optional().describe("Substring match across audiovisual title/metadata fields"),
-        country: countryParam({ nigeria: true, note: "The subset is currently all Nigeria" }),
-        language: z.string().optional().describe("Exact language value, e.g. Haoussa | Arabe | Anglais"),
-        medium: z.string().optional().describe("Exact medium: audio | video (validated)"),
+        country: countryParam({ nigeria: true, note: "Burkina Faso, Togo, Benin and Nigeria only — no Niger or Ivorian items" }),
+        language: z.string().optional().describe("Exact language value, e.g. Français | Haoussa | Arabe | Anglais | Mooré"),
+        medium: z.string().optional().describe("Exact carrier medium: Vidéo sur le web | DVD | CD (validated, accents optional)"),
         subject: z.string().optional().describe("Exact subject tag"),
         limit: z.number().int().optional().describe("Default 20, max 50"),
         offset: z.number().int().optional(),
@@ -80,9 +80,9 @@ export function registerAudiovisualTools(server: Server): void {
     {
       ...toolMeta("List audiovisual materials"),
       description:
-        "List audiovisual materials (Nigerian recordings, incl. Hausa/Arabic content).",
+        "List audiovisual materials (francophone web video from Burkina Faso, Togo and Benin; deposited Nigerian Hausa/Arabic recordings).",
       inputSchema: z.object({
-        country: countryParam({ nigeria: true, note: "The subset is currently all Nigeria" }),
+        country: countryParam({ nigeria: true, note: "Burkina Faso, Togo, Benin and Nigeria only — no Niger or Ivorian items" }),
         limit: z.number().int().optional().describe("Default 20, max 50"),
         offset: z.number().int().optional(),
       }),
@@ -117,7 +117,7 @@ export function registerAudiovisualTools(server: Server): void {
     {
       ...toolMeta("Get audiovisual details"),
       description:
-        "Get one audiovisual record by id, including creator/publisher, media URL, duration, medium, subjects, places, language, source, and IWAC URL.",
+        "Get one audiovisual record by id, including its full description and transcription (where one exists), creator/publisher, media URL, duration, medium, subjects, places, language, source, and IWAC URL.",
       inputSchema: z.object({ audiovisual_id: z.number().int() }),
     },
     async ({ audiovisual_id }) => {
