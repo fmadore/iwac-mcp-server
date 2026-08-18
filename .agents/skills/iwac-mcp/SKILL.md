@@ -63,11 +63,27 @@ Do not attach time estimates to the options. Wait for the user to choose before 
 ### Extended mode workflow
 Follow the full five-phase workflow described below. Use multiple search term variants, read key articles in full, run topic-specific sentiment analysis, and produce a detailed synthesis with confidence grading.
 
+Extended does not fit in one turn (see **Call Budget** below), so run it as two checkpointed segments:
+
+- **Segment 1: scope and search (Phases 1-2), about 15 calls.** Close it by writing a short interim note in the chat *before* issuing any further call: the terms searched with their `total_matches`, the shortlist of items worth reading in full, and what segment 2 will do.
+- **Segment 2: read, triangulate, synthesize (Phases 3-5).**
+
+That note is not ceremony. When the host stops a turn at its tool-use limit, it is what lets the user's "Continue" resume from the shortlist instead of re-running finished searches. Write it even when the turn looks like it has room to spare.
+
 If the user does not specify, **default to Brief mode** and mention that an extended analysis is available.
+
+## Call Budget
+
+**The ceiling that breaks a run is the number of tool calls, not their size.** Claude Desktop ends a turn at roughly 20 calls with *"Claude reached its tool-use limit for this interaction"*, leaving the user to click Continue. The cap counts turns of the tool loop, so several tools invoked together in one message cost one turn between them, while the same tools invoked one after another cost one each.
+
+- **Batch every independent call.** This holds in all five phases, not just scoping: search variants, aggregate tools, and the full reads of a settled shortlist all go out together. Sequence only where a call genuinely needs the previous answer (an id, a canonical name, a `total_matches` that decides whether to read at all).
+- **Budget.** Brief: about 12 calls. Extended: about 30, spent as two segments of ~15 with a written checkpoint between them (see **Extended mode workflow** above).
+- **The phase lists are a menu, not a checklist.** Phases 1 and 4 offer seven numbered actions each; a run that fires all fourteen has spent its whole budget before reading a single article. Run what the question needs and skip the rest. A phase answered by two calls is a finished phase.
+- **Do not re-scope what this skill already documents.** Corpus sizes, country lists, filter vocabularies and coverage shares are recorded here and in tools-by-phase.md. Calling a stats tool to rediscover them buys a chart, not a fact.
 
 ## Token Budget
 
-Comprehensiveness has a token price — spend deliberately. The goal is a well-evidenced answer, not an exhaustive dump.
+Comprehensiveness has a token price, so spend it deliberately. The goal is a well-evidenced answer, not an exhaustive dump.
 
 - **Brief** should stay around ≤25k tokens of tool output: one scoping batch, a handful of searches at the default limit (20 rows; drop to ≤10 when adding `with_description`), 2-3 full articles.
 - **Extended** typically lands at 50-120k tokens of tool output. Past that, returns diminish — stop searching and synthesize what you have.
@@ -75,6 +91,15 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 - **Counting ≠ fetching.** `total_matches` and the stats/distribution tools answer "how much / when / what tone" without retrieving rows. Never page through a large result set, and never set limit=100 "just in case".
 - **Full text is the expensive part** (`get_article` ≈ 1-7k tokens; `get_publication_fulltext` up to ~7k, plus ~1.6k when the issue has a TOC). Cap full reads at 2-3 (Brief) / 6-8 (Extended), always triaged on `description_ai` first. For a long item, pass a `keyword` to `get_article` / `get_document` / `get_publication_fulltext` to pull just the relevant ~2000-char windows instead of the whole capped OCR.
 - If a question genuinely requires bulk reading (dozens of full articles), say what it will cost and confirm with the user before doing it.
+
+## Charts and Visuals
+
+Thirteen tools carry their own interactive chart on hosts that support MCP Apps (Claude Desktop, claude.ai): `get_collection_stats`, `get_country_comparison`, `get_newspaper_stats`, `get_temporal_distribution`, `get_sentiment_distribution`, `get_topic_distribution`, `get_field_distribution`, `get_cooccurrence`, `get_place_distribution`, `get_lexical_metrics`, `get_semantic_map`, `get_similar_items`, `list_periodicals`. The chart costs no extra tool call and the data behind it travels outside your context, so it is the cheapest thing in a run. That is exactly why it needs a rule: cheap to render is not the same as free to obtain.
+
+- **Never re-plot what the server already plotted.** Do not build an artifact, a canvas, or an analysis-tool chart out of numbers one of those tools returned. Quote the figures in prose and let the rendered chart stand.
+- **A chart is a by-product of answering, not a deliverable.** Call an aggregate tool because its numbers carry an argument, never because a picture would look thorough. Roughly two charted views in Brief, four in Extended.
+- **Pick one aggregate, not the family.** `get_topic_distribution`, `get_field_distribution` and `get_cooccurrence` all characterise a set and answer different questions; running all three over one filter spends three calls on one insight. Same for `get_place_distribution` against `get_field_distribution(field="spatial")`.
+- **Write for a reader who sees no chart.** Hosts without MCP Apps support render nothing at all, so every figure that matters has to appear in the text.
 
 ## Critical Search Rules
 
@@ -110,7 +135,7 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 6. When you do not yet know what to search for, describe the material instead: `get_topic_distribution` maps a filtered set onto the 30 precomputed LDA topics, and `get_field_distribution(field=...)` ranks its subjects, places or bylines. Both are one call and beat guessing keywords.
 7. Identify which subsets are relevant: articles (press), publications (Islamic media), references (scholarship), documents (association papers), index (authority records)
 
-**Constraint:** Keep `limit` low (5-10) during scoping to save tokens. Use brief queries first, then drill down.
+**Constraint:** Keep `limit` low (5-10) during scoping to save tokens. Use brief queries first, then drill down. Pick the two or three actions above that the question actually needs and issue them as one batch; scoping is not a survey of the collection.
 
 ### Phase 2 -- Systematic Search
 
@@ -149,6 +174,8 @@ Comprehensiveness has a token price — spend deliberately. The goal is a well-e
 ### Phase 4 -- Triangulation
 
 **Goal:** Verify findings against multiple evidence types and identify gaps.
+
+**Constraint:** Triangulate the claims the synthesis will actually make, in one batch. Two or three actions chosen against those claims beat all seven run in order.
 
 **Actions:**
 1. Cross-reference MCP findings across subsets (articles vs. publications vs. references vs. documents vs. index)
@@ -216,7 +243,7 @@ only items that happen to mention it.
 3. **Always disclose the Niger/Nigeria gap.** Niger has thin coverage (one newspaper, 2018+) with inconsistent subject tagging. Nigeria has no press articles at all (audiovisual only). These gaps must be stated in any cross-country analysis.
 4. **Always distinguish source types.** MCP tool outputs, AI sentiment labels, AI abstracts (`description_ai`), and OCR text have different evidential status.
 5. **AI sentiment is interpretive, not factual.** The labels are analytical signals, not ground truth — four models scored the same articles and agree unanimously on polarity for only ~36% of them. Name the model behind any figure, and run `get_sentiment_distribution(model="all")` before a divergence-sensitive claim. Use topic-specific sentiment (via `subject` filter) rather than whole-corpus baselines when comparing themes.
-6. **Search incrementally.** Keep limits low, search one dimension at a time, avoid retrieving full OCR text unless needed.
+6. **Search incrementally, but call in parallel.** Keep limits low, vary one dimension at a time, and avoid retrieving full OCR text unless needed. Incremental describes what each query asks, not the pace of asking: independent calls go out in a single batch (see **Call Budget**).
 7. **Publications are mostly entire issues.** Individual articles within an issue are not separated; use the table of contents where one exists (17 of 25 series) and `get_publication_fulltext` keyword excerpts to localise content inside an issue.
 8. **Mind the 1990-91 press-system break.** Pre-1991 articles (~11% of the corpus) come almost entirely from state or single-party organs; the private press only emerges with political liberalisation. Temporal comparisons crossing 1990 compare two different press systems (see biases-and-limitations.md §6).
 9. **Full text is masked per item.** The server reads the *public* dataset, where OCR ships only for items whose content is public on islam.zmo.de — about **61% of articles** (7,546/12,349) and **86% of publications** (1,298/1,501). Titles, subjects and AI abstracts cover every item, so nothing is invisible to discovery, but the full-text half of a keyword match reaches only those shares. Read `fulltext_coverage` from `get_collection_stats`, treat keyword totals as a **floor rather than a census**, and say so whenever a count carries an argument.

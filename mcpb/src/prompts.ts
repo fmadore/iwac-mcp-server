@@ -8,8 +8,9 @@
 // cost nothing until invoked, unlike instructions that ride every request.
 //
 // These deliberately mirror .agents/skills/iwac-mcp/SKILL.md (depth choice,
-// five phases, token budget, confidence grading, citation rule). When one
-// changes, change the other — the same rule the INSTRUCTIONS block carries.
+// five phases, call and token budgets, chart policy, confidence grading,
+// citation rule). When one changes, change the other, the same rule the
+// INSTRUCTIONS block carries.
 import { z } from "zod";
 import type { Server } from "./tools/_shared.js";
 
@@ -30,6 +31,30 @@ const COVERAGE_RULE =
   "the items whose content is public (~61% of articles) — check `fulltext_coverage` in get_collection_stats " +
   "and present keyword counts as a floor, not a census.";
 
+// Hosts stop a turn after ~20 tool calls ("Claude reached its tool-use limit"),
+// and the cap counts turns of the tool loop rather than individual calls. That
+// makes batching, not brevity, the lever: the five-phase method runs to ~30
+// calls at full stretch, so left unbudgeted an extended run reliably overruns
+// the ceiling mid-report. Mirrors SKILL.md "Call Budget".
+const CALL_BUDGET_RULE =
+  "CALL BUDGET: the host stops a turn after roughly 20 tool calls, so spend them deliberately. Issue " +
+  "independent calls TOGETHER in one message (the cap counts turns of the tool loop, not the calls within " +
+  "a turn) and sequence only where a call needs the previous answer: an id, a canonical name, a count " +
+  "that decides whether to read at all. Do not run a family of aggregate tools over the same filter to " +
+  "see what turns up; pick the one whose numbers carry the argument.";
+
+// The 13 UI-bearing tools already render a chart for free (see tools/appUi.ts).
+// Rebuilding those numbers as an artifact spends calls on a duplicate, and a
+// host with no MCP Apps support renders nothing at all, so the figures have to
+// survive in prose either way. Mirrors SKILL.md "Charts and Visuals".
+const VISUALS_RULE =
+  "CHARTS: get_collection_stats, get_country_comparison, get_newspaper_stats, get_temporal_distribution, " +
+  "get_sentiment_distribution, get_topic_distribution, get_field_distribution, get_cooccurrence, " +
+  "get_place_distribution, get_lexical_metrics, get_semantic_map, get_similar_items and list_periodicals " +
+  "render their own interactive chart at no extra cost on hosts that support it. Never rebuild those " +
+  "numbers as an artifact or analysis chart, and never call one of these tools just to produce a picture. " +
+  "Quote the figures in prose so the answer also stands where nothing renders.";
+
 const BRIEF_STEPS =
   "1. SCOPE in one parallel batch, calling only what the question needs (get_collection_stats, " +
   "get_country_comparison, get_temporal_distribution, list_subjects).\n" +
@@ -40,7 +65,7 @@ const BRIEF_STEPS =
   "triaged on `description_ai`. Never skip this step — a metadata-only answer is not research.\n" +
   "4. SYNTHESISE concisely but substantively, opening with a one-line evidence ledger: how many items were " +
   "read in full, triaged on AI abstracts, and surveyed by count only.\n" +
-  "Aim for roughly 25k tokens of tool output.";
+  "Aim for roughly 25k tokens of tool output across about 12 tool calls.";
 
 const EXTENDED_STEPS =
   "1. SCOPE — get_collection_stats, get_country_comparison, get_newspaper_stats, list_subjects, " +
@@ -56,7 +81,11 @@ const EXTENDED_STEPS =
   "5. SYNTHESISE with confidence grading: Strong (direct attestation in multiple primary sources), Moderate " +
   "(clear but indirect evidence), Weak (inferred, or an argument from silence — note that absence may " +
   "reflect a collection gap, not a historical one).\n" +
-  "Expect 50-120k tokens of tool output; past that, returns diminish — stop searching and synthesise.";
+  "Expect 50-120k tokens of tool output across about 30 tool calls; past that, returns diminish, so stop " +
+  "searching and synthesise. Run it as two segments of roughly 15 calls: steps 1-2, then a short written " +
+  "checkpoint naming the terms searched with their total_matches and the shortlist to read in full, then " +
+  "steps 3-5. If the host stops the turn at its tool-use limit, that checkpoint is what lets the run " +
+  "resume from the shortlist instead of repeating finished searches.";
 
 export function registerPrompts(server: Server): void {
   server.registerPrompt(
@@ -86,6 +115,7 @@ export function registerPrompts(server: Server): void {
                 `Research this question using the IWAC MCP tools: ${question}\n\n` +
                 `Depth: ${extended ? "EXTENDED" : "BRIEF"}.\n\n` +
                 `${extended ? EXTENDED_STEPS : BRIEF_STEPS}\n\n` +
+                `${CALL_BUDGET_RULE}\n\n${VISUALS_RULE}\n\n` +
                 `${LANGUAGE_RULE}\n\n${CITATION_RULE}\n\n${COVERAGE_RULE}\n\n` +
                 "Counting is not fetching: use `total_matches` and the distribution tools to answer " +
                 "how much / when / what tone, and reserve full-text reads for the triaged finalists. " +

@@ -62,6 +62,12 @@ const INSTRUCTIONS =
   "nothing is invisible, but the full-text half of a keyword match covers only those shares. Call " +
   "get_collection_stats for the live `fulltext_coverage` figures, treat keyword totals as a floor " +
   "rather than a corpus-wide census, and disclose this whenever a count carries an argument.\n\n" +
+  "CALL ECONOMY: hosts stop a turn after roughly 20 tool calls, and the cap counts turns of the tool " +
+  "loop rather than the calls within one, so issue independent calls together in a single message rather " +
+  "than one at a time. Pick the aggregate tool whose numbers answer the question instead of running the " +
+  "family over the same filter. The stats and distribution tools render their own chart where the host " +
+  "supports it, at no extra call: never rebuild those numbers as a separate chart or artifact, and quote " +
+  "the figures in prose so the answer stands where nothing renders.\n\n" +
   "RESULTS & ERRORS: list/search tools return a pagination envelope — read `total_matches` to gauge " +
   "scale without paging, and request a sane `limit` (an over-large one is capped visibly via " +
   "`requested_limit` + `limit_warning`, never silently dropped). Enumerated filters (`country`, " +
