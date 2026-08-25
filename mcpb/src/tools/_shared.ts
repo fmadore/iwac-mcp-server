@@ -315,15 +315,25 @@ export interface SentimentModel {
   prefix: string;
   /** Vendor shorthand also accepted on input. */
   aliases: string[];
+  /**
+   * Something a reader must know before comparing this model's counts with
+   * another's — currently only a coverage shortfall. Lives here rather than at
+   * the call sites so the registry stays the one place a model is described,
+   * and travels into the payload beside that model's numbers.
+   */
+  caveat?: string;
 }
 
 /**
- * The four models of the generation-2 annotation campaign, each covering the
- * 12,298 French- and English-language articles (the 51 Ewé/Kabiyè/Dendi/untagged
- * ones are skipped deliberately: the prompt is French, and a French-prompted
- * model returns confident but unusable output for them). All four ran the same
+ * The five models of the generation-2 annotation campaign. All ran the same
  * prompt (fingerprint d14ace9ac192), which is what makes them comparable to each
  * other and not to generation 1.
+ *
+ * Coverage is NOT uniform, and that is the one thing to know before comparing
+ * their counts. Four of them score all 12,298 French- and English-language
+ * articles (the 51 Ewé/Kabiyè/Dendi/untagged ones are skipped deliberately: the
+ * prompt is French, and a French-prompted model returns confident but unusable
+ * output for them). qwen3-8-27b scores 12,098 — see its entry below.
  *
  * Generation 1 (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) is
  * NOT served here. Its columns still exist on the Hub, but the archive's own
@@ -348,6 +358,27 @@ export const SENTIMENT_MODELS: SentimentModel[] = [
   // corpus in generation 1 only, so re-pointing it here would be the silent
   // substitution this registry exists to prevent.
   { id: "gemma-4-31b-it", prefix: "gemma_4_31b_it", aliases: ["gemma", "google"] },
+  // The fifth member (2026-08-25), and the only one annotated on hardware the
+  // project controls (a self-hosted vLLM run) rather than a vendor API. `qwen`
+  // names the model line this member actually belongs to, so it resolves —
+  // unlike `gemini`, whose line never scored generation 2.
+  {
+    id: "qwen3-8-27b",
+    prefix: "qwen3_8_27b",
+    aliases: ["qwen", "alibaba"],
+    // The 200-article shortfall is deliberate and final, not a run to repair:
+    // each was attempted four times and then retired. It is also not missing at
+    // random — the failures concentrate on articles the panel reads as
+    // peripheral to Islam (6.2% of `Marginal` articles unscored against ~1% of
+    // `Central` and `Très central` ones), because the model declines to place a
+    // subjectivity label where Islam is marginal while the prompt licenses
+    // declining only where Islam is absent.
+    caveat:
+      "Scores 12,098 articles where the other four score 12,298. The 200-article gap is deliberate (retired " +
+      "after four attempts each), and concentrates on articles peripheral to Islam — 6.2% of `Marginal` " +
+      "articles are unscored against ~1% of `Central` ones — so any base restricted to articles all models " +
+      "scored leans slightly toward material where Islam is central.",
+  },
 ];
 
 /**
@@ -373,8 +404,8 @@ export const RETIRED_SENTIMENT_MODELS: Record<string, string> = {
  * get_country_comparison. Those name it explicitly rather than implying a
  * consensus — get_sentiment_distribution with model:"all" is the tool for that.
  *
- * gpt-5-6-luna and not one of the other three, for three reasons that still hold
- * after gemma-4-31b-it joined the panel:
+ * gpt-5-6-luna and not one of the other four, for three reasons that have held
+ * through two panel additions:
  *
  *  - It is complete on all three fields — its only subjectivity gaps are exactly
  *    its `Non abordé` rows, a principled abstention rather than a dropped answer
@@ -389,8 +420,11 @@ export const RETIRED_SENTIMENT_MODELS: Record<string, string> = {
  *
  * ADDING a model must therefore leave this line alone. gemma-4-31b-it is equally
  * complete (its 294 unscored subjectivity rows are likewise exactly its
- * `Non abordé` ones) and agrees with Luna more than any other pair bar
- * DeepSeek↔Gemma — but "as good as the default" is not a reason to become it.
+ * `Non abordé` ones) and "as good as the default" is not a reason to become it.
+ * qwen3-8-27b agrees with Luna more closely than any other pair on polarity
+ * (κ 0.54) and on subjectivity (κ 0.52), which makes it the most tempting
+ * candidate yet and still not one: it is 200 articles short, so promoting it
+ * would put a silent hole in every inline polarity this server returns.
  */
 export const DEFAULT_SENTIMENT_MODEL: SentimentModel = SENTIMENT_MODELS[0];
 
@@ -1001,7 +1035,7 @@ const ALL_ARTICLE_VIEWS: FieldView[] = ["detail", "fetch", "summary", "sentiment
 
 /**
  * The sentiment columns projected onto article rows. One model's, not a blend:
- * the panel disagrees often enough (unanimous on polarity for 36% of the corpus)
+ * the panel disagrees often enough (unanimous on polarity for 32% of the corpus)
  * that averaging it here would invent a reading no annotator produced.
  * `requires` drops them on a revision that
  * predates the generation-2 columns rather than throwing. `subjectivity` is a

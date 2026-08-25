@@ -555,26 +555,44 @@ await call("get_similar_items", { id: "999999999" }, {
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,
   check: (p) => {
-    if (p.models?.length !== 4) return `expected 4 models, got ${p.models}`;
+    if (p.models?.length !== 5) return `expected 5 models, got ${p.models}`;
     const a = p.agreement;
     if (!a) return "no agreement block";
-    // 12,298 of 12,349 — the ~51 non-francophone articles are unscored by
-    // design, so this is deliberately not asserted equal to total_articles.
-    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all four (was 12,298)`;
-    // ~36% unanimous across all four (43% for the first three). A jump to 100%
-    // would mean the columns had collapsed onto one another upstream.
+    // ~12,098 of 12,349 — the ~51 non-francophone articles are unscored by
+    // design and qwen is 200 further short, so this is deliberately not
+    // asserted equal to total_articles.
+    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all five (was 12,098)`;
+    // ~32% unanimous across all five (36% for four, 43% for the first three). A
+    // jump to 100% would mean the columns had collapsed onto one another.
     if (a.unanimous_percent < 20 || a.unanimous_percent > 95)
-      return `four-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
-    // 4 models → 6 unordered pairs. A count of 3 would mean a member is being
+      return `five-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
+    // 5 models → 10 unordered pairs. A count of 6 would mean a member is being
     // dropped before the agreement pass.
-    if (Object.keys(a.pairwise ?? {}).length !== 6)
-      return `expected 6 pairwise counts, got ${JSON.stringify(a.pairwise)}`;
+    if (Object.keys(a.pairwise ?? {}).length !== 10)
+      return `expected 10 pairwise counts, got ${JSON.stringify(a.pairwise)}`;
     // The models must be named for what actually ran, and they must be the
-    // generation-2 four: a generation-1 id reappearing here means the registry
+    // generation-2 five: a generation-1 id reappearing here means the registry
     // has been re-pointed at columns whose prompt and dtype differ.
-    const expected = ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731", "gemma-4-31b-it"];
+    const expected = [
+      "gpt-5-6-luna",
+      "mistral-small-2603",
+      "deepseek-v4-flash-0731",
+      "gemma-4-31b-it",
+      "qwen3-8-27b",
+    ];
     const missing = expected.filter((m) => !p.models.includes(m));
     if (missing.length) return `models should be the exact model ids, missing ${missing} (got ${p.models})`;
+    // The panel is NOT uniformly covered, and the live data is the only place
+    // that can prove the server says so: qwen scores ~200 fewer articles than
+    // the rest, its block must state its own denominator, and the agreement
+    // base must name it. Silence here would let a caller compare its counts
+    // with a complete model's as though they shared a base.
+    const qwenCov = p.by_model?.["qwen3-8-27b"]?.coverage?.polarity;
+    const lunaCov = p.by_model?.["gpt-5-6-luna"]?.coverage?.polarity;
+    if (!(qwenCov > 11_000)) return `qwen coverage looks wrong: ${qwenCov}`;
+    if (!(qwenCov < lunaCov)) return `qwen should trail luna on coverage, got ${qwenCov} vs ${lunaCov}`;
+    if (!p.by_model["qwen3-8-27b"].model_caveat) return "qwen's coverage caveat should travel with its numbers";
+    if (!a.base_caveats?.["qwen3-8-27b"]) return "the agreement base should name the short model";
     // Subjectivity is an ordinal LABEL in generation 2. A numeric bucket key
     // here would mean the server is reading a generation-1 column.
     const subj = p.by_model?.["gpt-5-6-luna"]?.subjectivity;
@@ -603,6 +621,23 @@ await call("get_sentiment_distribution", { model: "google" }, {
     if (scored < 12_000) return `gemma scored only ${scored} articles on polarity (was 12,298)`;
     if (typeof p.subjectivity?.distribution?.["Très objectif"] !== "number")
       return `gemma subjectivity is not keyed by label: ${JSON.stringify(p.subjectivity?.distribution)}`;
+    return null;
+  },
+});
+// The fifth member, reached by the model-line shorthand. `qwen` resolves where
+// `gemini` does not, and the difference is not arbitrary: the Qwen line scored
+// generation 2, the Gemini line never did.
+await call("get_sentiment_distribution", { model: "qwen" }, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "qwen3-8-27b") return `the qwen shorthand should resolve to the model id, got ${p.model}`;
+    const scored = Object.values(p.polarity_distribution ?? {}).reduce((a, b) => a + b, 0);
+    if (scored < 11_000) return `qwen scored only ${scored} articles on polarity (was 12,098)`;
+    if (p.coverage?.polarity !== scored) return `coverage should match the distribution, got ${p.coverage?.polarity}`;
+    if (!(p.coverage.matched_articles > scored))
+      return "a single-model answer must show the gap between matched and scored";
+    if (typeof p.subjectivity?.distribution?.["Très objectif"] !== "number")
+      return `qwen subjectivity is not keyed by label: ${JSON.stringify(p.subjectivity?.distribution)}`;
     return null;
   },
 });

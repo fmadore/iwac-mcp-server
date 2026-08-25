@@ -42,7 +42,7 @@ import {
  * enough to ship that withholding it entirely is worse.
  */
 const SUBJECTIVITY_CAVEAT =
-  "Weakest of the three scales: inter-model agreement κ 0.16-0.47 across the four models, and self-consistency as " +
+  "Weakest of the three scales: inter-model agreement κ 0.16-0.52 across the five models, and self-consistency as " +
   "low as 47% on re-run. Treat as weak evidence and never report it without this caveat; polarity and centrality " +
   "are far stronger.";
 
@@ -55,6 +55,11 @@ const SENTIMENT_DISTRIBUTION_OUTPUT = z.object({
   filters: z.looseObject({}),
   polarity_distribution: z.record(z.string(), z.number()).optional(),
   centrality_distribution: z.record(z.string(), z.number()).optional(),
+  // How many articles this model actually placed on each scale. Not decorative:
+  // the models do NOT all cover the same articles, and the distributions drop
+  // their unscored key, so without this the shortfall is invisible.
+  coverage: z.record(z.string(), z.number()).optional(),
+  model_caveat: z.string().optional(),
   subjectivity: z.looseObject({}).optional(),
   models: z.array(z.string()).optional(),
   by_model: z.record(z.string(), z.looseObject({})).optional(),
@@ -156,12 +161,13 @@ export function registerSentimentTools(server: Server): void {
         `Aggregate AI polarity, centrality and subjectivity across a filter set. ${SENTIMENT_MODEL_IDS.length} ` +
         `models scored the corpus independently — ${SENTIMENT_MODEL_IDS.join(", ")} — so model:"all" returns ` +
         "each one's distribution plus how often they AGREE. Treat disagreement as a fact about the judgement " +
-        "rather than noise: corpus-wide the panel is unanimous on polarity for only ~36% of articles, so in a " +
+        "rather than noise: corpus-wide the panel is unanimous on polarity for only ~32% of articles, so in a " +
         "set where the models split no single one's number should be quoted alone. All three scales are ordinal " +
         "French labels; subjectivity is much the weakest and ships a caveat " +
         "to quote with it. Articles were scored whether or not their full text ships, so these shares are not " +
-        "subject to the OCR coverage limit; compare scored_by_all against total_articles for the residual gap " +
-        "(the ~51 non-francophone articles are unscored by design).",
+        "subject to the OCR coverage limit. The models do NOT all cover the same articles, so read each one's " +
+        "`coverage` before comparing counts: ~51 non-francophone articles are unscored by design, and " +
+        "qwen3-8-27b is 200 further short on articles peripheral to Islam.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         country: countryParam(),
@@ -310,6 +316,24 @@ export function registerSentimentTools(server: Server): void {
             };
           }
         }
+        // Coverage last, derived from the distributions above rather than from
+        // fresh SQL. The panel's models do NOT all score the same articles, and
+        // rowsToMap drops the unscored key, so a model that answered 200 fewer
+        // articles than its neighbour looks identical to one that answered all
+        // of them unless the denominator is stated outright.
+        const coverage: Record<string, number> = {};
+        const sum = (d: unknown) => Object.values((d ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
+        if (out.polarity_distribution) coverage.polarity = sum(out.polarity_distribution);
+        if (out.centrality_distribution) coverage.centrality = sum(out.centrality_distribution);
+        const subj = out.subjectivity as { scored?: number } | undefined;
+        if (subj?.scored !== undefined) coverage.subjectivity = subj.scored;
+        if (Object.keys(coverage).length) {
+          coverage.matched_articles = total;
+          out.coverage = coverage;
+        }
+        // A model-level caveat travels beside that model's numbers, from the
+        // registry rather than from prose written here.
+        if (model.caveat) out.model_caveat = model.caveat;
         return out;
       };
 
@@ -348,12 +372,23 @@ export function registerSentimentTools(server: Server): void {
         pairExprs.forEach((p, i) => {
           pairwise[p.key] = Number(row?.[`pair_${i}`] ?? 0);
         });
+        // Every count here — unanimous AND each pairwise one — is measured on
+        // the same base: articles all listed models scored. That is what makes
+        // the pairs comparable with one another, and it is also why a model
+        // with thinner coverage shrinks the base for pairs it is not part of.
+        // Say so, and carry any short model's own caveat, rather than leaving a
+        // reader to assume the base is the whole corpus.
+        const shortfalls = models.filter((m) => m.caveat);
         payload.agreement = {
           field: "polarity",
           scored_by_all: scoredN,
           unanimous,
           unanimous_percent: scoredN ? Math.round((unanimous / scoredN) * 100) : 0,
           pairwise,
+          base: `articles scored on polarity by all ${models.length} models (of ${total} matched)`,
+          ...(shortfalls.length
+            ? { base_caveats: Object.fromEntries(shortfalls.map((m) => [m.id, m.caveat as string])) }
+            : {}),
         };
 
         // Where the disagreement actually goes: how the first model's label

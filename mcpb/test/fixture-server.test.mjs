@@ -857,20 +857,38 @@ await call("get_lexical_metrics", { group_by: "country" }, {
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,
   check: (p) => {
-    if (String(p.models) !== "gpt-5-6-luna,mistral-small-2603,deepseek-v4-flash-0731,gemma-4-31b-it")
+    if (String(p.models) !== "gpt-5-6-luna,mistral-small-2603,deepseek-v4-flash-0731,gemma-4-31b-it,qwen3-8-27b")
       return `models wrong: ${p.models}`;
     if (!p.by_model?.["mistral-small-2603"]?.polarity_distribution) return "per-model distributions missing";
     if (!p.by_model?.["gemma-4-31b-it"]?.polarity_distribution) return "the fourth model's distribution is missing";
-    if (p.agreement?.scored_by_all !== 6) return `all 6 fixture articles are scored, got ${p.agreement?.scored_by_all}`;
-    // Only 105 (Neutre) survives all four. 102 was unanimous among the first
-    // three and gemma reads it Neutre — the row that proves a fourth member
+    if (!p.by_model?.["qwen3-8-27b"]?.polarity_distribution) return "the fifth model's distribution is missing";
+    // 5, not 6: qwen annotated nothing on row 104, so the common base is
+    // SMALLER than the matched set. This is the assertion that fails if the
+    // agreement base is ever silently widened back to every matched article.
+    if (p.agreement?.scored_by_all !== 5)
+      return `only 5 fixture articles carry all five judgements, got ${p.agreement?.scored_by_all}`;
+    // Only 105 (Neutre) survives all five. 102 was unanimous among the first
+    // three and gemma reads it Neutre — the row that proves a new member
     // actually moves the agreement number rather than riding along with it.
     if (p.agreement.unanimous !== 1) return `expected 1 unanimous article, got ${p.agreement.unanimous}`;
-    if (p.agreement.unanimous_percent !== 17) return `expected 17%, got ${p.agreement.unanimous_percent}`;
-    // 4 models → 6 unordered pairs, not 3.
-    if (Object.keys(p.agreement.pairwise ?? {}).length !== 6)
-      return `expected 6 pairwise counts, got ${JSON.stringify(p.agreement.pairwise)}`;
+    // 1 of 5, not 1 of 6: the shrunken base moves the percentage too.
+    if (p.agreement.unanimous_percent !== 20) return `expected 20%, got ${p.agreement.unanimous_percent}`;
+    // 5 models → 10 unordered pairs, not 6.
+    if (Object.keys(p.agreement.pairwise ?? {}).length !== 10)
+      return `expected 10 pairwise counts, got ${JSON.stringify(p.agreement.pairwise)}`;
     if (p.agreement.pairwise?.["gpt-5-6-luna~gemma-4-31b-it"] === undefined) return "pairwise agreement missing a pair";
+    if (p.agreement.pairwise?.["gemma-4-31b-it~qwen3-8-27b"] === undefined) return "pairwise agreement missing qwen";
+    // The uneven coverage must be stated, not left to be inferred from a
+    // distribution that drops its unscored key.
+    if (p.by_model["qwen3-8-27b"].coverage?.polarity !== 5)
+      return `qwen coverage should be 5, got ${JSON.stringify(p.by_model["qwen3-8-27b"].coverage)}`;
+    if (p.by_model["gpt-5-6-luna"].coverage?.polarity !== 6)
+      return `luna coverage should be 6, got ${JSON.stringify(p.by_model["gpt-5-6-luna"].coverage)}`;
+    if (!/12,098/.test(p.by_model["qwen3-8-27b"].model_caveat ?? ""))
+      return "qwen's coverage caveat should travel with its numbers";
+    if (p.by_model["gpt-5-6-luna"].model_caveat !== undefined)
+      return "a complete model must not carry a coverage caveat";
+    if (!p.agreement.base_caveats?.["qwen3-8-27b"]) return "the agreement base should name the short model";
     if (p.agreement_matrix?.rows !== "gpt-5-6-luna") return "confusion matrix rows should be the default model";
     return null;
   },
@@ -891,6 +909,20 @@ await call("get_sentiment_distribution", { model: "gemma-4-31b-it" }, {
 await call("get_sentiment_distribution", { model: "google" }, {
   structured: true,
   check: (p) => (p.model === "gemma-4-31b-it" ? null : `the google shorthand should resolve to Gemma, got ${p.model}`),
+});
+// The fifth member, and the only one whose single-model answer has to disclose
+// its own shortfall: 5 of the 6 matched rows, not 6.
+await call("get_sentiment_distribution", { model: "qwen" }, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "qwen3-8-27b") return `the qwen shorthand should resolve to the model id, got ${p.model}`;
+    if (p.total_articles !== 6) return `6 fixture articles match, got ${p.total_articles}`;
+    if (p.coverage?.polarity !== 5 || p.coverage?.matched_articles !== 6)
+      return `qwen should report 5 of 6 scored, got ${JSON.stringify(p.coverage)}`;
+    if (p.subjectivity?.scored !== 5) return `qwen scores 5 fixture rows, got ${JSON.stringify(p.subjectivity)}`;
+    if (!/12,098/.test(p.model_caveat ?? "")) return "the single-model answer should carry qwen's caveat";
+    return null;
+  },
 });
 await call("get_sentiment_distribution", { model: "mistral-small-2603" }, {
   structured: true,

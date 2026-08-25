@@ -396,7 +396,7 @@ CASES.push([
       mean_rank: 2.15,
       median_rank: 2,
       rank_scale: "1 = Très objectif … 5 = Très subjectif; derived here, not stored",
-      caveat: "Weakest of the three scales: inter-model agreement κ 0.093-0.470.",
+      caveat: "Weakest of the three scales: inter-model agreement κ 0.16-0.52.",
     },
   },
   (markup) => {
@@ -409,7 +409,7 @@ CASES.push([
       return "did not reconcile scored vs matched";
     // The chart is the easiest thing here to quote out of context, so the
     // weakness of the scale has to travel with it.
-    if (!markup.includes("κ 0.093-0.470")) return "subjectivity caveat missing from the chart";
+    if (!markup.includes("κ 0.16-0.52")) return "subjectivity caveat missing from the chart";
     if (!markup.includes("mean rank 2.15")) return "derived rank not disclosed as derived";
     return null;
   },
@@ -545,18 +545,20 @@ CASES.push([
 ]);
 
 CASES.push([
-  "sentiment (four models)",
+  "sentiment (five models)",
   {
     view: "sentiment",
     model: "all",
-    // Real generation-2 figures, measured over the 12,298 articles all four
-    // models scored (2026-08-17 revision), so a rendering change that mangles
+    // Real generation-2 figures, measured over the 12,098 articles all five
+    // models scored (2026-08-25 revision), so a rendering change that mangles
     // the numbers is visible as a wrong-looking chart rather than a plausible
-    // one. Note what the fourth member did to the headline: unanimity on
-    // polarity fell from 43% to 36%.
+    // one. Note what each new member did to the headline: unanimity on polarity
+    // fell 43% → 36% with the fourth and 36% → 32% with the fifth. The fifth
+    // also breaks the panel's uniform coverage, which is why the blocks below
+    // carry `coverage` — qwen is measured on 200 fewer articles than the rest.
     total_articles: 12349,
     filters: {},
-    models: ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731", "gemma-4-31b-it"],
+    models: ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731", "gemma-4-31b-it", "qwen3-8-27b"],
     by_model: {
       "gpt-5-6-luna": {
         polarity_distribution: { Positif: 6146, Neutre: 5017, "Très positif": 425, Négatif: 375, "Non applicable": 290, "Très négatif": 45 },
@@ -568,32 +570,50 @@ CASES.push([
           mean_rank: 2.434,
           median_rank: 2,
           rank_scale: "1 = Très objectif … 5 = Très subjectif; derived here, not stored",
-          caveat: "Weakest of the three scales: inter-model agreement κ 0.093-0.470.",
+          caveat: "Weakest of the three scales: inter-model agreement κ 0.16-0.52.",
         },
+        coverage: { polarity: 12298, centrality: 12298, subjectivity: 12008, matched_articles: 12349 },
       },
       "mistral-small-2603": {
         polarity_distribution: { Positif: 4985, Neutre: 4093, "Très positif": 2087, "Non applicable": 587, Négatif: 362, "Très négatif": 184 },
+        coverage: { polarity: 12298, matched_articles: 12349 },
       },
       "deepseek-v4-flash-0731": {
         polarity_distribution: { Neutre: 6649, Positif: 4001, "Très positif": 900, "Non applicable": 484, Négatif: 223, "Très négatif": 41 },
+        coverage: { polarity: 12298, matched_articles: 12349 },
       },
       "gemma-4-31b-it": {
         polarity_distribution: { Neutre: 7275, Positif: 3871, "Très positif": 627, "Non applicable": 243, Négatif: 233, "Très négatif": 49 },
+        coverage: { polarity: 12298, matched_articles: 12349 },
+      },
+      // The short member. It also barely uses the extremes — 176 Très positif
+      // against Luna's 425, and 5 Très négatif — so its ring is a real shape,
+      // not a copy of its neighbour's.
+      "qwen3-8-27b": {
+        polarity_distribution: { Neutre: 6298, Positif: 5107, "Non applicable": 288, Négatif: 224, "Très positif": 176, "Très négatif": 5 },
+        coverage: { polarity: 12098, matched_articles: 12349 },
+        model_caveat: "Scores 12,098 articles where the other four score 12,298.",
       },
     },
     agreement: {
       field: "polarity",
-      scored_by_all: 12298,
-      unanimous: 4488,
-      unanimous_percent: 36,
+      scored_by_all: 12098,
+      unanimous: 3929,
+      unanimous_percent: 32,
       pairwise: {
-        "gpt-5-6-luna~mistral-small-2603": 7146,
-        "gpt-5-6-luna~deepseek-v4-flash-0731": 8437,
-        "gpt-5-6-luna~gemma-4-31b-it": 8641,
-        "mistral-small-2603~deepseek-v4-flash-0731": 6741,
-        "mistral-small-2603~gemma-4-31b-it": 6256,
-        "deepseek-v4-flash-0731~gemma-4-31b-it": 9241,
+        "gpt-5-6-luna~mistral-small-2603": 7019,
+        "gpt-5-6-luna~deepseek-v4-flash-0731": 8277,
+        "gpt-5-6-luna~gemma-4-31b-it": 8470,
+        "gpt-5-6-luna~qwen3-8-27b": 8874,
+        "mistral-small-2603~deepseek-v4-flash-0731": 6605,
+        "mistral-small-2603~gemma-4-31b-it": 6128,
+        "mistral-small-2603~qwen3-8-27b": 6502,
+        "deepseek-v4-flash-0731~gemma-4-31b-it": 9064,
+        "deepseek-v4-flash-0731~qwen3-8-27b": 8607,
+        "gemma-4-31b-it~qwen3-8-27b": 9056,
       },
+      base: "articles scored on polarity by all 5 models (of 12349 matched)",
+      base_caveats: { "qwen3-8-27b": "Scores 12,098 articles where the other four score 12,298." },
     },
     agreement_matrix: {
       rows: "gpt-5-6-luna",
@@ -605,13 +625,20 @@ CASES.push([
     },
   },
   (markup) => {
-    // Count-driven, so a fifth member changes the heading instead of making it
+    // Count-driven, so a sixth member changes the heading instead of making it
     // wrong — the title said "three models" over four rings until v3.2.0.
-    if (!markup.includes("4 models compared")) return "did not switch to the comparison view";
-    if (!markup.includes("36%")) return "agreement rate missing from the headline";
+    if (!markup.includes("5 models compared")) return "did not switch to the comparison view";
+    if (!markup.includes("32%")) return "agreement rate missing from the headline";
     if (!markup.includes("gpt-5-6-luna ↔ mistral-small-2603")) return "pairwise agreement chart missing";
     if (!markup.includes("deepseek-v4-flash-0731 ↔ gemma-4-31b-it")) return "the fourth model's pairs are missing";
-    if (!markup.includes("all 4")) return "the unanimity bar should name the panel size";
+    if (!markup.includes("gemma-4-31b-it ↔ qwen3-8-27b")) return "the fifth model's pairs are missing";
+    if (!markup.includes("all 5")) return "the unanimity bar should name the panel size";
+    // The uneven coverage must reach the CHART, not only the JSON: a ring drawn
+    // on 200 fewer articles than the one beside it is a misreading waiting to
+    // happen, and the four complete members must stay unannotated.
+    if (!markup.includes("200 fewer articles scored")) return "the short member's ring is not captioned";
+    if ((markup.match(/fewer articles scored/g) ?? []).length !== 1)
+      return "only the short member's ring should be captioned";
     // The agreeing diagonal is blanked so the ramp covers the disagreements.
     if (markup.includes("Négatif × Négatif")) return "the agreeing diagonal should be blanked";
     if (!markup.includes("Négatif × Neutre: 137")) return "confusion cell missing";

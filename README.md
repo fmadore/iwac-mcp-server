@@ -175,10 +175,12 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
 - **12,000+ newspaper articles** from Benin, Burkina Faso, Côte d'Ivoire, Niger,
   and Togo, 1960s–present (mostly French), each with an AI abstract and AI
   sentiment analysis (polarity / centrality / subjectivity), scored
-  independently by four models — `gpt-5-6-luna` (the one the inline columns
-  report), `mistral-small-2603`, `deepseek-v4-flash-0731` and `gemma-4-31b-it`.
-  All four agree on polarity for only ~36% of articles, so
-  `get_sentiment_distribution(model="all")` is the honest way to quote a figure
+  independently by five models — `gpt-5-6-luna` (the one the inline columns
+  report), `mistral-small-2603`, `deepseek-v4-flash-0731`, `gemma-4-31b-it` and
+  `qwen3-8-27b`. All five agree on polarity for only ~32% of articles, so
+  `get_sentiment_distribution(model="all")` is the honest way to quote a figure.
+  They do not all cover the same articles either — `qwen3-8-27b` scores 12,098
+  where the rest score 12,298 — so each model reports its own `coverage`
 - **4,700+ authority records** (persons, organisations, places, events, subjects)
 - **1,500+ Islamic publications** (periodical issues, books) with full OCR
 - **860+ academic references**, half with abstracts
@@ -238,7 +240,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 3.3.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 3.4.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -246,7 +248,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {3.3.0},
+  version   = {3.4.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

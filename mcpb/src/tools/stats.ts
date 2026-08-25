@@ -331,8 +331,8 @@ export function registerStatsTools(server: Server): void {
         view: VIEW.countries,
         total_countries: countries.length,
         // Name the annotator: this is one model's reading of every country, and
-        // the panel disagrees often enough (all four unanimous on polarity for
-        // ~36% of the corpus) that "the AI polarity" would be a claim the data
+        // the panel disagrees often enough (all five unanimous on polarity for
+        // ~32% of the corpus) that "the AI polarity" would be a claim the data
         // does not support.
         ...(schema.has(polarityCol) ? { polarity_model: DEFAULT_SENTIMENT_MODEL.id } : {}),
         countries,

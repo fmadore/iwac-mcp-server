@@ -116,10 +116,19 @@ const SUBSET_SQL = {
       -- The fourth panel member (2026-08-17). Its values deliberately break the
       -- unanimity the other three had on row 102, mirroring what adding it did
       -- to the real corpus (4-way agreement on polarity 36.5%, against 43.1%
-      -- for the first three): a fixture where the newest model never changes an
-      -- aggregate cannot fail when a fourth model is dropped from the panel.
+      -- for the first three): a fixture where a new model never changes an
+      -- aggregate cannot fail when that model is dropped from the panel.
       gemma_4_31b_it_polarite VARCHAR, gemma_4_31b_it_centralite_islam_musulmans VARCHAR,
       gemma_4_31b_it_subjectivite_score VARCHAR,
+      -- The fifth member (2026-08-25). Unlike the other four it does NOT cover
+      -- the whole corpus: 200 articles were attempted four times, never
+      -- annotated, and then retired, and they concentrate on articles the panel
+      -- reads as peripheral to Islam. Row 104 -- the one every model calls
+      -- Marginal or Secondaire -- is left entirely empty here to mirror that,
+      -- because an all-scored fixture would never exercise the case where the
+      -- agreement base is SMALLER than the matched set.
+      qwen3_8_27b_polarite VARCHAR, qwen3_8_27b_centralite_islam_musulmans VARCHAR,
+      qwen3_8_27b_subjectivite_score VARCHAR,
       -- Toy 4-d embeddings, not the real 768. The PCA projection does not care
       -- about dimensionality, and these are laid out as two separable clusters
       -- (the hadj/pilgrimage rows against the rest) so the projection has a
@@ -131,19 +140,19 @@ const SUBSET_SQL = {
        'La Nation', 'Benin', '1995-06-15', 'Pèlerinage|Religion', 'Cotonou|La Mecque', 'Français',
        'Reportage sur le départ des pèlerins béninois pour La Mecque.',
        'Cette année encore, le pèlerinage à La Mecque mobilise des centaines de fidèles depuis Cotonou. Les autorités saluent l''organisation du hadj.',
-       'Neutre', 'Central', 'Plutôt objectif', 120, 1, 0.62, 41.5, '${IWAC}101', 12, 0.47, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 'Plutôt objectif', 'Positif', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Très objectif', [0.90, 0.10, 0.05, 0.02]),
+       'Neutre', 'Central', 'Plutôt objectif', 120, 1, 0.62, 41.5, '${IWAC}101', 12, 0.47, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 'Plutôt objectif', 'Positif', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Très objectif', 'Neutre', 'Central', 'Plutôt objectif', [0.90, 0.10, 0.05, 0.02]),
       ('102', 'iwac-102', 'Ramadan à Ouagadougou', 'B. Ouedraogo',
        'Sidwaya', 'Burkina Faso', '2003-01-10', 'Mosquée|Ramadan', 'Ouagadougou', 'Français',
        'Le mois de jeûne vécu dans les mosquées de la capitale burkinabè.',
        'Le ramadan à Ouagadougou rassemble les fidèles dans les mosquées chaque soir.',
-       -- gemma reads this one Neutre where the other three say Positif: the row
+       -- gemma reads this one Neutre where the other four say Positif: the row
        -- that stops the fixture's unanimity count from being a constant.
-       'Positif', 'Central', 'Plutôt objectif', 95, 1, 0.58, 38.2, '${IWAC}102', 25, 0.39, 'fête - prière - ramadan', 'Positif', 'Central', 'Plutôt objectif', 'Positif', 'Très central', 'Mixte', 'Neutre', 'Central', 'Très objectif', [0.05, 0.92, 0.08, 0.01]),
+       'Positif', 'Central', 'Plutôt objectif', 95, 1, 0.58, 38.2, '${IWAC}102', 25, 0.39, 'fête - prière - ramadan', 'Positif', 'Central', 'Plutôt objectif', 'Positif', 'Très central', 'Mixte', 'Neutre', 'Central', 'Très objectif', 'Positif', 'Central', 'Plutôt objectif', [0.05, 0.92, 0.08, 0.01]),
       ('103', 'iwac-103', 'La communauté musulmane célèbre la fin du ramadan', '',
        'Fraternité Matin', 'Côte d''Ivoire', '2010-11-01', 'Ramadan', 'Abidjan', 'Français',
        'Célébrations de la Korité à Abidjan.',
        'La Korité a été célébrée dans la joie à Abidjan. La communauté musulmane appelle à la paix.',
-       'Très positif', 'Très central', 'Très objectif', 88, 1, 0.6, 40.0, '${IWAC}103', 25, 0.41, 'fête - prière - ramadan', 'Très positif', 'Très central', 'Très objectif', 'Positif', 'Très central', 'Plutôt objectif', 'Positif', 'Très central', 'Très objectif', [0.02, 0.88, 0.12, 0.04]),
+       'Très positif', 'Très central', 'Très objectif', 88, 1, 0.6, 40.0, '${IWAC}103', 25, 0.41, 'fête - prière - ramadan', 'Très positif', 'Très central', 'Très objectif', 'Positif', 'Très central', 'Plutôt objectif', 'Positif', 'Très central', 'Très objectif', 'Positif', 'Très central', 'Très objectif', [0.02, 0.88, 0.12, 0.04]),
       ('104', 'iwac-104', 'L''islam au Niger : nouvelles associations', 'C. Issoufou',
        'Le Sahel', 'Niger', '2019-05-20', 'Islam', 'Niamey', 'Français',
        'Panorama des associations islamiques nigériennes.',
@@ -151,20 +160,23 @@ const SUBSET_SQL = {
        -- deepseek leaves subjectivity empty here on purpose: the real model
        -- declines to score ~489 articles it did place on the other two scales,
        -- so a fixture where every row is scored would never exercise the
-       -- unscored reconciliation.
-       'Neutre', 'Secondaire', 'Mixte', 76, 1, 0.55, 37.1, '${IWAC}104', 6, 0.32, 'association - islam - organisation', 'Neutre', 'Secondaire', 'Mixte', 'Négatif', 'Marginal', '', 'Neutre', 'Marginal', 'Très objectif', [0.10, 0.15, 0.90, 0.03]),
+       -- unscored reconciliation. qwen leaves the row empty ENTIRELY, which is
+       -- a different gap: not an abstention on one scale but 200 articles it
+       -- never annotated at all, so this is the row that makes scored_by_all
+       -- (5) smaller than the matched set (6).
+       'Neutre', 'Secondaire', 'Mixte', 76, 1, 0.55, 37.1, '${IWAC}104', 6, 0.32, 'association - islam - organisation', 'Neutre', 'Secondaire', 'Mixte', 'Négatif', 'Marginal', '', 'Neutre', 'Marginal', 'Très objectif', '', '', '', [0.10, 0.15, 0.90, 0.03]),
       ('105', 'iwac-105', 'Dossier: le hadj expliqué', 'D. Lawson',
        'Togo-Presse', 'Togo', '1987-03-02', 'Pèlerinage', 'Lomé', 'Français',
        'Long dossier pédagogique sur le pèlerinage.',
        repeat('Le pèlerinage à La Mecque commence bientôt, selon les autorités locales. ', 450),
-       -- The one row all FOUR models read the same way, so the unanimity path is
+       -- The one row all FIVE models read the same way, so the unanimity path is
        -- still exercised rather than only the disagreement path.
-       'Neutre', 'Central', 'Plutôt objectif', 32000, 4, 0.5, 35.0, '${IWAC}105', 12, 0.51, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Plutôt objectif', [0.86, 0.14, 0.02, 0.05]),
+       'Neutre', 'Central', 'Plutôt objectif', 32000, 4, 0.5, 35.0, '${IWAC}105', 12, 0.51, 'pèlerin - hadj - organisation_hadj', 'Neutre', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Plutôt objectif', 'Neutre', 'Central', 'Plutôt objectif', [0.86, 0.14, 0.02, 0.05]),
       ('106', 'iwac-106', 'Polémique autour d''une mosquée', '',
        'Le Matinal', 'Benin', '2001-09-14', 'Mosquée', 'Porto-Novo', 'Français',
        'Conflit foncier autour d''un projet de mosquée.',
        'La construction d''une mosquée à Porto-Novo suscite une vive polémique.',
-       'Négatif', 'Très central', 'Plutôt subjectif', 102, 1, 0.61, 39.4, '${IWAC}106', 12, 0.28, 'imam - mosquée - prière', 'Négatif', 'Très central', 'Plutôt subjectif', 'Très négatif', 'Très central', 'Très subjectif', 'Négatif', 'Très central', 'Plutôt subjectif', [0.08, 0.20, 0.85, 0.09]);
+       'Négatif', 'Très central', 'Plutôt subjectif', 102, 1, 0.61, 39.4, '${IWAC}106', 12, 0.28, 'imam - mosquée - prière', 'Négatif', 'Très central', 'Plutôt subjectif', 'Très négatif', 'Très central', 'Très subjectif', 'Négatif', 'Très central', 'Plutôt subjectif', 'Négatif', 'Très central', 'Plutôt subjectif', [0.08, 0.20, 0.85, 0.09]);
   `,
 
   publications: `

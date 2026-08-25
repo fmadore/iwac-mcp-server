@@ -542,12 +542,13 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
 // these guard the invariant that survives the next campaign: a handle either
 // names a model this server serves, or fails loudly. Nothing in between.
 describe("sentiment model registry (generation 2)", () => {
-  it("serves the four generation-2 models and builds their column names", () => {
+  it("serves the five generation-2 models and builds their column names", () => {
     assert.deepEqual(SENTIMENT_MODEL_IDS, [
       "gpt-5-6-luna",
       "mistral-small-2603",
       "deepseek-v4-flash-0731",
       "gemma-4-31b-it",
+      "qwen3-8-27b",
     ]);
     const deepseek = resolveSentimentModel("deepseek");
     assert.ok(deepseek, "deepseek should resolve");
@@ -559,6 +560,24 @@ describe("sentiment model registry (generation 2)", () => {
     assert.ok(gemma, "gemma should resolve");
     assert.equal(sentimentCols(gemma).polarity, "gemma_4_31b_it_polarite");
     assert.equal(sentimentCols(gemma).subjectivity, "gemma_4_31b_it_subjectivite_score");
+    const qwen = resolveSentimentModel("qwen3-8-27b");
+    assert.ok(qwen, "qwen should resolve");
+    assert.equal(sentimentCols(qwen).polarity, "qwen3_8_27b_polarite");
+    assert.equal(sentimentCols(qwen).centrality, "qwen3_8_27b_centralite_islam_musulmans");
+    assert.equal(sentimentCols(qwen).subjectivity, "qwen3_8_27b_subjectivite_score");
+  });
+
+  // qwen3-8-27b is the first member that does NOT cover the whole corpus, and
+  // the shortfall is deliberate rather than a run to repair. The registry is
+  // where that is recorded, so a caller comparing its counts with another
+  // model's is told why they do not share a denominator — and the other four,
+  // which are complete, must NOT carry a caveat that would dilute it.
+  it("carries a coverage caveat on qwen alone", () => {
+    const qwen = resolveSentimentModel("qwen3-8-27b");
+    assert.match(qwen?.caveat ?? "", /12,098/);
+    for (const id of ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731", "gemma-4-31b-it"]) {
+      assert.equal(resolveSentimentModel(id)?.caveat, undefined, `${id} covers the corpus and needs no caveat`);
+    }
   });
 
   // Adding a model must NOT move the default: every inline `polarity` this
@@ -579,6 +598,11 @@ describe("sentiment model registry (generation 2)", () => {
     // for the line this does not cross.
     for (const handle of ["gemma", "gemma_4_31b_it", "google", "GOOGLE"]) {
       assert.equal(resolveSentimentModel(handle)?.id, "gemma-4-31b-it", handle);
+    }
+    // `qwen` names the model LINE this member belongs to, so unlike `gemini` it
+    // resolves: the line itself scored generation 2. `alibaba` is the vendor.
+    for (const handle of ["qwen", "qwen3_8_27b", "alibaba", "QWEN"]) {
+      assert.equal(resolveSentimentModel(handle)?.id, "qwen3-8-27b", handle);
     }
   });
 
