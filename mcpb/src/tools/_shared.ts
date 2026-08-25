@@ -464,6 +464,48 @@ export function retiredSentimentModel(input: string): string | undefined {
   return RETIRED_SENTIMENT_MODELS[sentimentKey(input)];
 }
 
+/**
+ * The panel's own conclusion, precomputed upstream and merely served here.
+ *
+ * NOT a model, and deliberately not a member of SENTIMENT_MODELS: no annotator
+ * produced these values, so nothing may echo them back in a `model` field that
+ * elsewhere always names the exact model that judged. `resolveSentimentModel`
+ * must keep refusing "consensus" for that reason.
+ *
+ * The majority threshold follows the votes ACTUALLY CAST (over half, minimum
+ * two), which is the one thing that makes these worth serving next to this
+ * server's own `agreement` block: agreement is measured on articles every model
+ * scored, so a row one model abstained on drops out of it entirely, where the
+ * consensus still decides that row on the votes it has.
+ *
+ * The three fields do not behave alike, and assuming they do is the trap:
+ *
+ *  - polarity and centrality are MAJORITY LABELS. Empty means one of two
+ *    different things — no majority formed, or nobody voted — and only
+ *    CONSENSUS_DISPUTE_COL tells them apart. Empty NEVER means "not computed".
+ *  - subjectivity is a MEDIAN RANK on the 1-5 scale stored as a float. A median
+ *    resolves whenever at least one model voted, so its coverage is HIGHER than
+ *    the majority fields', and an even number of voters yields a half-rank
+ *    (1.5, 2.5, …) that maps to no label at all. Never render it as a label,
+ *    and never join it to SUBJECTIVITY_VALUES.
+ */
+export const CONSENSUS_COLS = {
+  polarity: "consensus_polarite",
+  centrality: "consensus_centralite",
+  subjectivity: "consensus_subjectivite_score",
+} as const;
+
+/** Pipe-joined list of the fields the panel split on, empty where it did not. */
+export const CONSENSUS_DISPUTE_COL = "sentiment_disagreement";
+
+/**
+ * The field names as they appear inside CONSENSUS_DISPUTE_COL. French, matching
+ * the column vocabulary rather than this server's English parameter names, and a
+ * dispute does not mean the same thing across them: on polarity and centrality
+ * it is why the consensus is empty, on subjectivity the median still resolved.
+ */
+export const DISPUTE_FIELDS = ["polarite", "centralite", "subjectivite"] as const;
+
 /** Authority-index `Type` values. */
 export const INDEX_TYPES = ["Personnes", "Organisations", "Lieux", "Événements", "Sujets", "Notices d'autorité"] as const;
 

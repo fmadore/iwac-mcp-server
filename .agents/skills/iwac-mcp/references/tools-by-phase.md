@@ -86,6 +86,8 @@ Search the 4,697 authority records by name.
 
 ### search_by_sentiment
 Filter articles by **`gpt-5-6-luna`** sentiment labels (exact match, accents optional). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other four agree.
+
+- `disputed` (optional, validated) *(v3.5.0+)*: `polarite` | `centralite` | `subjectivite` — keep only the articles the panel **split on** for that field. French field names, as stored; the English spellings error with `valid_values`. This is how you read the contested cases rather than merely counting them: `disputed="polarite"` returns the 429 articles where no majority formed, which are exactly the ones a single model's label would misrepresent as settled. Combines with the country, subject and date filters.
 - `polarity` (optional): Très positif | Positif | Neutre | Négatif | Très négatif | Non applicable
 - `centrality` (optional): Très central | Central | Secondaire | Marginal | Non abordé
 - `subjectivity` (optional): Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif. Filterable since v2.0.0, when generation 2 turned this field from a 1-5 rating into a closed label vocabulary — a numeric value now errors. Unscored where the model answered `Non abordé`, so this filter excludes those rows too. It is the weakest of the three scales: use it to *find* articles to read, not to count them
@@ -228,10 +230,22 @@ Counts of matching items per year (or month) — one call replaces paging throug
 ### get_sentiment_distribution *(`model` added v0.13.0; model-exact ids since the 2026-07-31 dataset rename)*
 Aggregated AI sentiment counts.
 - `country` (optional, exact name), `newspaper` (optional), `subject` (optional)
-- `model` (optional, validated): `gpt-5-6-luna` (default) | `mistral-small-2603` | `deepseek-v4-flash-0731` | `gemma-4-31b-it` | `qwen3-8-27b` | **all**. Vendor shorthand (`chatgpt` / `mistral` / `deepseek` / `gemma` or `google` / `qwen` or `alibaba`) resolves to these ids, which is what the payload echoes back — quote the id, never the vendor. The generation-1 ids (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) are **refused by name**, not substituted, and so is bare `gemini`: Google's generation-2 member is Gemma, a different model line (`qwen` resolves, by contrast, because the Qwen line did score generation 2)
+- `model` (optional, validated): `gpt-5-6-luna` (default) | `mistral-small-2603` | `deepseek-v4-flash-0731` | `gemma-4-31b-it` | `qwen3-8-27b` | **all** | **consensus**. Vendor shorthand (`chatgpt` / `mistral` / `deepseek` / `gemma` or `google` / `qwen` or `alibaba`) resolves to these ids, which is what the payload echoes back — quote the id, never the vendor. The generation-1 ids (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) are **refused by name**, not substituted, and so is bare `gemini`: Google's generation-2 member is Gemma, a different model line (`qwen` resolves, by contrast, because the Qwen line did score generation 2)
 - Returns `polarity_distribution`, `centrality_distribution` and `subjectivity` — a distribution over the five French labels plus `scored` / `unscored` and a `mean_rank` / `median_rank` derived by ranking the labels 1-5. That rank is a position on a five-point scale, never a percentage. The block also carries a `caveat`: quote it whenever you quote the number
 - With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity — ten pairwise counts and one unanimous count for five models) and `agreement_matrix` (where the first two part company)
 - Every model block carries a `coverage` object, because the five do **not** score the same articles: `qwen3-8-27b` reaches 12,098 where the others reach 12,298. `agreement` is measured on the articles *all* of them scored, so its `scored_by_all` base — and every pairwise count in it, including pairs Qwen is not part of — is the smaller one, and `base_caveats` names why. Compare proportions, not raw counts, across models
+
+### `model="consensus"` — what the panel concluded *(v3.5.0+)*
+
+A precomputed majority, served as stored rather than derived at query time, and **not a sixth model**: no annotator produced it, so never attribute a consensus figure to one. It also rides along inside `model="all"` as a `consensus` block, so a comparison call answers both "how far do they agree" and "what did they conclude".
+
+The majority threshold follows the votes **actually cast** (over half, minimum two). That is the reason to prefer it over `agreement`: `agreement` counts only articles *every* model scored, so the 200 Qwen skipped drop out of it entirely, while the consensus still decides them on the four remaining votes. The two are counted on different sets and their totals should not be reconciled.
+
+The three fields do not behave alike, and this is the part to get right:
+
+- `polarity_distribution` / `centrality_distribution` are **majority labels**. An empty value means **no majority formed** (429 and 465 articles), never "not computed". Those articles are absent from the distribution, so read `coverage` for the denominator.
+- `subjectivity_median_rank` is a **float median on the 1-5 scale, not a label**. A median resolves whenever anyone voted, so it covers *more* articles (12,195) than either majority field. An even number of voters yields a **half-rank** (1.5, 2.5 …) matching no label at all — 117 articles have one. Never map it back onto the five labels, and never quote it as a percentage.
+- `disputed` counts the fields the panel split on: polarité 429, centralité 465, subjectivité 3,184, any 3,778 (30.6% of the corpus). On the two label fields a dispute is *why* the consensus is empty; on subjectivité the median still resolved, so a disputed article still carries a value.
 
 **Tip:** `get_sentiment_distribution(subject="Laïcité", country="Burkina Faso")` gives the polarity distribution for laïcité articles in BF specifically; compare against the unfiltered country baseline.
 

@@ -1,14 +1,14 @@
 {
   "tokenizer": "o200k_base",
-  "footprint": 15071,
+  "footprint": 15210,
   "instructions": 1624,
   "tools": {
     "search": 629,
     "fetch": 358,
     "search_articles": 490,
     "get_article": 254,
-    "search_by_sentiment": 380,
-    "get_sentiment_distribution": 795,
+    "search_by_sentiment": 429,
+    "get_sentiment_distribution": 885,
     "search_index": 236,
     "get_index_entry": 136,
     "list_subjects": 158,

@@ -180,7 +180,9 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
   `qwen3-8-27b`. All five agree on polarity for only ~32% of articles, so
   `get_sentiment_distribution(model="all")` is the honest way to quote a figure.
   They do not all cover the same articles either — `qwen3-8-27b` scores 12,098
-  where the rest score 12,298 — so each model reports its own `coverage`
+  where the rest score 12,298 — so each model reports its own `coverage`.
+  `model="consensus"` returns the panel's precomputed majority (not a sixth
+  model), and `search_by_sentiment(disputed=…)` reads the articles it split on
 - **4,700+ authority records** (persons, organisations, places, events, subjects)
 - **1,500+ Islamic publications** (periodical issues, books) with full OCR
 - **860+ academic references**, half with abstracts
@@ -240,7 +242,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 3.4.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 3.5.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -248,7 +250,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {3.4.0},
+  version   = {3.5.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

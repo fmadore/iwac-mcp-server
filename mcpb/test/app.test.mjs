@@ -615,6 +615,16 @@ CASES.push([
       base: "articles scored on polarity by all 5 models (of 12349 matched)",
       base_caveats: { "qwen3-8-27b": "Scores 12,098 articles where the other four score 12,298." },
     },
+    // Measured alongside the rest. Note it decides MORE articles (11,869) than
+    // the agreement base holds (12,098 scored by all five, of which 3,929 are
+    // unanimous): the two count different things on different sets, which is
+    // exactly what the chart has to keep apart.
+    consensus: {
+      polarity_distribution: { Neutre: 5985, Positif: 4838, "Très positif": 483, "Non applicable": 323, Négatif: 211, "Très négatif": 29 },
+      centrality_distribution: { "Très central": 8247, Central: 1236, Marginal: 1166, Secondaire: 871, "Non abordé": 313 },
+      coverage: { polarity: 11869, centrality: 11833, subjectivity: 12195, matched_articles: 12349 },
+      disputed: { polarite: 429, centralite: 465, subjectivite: 3184, any: 3778 },
+    },
     agreement_matrix: {
       rows: "gpt-5-6-luna",
       cols: "mistral-small-2603",
@@ -639,6 +649,14 @@ CASES.push([
     if (!markup.includes("200 fewer articles scored")) return "the short member's ring is not captioned";
     if ((markup.match(/fewer articles scored/g) ?? []).length !== 1)
       return "only the short member's ring should be captioned";
+    // The consensus must render, and must NOT read as a sixth annotator: it sits
+    // in its own panel and the note says outright that no model produced it.
+    if (!markup.includes("Panel consensus")) return "the panel's conclusion is missing from the comparison";
+    if (!markup.includes("No model produced it")) return "the consensus must disclaim being a model";
+    // Digit groups use THOUSANDS_SEP, which is a space rather than a comma, so
+    // these match the separator loosely instead of hard-coding it.
+    if (!/11\D?869/.test(markup)) return "the consensus should state its own base, not borrow the agreement one";
+    if (!/subjectivite 3\D?184/.test(markup)) return "the split-panel breakdown is missing";
     // The agreeing diagonal is blanked so the ramp covers the disagreements.
     if (markup.includes("Négatif × Négatif")) return "the agreeing diagonal should be blanked";
     if (!markup.includes("Négatif × Neutre: 137")) return "confusion cell missing";

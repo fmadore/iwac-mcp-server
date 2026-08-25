@@ -641,6 +641,52 @@ await call("get_sentiment_distribution", { model: "qwen" }, {
     return null;
   },
 });
+// The panel's own conclusion, against the real columns. Everything asserted here
+// is a way the consensus differs from the per-model answers beside it, because
+// anything it shares with them is already covered by the fixture suite.
+await call("get_sentiment_distribution", { model: "consensus" }, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "consensus") return `model not echoed, got ${p.model}`;
+    const cov = p.coverage ?? {};
+    if (!(cov.polarity > 11_000)) return `consensus polarity coverage looks wrong: ${JSON.stringify(cov)}`;
+    // The median resolves where a majority cannot form, so it MUST reach more
+    // articles than either label field. If this ever inverts, the median has
+    // been reduced to a vote somewhere upstream.
+    if (!(cov.subjectivity > cov.polarity) || !(cov.subjectivity > cov.centrality))
+      return `the median should outreach the majority labels: ${JSON.stringify(cov)}`;
+    // Half-ranks exist only in live data: an even number of voters lands
+    // between two labels, which is why this is never mapped back to one.
+    const ranks = Object.keys(p.subjectivity_median_rank?.distribution ?? {});
+    if (!ranks.length) return "no median-rank distribution";
+    if (!ranks.every((k) => Number.isFinite(Number(k))))
+      return `median ranks must stay numeric, got ${JSON.stringify(ranks)}`;
+    if (!ranks.some((k) => !Number.isInteger(Number(k))))
+      return `expected at least one half-rank from an even vote split, got ${JSON.stringify(ranks)}`;
+    if (ranks.some((k) => /[A-Za-zÀ-ÿ]/.test(k))) return "the median must not be keyed by label";
+    const d = p.disputed ?? {};
+    if (!(d.subjectivite > d.polarite) || !(d.subjectivite > d.centralite))
+      return `subjectivity should be the most disputed field: ${JSON.stringify(d)}`;
+    if (!(d.any > 0) || !(d.any < 12_349)) return `dispute roll-up implausible: ${JSON.stringify(d)}`;
+    return null;
+  },
+});
+// The contested articles are readable, not merely countable, and the count the
+// filter returns must match the count the aggregate reported.
+let disputedPolarity = 0;
+await call("get_sentiment_distribution", { model: "consensus" }, {
+  structured: true,
+  check: (p) => {
+    disputedPolarity = p.disputed?.polarite ?? 0;
+    return disputedPolarity > 0 ? null : "no polarity disputes reported";
+  },
+});
+await call("search_by_sentiment", { disputed: "polarite" }, {
+  check: (p) =>
+    p.total_matches === disputedPolarity
+      ? null
+      : `filter and aggregate disagree: ${p.total_matches} vs ${disputedPolarity}`,
+});
 // Generation 1 is dropped: its ids must fail by name rather than answer with
 // the same vendor's generation-2 model.
 for (const retired of ["gpt-5-mini", "gemini"]) {

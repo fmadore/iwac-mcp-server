@@ -45,6 +45,14 @@ Five models scored the corpus independently: **`gpt-5-6-luna`**, **`mistral-smal
 
 **Always name the model behind a reported figure.** The columns name the exact model that produced them, and so do the tools; vendor shorthand (`chatgpt`, `mistral`, `deepseek`, `gemma`/`google`, `qwen`/`alibaba`) is accepted as input and resolves to the model id, which is what the payload echoes back.
 
+**The panel's majority is available as `model="consensus"`, and it is not a sixth model.** No annotator produced it, so a consensus figure is attributed to *the panel*, never to a model. Prefer it to any single model's number when the claim is about the corpus rather than about a model, and prefer it to `agreement` when you want a conclusion rather than a concordance rate. Three things to carry with it:
+
+- The majority follows the votes **actually cast** (over half, minimum two), so it decides articles that `agreement` discards — including the 200 Qwen never annotated. The two are counted on different sets; do not reconcile their totals.
+- An empty polarité or centralité consensus means **no majority formed** (429 and 465 articles), never "not computed". Those are the genuinely contested articles, and `search_by_sentiment(disputed="polarite")` reads them. A single model's label on such an article looks settled and is not, which makes them worth quoting *as* disagreement rather than averaging away.
+- The subjectivité consensus is a **float median rank, not a label**, so it resolves for more articles (12,195) than either majority field, and an even number of voters yields a half-rank (1.5, 2.5 …) matching no label at all. Never map it onto the five labels, and never report it as a percentage. It inherits every reliability caveat above: a median of weak judgements is still weak.
+
+The panel splits on subjectivité far more than on anything else — 3,184 articles against 429 for polarité and 465 for centralité — which is the same finding as the κ table below, counted a different way.
+
 **Generation 1 is gone from these tools.** An earlier campaign (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) scored the same corpus and its columns survive on Hugging Face, but the server no longer serves them: asking for one returns an error rather than substituting the same vendor's generation-2 model. The two generations differ in model, in prompt AND in how subjectivity is stored, so a figure from one is not comparable to a figure from the other — if a source quotes a generation-1 number, say which generation it came from rather than presenting it alongside these. **`gemini` is refused too**, and that is not an oversight: Google's generation-2 member is Gemma 4 31B, a different model line, so reading `gemini` as `gemma-4-31b-it` would attribute one model's judgements to another.
 
 ### Scale Definitions

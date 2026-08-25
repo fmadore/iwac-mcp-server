@@ -950,6 +950,74 @@ await call("get_sentiment_distribution", { model: "deepseek" }, {
       ? null
       : `unscored subjectivity not reconciled: ${JSON.stringify(p.subjectivity)}`,
 });
+// The panel's own conclusion. The three fields deliberately do NOT behave alike,
+// and every assertion here is about a way they differ.
+await call("get_sentiment_distribution", { model: "consensus" }, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "consensus") return `model not echoed, got ${p.model}`;
+    if (p.by_model) return "consensus is not a per-model breakdown";
+    // Row 103 has no polarity majority and row 104 no centrality majority, so
+    // both label fields resolve on 5 of the 6 matched articles. The empty value
+    // must not appear as a bucket.
+    if (p.polarity_distribution?.[""] !== undefined) return "the no-majority rows must not be a bucket";
+    if (p.coverage?.polarity !== 5) return `polarity consensus should cover 5, got ${JSON.stringify(p.coverage)}`;
+    if (p.coverage?.centrality !== 5) return `centrality consensus should cover 5, got ${JSON.stringify(p.coverage)}`;
+    // The asymmetry that makes consensus more than a fourth model: subjectivity
+    // is a MEDIAN, so it resolves where a majority cannot form. If this ever
+    // equals the label fields, the median has been reduced to a vote.
+    if (p.coverage?.subjectivity !== 6)
+      return `subjectivity median should resolve on all 6, got ${JSON.stringify(p.coverage)}`;
+    const subj = p.subjectivity_median_rank ?? {};
+    if (subj.distribution?.["2"] !== 3) return `median ranks wrong: ${JSON.stringify(subj.distribution)}`;
+    if (p.subjectivity !== undefined) return "the label-shaped subjectivity block must not be used for a median";
+    if (!/[Mm]edian of the votes cast/.test(subj.note ?? "")) return "the median must say it is not a majority";
+    // Dispute counts: polarity split on 103, centrality on 104, subjectivity on
+    // every row but 105.
+    if (p.disputed?.polarite !== 1 || p.disputed?.centralite !== 1)
+      return `label disputes wrong: ${JSON.stringify(p.disputed)}`;
+    if (p.disputed?.subjectivite !== 5 || p.disputed?.any !== 5)
+      return `subjectivity disputes wrong: ${JSON.stringify(p.disputed)}`;
+    if (!/NO MAJORITY/.test(p.note ?? "")) return "an empty consensus value must be explained, not left ambiguous";
+    return null;
+  },
+});
+// consensus is NOT a model, so it must never be reachable through the model
+// registry: that is the line keeping a derived aggregate out of a field that
+// otherwise always names the exact model that judged.
+await call("get_sentiment_distribution", { model: "consensus-polarite" }, {
+  expectError: true,
+  checkBody: (b) => (b.includes("Invalid model") ? null : `expected an invalid-model error, got: ${b.slice(0, 200)}`),
+});
+// model:"all" answers "how far do they agree"; the consensus rides along so the
+// caller also gets "and what did they conclude" without a second call. Row 104
+// is the proof they are not the same set: qwen skipped it, so it is absent from
+// scored_by_all yet present in the consensus.
+await call("get_sentiment_distribution", { model: "all" }, {
+  structured: true,
+  check: (p) => {
+    if (!p.consensus) return "model:all should carry the panel's conclusion";
+    if (p.consensus.coverage?.polarity !== 5) return `consensus coverage wrong: ${JSON.stringify(p.consensus.coverage)}`;
+    if (p.agreement?.scored_by_all !== 5) return "agreement base changed unexpectedly";
+    if (p.consensus.polarity_distribution?.Neutre !== 3)
+      return `row 104 should be decided by its 4 remaining voters: ${JSON.stringify(p.consensus.polarity_distribution)}`;
+    return null;
+  },
+});
+// Reading the contested articles, not just counting them.
+await call("search_by_sentiment", { disputed: "polarite" }, {
+  check: (p) => (p.total_matches === 1 ? null : `only article 103 splits on polarity, got ${p.total_matches}`),
+});
+await call("search_by_sentiment", { disputed: "subjectivite" }, {
+  check: (p) => (p.total_matches === 5 ? null : `5 fixture rows split on subjectivity, got ${p.total_matches}`),
+});
+// English field names are NOT the stored vocabulary, so they must fail loudly
+// with the real values rather than silently matching nothing.
+await call("search_by_sentiment", { disputed: "polarity" }, {
+  expectError: true,
+  checkBody: (b) =>
+    b.includes("polarite") ? null : `the error should list the stored field names, got: ${b.slice(0, 200)}`,
+});
 // Vendor shorthand resolves to the model that ran, and the payload echoes the id.
 await call("get_sentiment_distribution", { model: "chatgpt" }, {
   structured: true,

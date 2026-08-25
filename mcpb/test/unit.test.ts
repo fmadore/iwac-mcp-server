@@ -37,6 +37,9 @@ import {
   resolveHijriMonth,
   resolveLimit,
   resolveSentimentModel,
+  CONSENSUS_COLS,
+  CONSENSUS_DISPUTE_COL,
+  DISPUTE_FIELDS,
   retiredSentimentModel,
   rowsToMap,
   SENTIMENT_MODEL_IDS,
@@ -618,6 +621,38 @@ describe("sentiment model registry (generation 2)", () => {
     }
     assert.match(retiredSentimentModel("gemini") ?? "", /gemma-4-31b-it/);
     assert.equal(retiredSentimentModel("llama"), undefined); // never a model here, so just unknown
+  });
+
+  // The consensus is a DERIVED aggregate, not an annotator. Letting it resolve
+  // as a model would put a value no model produced into a `model` field that
+  // everywhere else names the exact model that judged — the same ambiguity the
+  // vendor-prefix rename was meant to end.
+  it("keeps the consensus out of the model registry", () => {
+    for (const handle of ["consensus", "consensus_polarite", "panel", "majority"]) {
+      assert.equal(resolveSentimentModel(handle), undefined, `${handle} must not resolve to a model`);
+    }
+    assert.ok(!SENTIMENT_MODEL_IDS.includes("consensus"));
+    // It is also not a RETIRED handle: retired means "named a real annotator
+    // once", and nothing ever annotated under this name.
+    assert.equal(retiredSentimentModel("consensus"), undefined);
+  });
+
+  // The three consensus fields do not share a shape, and the subjectivity one is
+  // the trap: a float median on the same 1-5 scale the labels rank to, so it
+  // looks joinable to SUBJECTIVITY_VALUES and is not.
+  it("names the consensus columns and their dispute vocabulary", () => {
+    assert.deepEqual(CONSENSUS_COLS, {
+      polarity: "consensus_polarite",
+      centrality: "consensus_centralite",
+      subjectivity: "consensus_subjectivite_score",
+    });
+    assert.equal(CONSENSUS_DISPUTE_COL, "sentiment_disagreement");
+    // French, matching the stored values rather than this server's English
+    // parameter names — the filter matches on these verbatim.
+    assert.deepEqual([...DISPUTE_FIELDS], ["polarite", "centralite", "subjectivite"]);
+    for (const f of DISPUTE_FIELDS) {
+      assert.equal(subjectivityRank(f), undefined, `${f} must not be mistaken for a subjectivity label`);
+    }
   });
 
   it("ranks the subjectivity labels 1-5 and nothing else", () => {

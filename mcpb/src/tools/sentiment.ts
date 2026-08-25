@@ -6,11 +6,15 @@ import {
   CENTRALITY_VALUES,
   COUNTRIES,
   colsFor,
+  CONSENSUS_COLS,
+  CONSENSUS_DISPUTE_COL,
   countryParam,
   DEFAULT_SENTIMENT_MODEL,
+  DISPUTE_FIELDS,
   errorResult,
   foldedEquals,
   likeFilterIfExists,
+  pipeValueEquals,
   pipeValueFilterIfExists,
   POLARITY_VALUES,
   pubDateOrder,
@@ -33,9 +37,9 @@ import {
 } from "./_shared.js";
 
 /**
- * Shipped with every subjectivity block. Pairwise κ across the four generation-2
- * models, measured on the whole 2026-08-17 revision, runs 0.16-0.47 — the
- * weakest of the three scales by a wide margin (centrality runs 0.46-0.72 on the
+ * Shipped with every subjectivity block. Pairwise κ across the five generation-2
+ * models, measured on the whole 2026-08-25 revision, runs 0.16-0.52 — the
+ * weakest of the three scales by a wide margin (centrality runs 0.45-0.74 on the
  * same rows) — and on the 2026-07-29 pilot one model reproduced its own answer
  * on a re-run only 47% of the time. That is weak enough that a reader who gets
  * the number without the caveat will over-read it, and the number is cheap
@@ -65,6 +69,12 @@ const SENTIMENT_DISTRIBUTION_OUTPUT = z.object({
   by_model: z.record(z.string(), z.looseObject({})).optional(),
   agreement: z.looseObject({}).optional(),
   agreement_matrix: z.looseObject({}).optional(),
+  // The panel's conclusion. Present under model:"consensus" (where its fields
+  // are spread across the payload root) and alongside agreement under "all".
+  consensus: z.looseObject({}).optional(),
+  subjectivity_median_rank: z.looseObject({}).optional(),
+  disputed: z.looseObject({}).optional(),
+  note: z.string().optional(),
 });
 
 export function registerSentimentTools(server: Server): void {
@@ -97,6 +107,13 @@ export function registerSentimentTools(server: Server): void {
           ),
         country: countryParam(),
         subject: z.string().optional(),
+        disputed: z
+          .string()
+          .optional()
+          .describe(
+            `${DISPUTE_FIELDS.join(" | ")} — keep only articles the panel SPLIT on for that field ` +
+              "(French field names, as stored). Selects contested readings, not a sentiment value.",
+          ),
         limit: z.number().int().optional().describe("Default 20, max 100"),
         offset: z.number().int().optional(),
       }),
@@ -105,6 +122,8 @@ export function registerSentimentTools(server: Server): void {
       const schema = await ensureView("articles");
       const polarity = validateEnum(args.polarity, POLARITY_VALUES, "polarity");
       if (polarity.err) return errorResult(polarity.err);
+      const disputed = validateEnum(args.disputed, DISPUTE_FIELDS, "disputed");
+      if (disputed.err) return errorResult(disputed.err);
       const centrality = validateEnum(args.centrality, CENTRALITY_VALUES, "centrality");
       if (centrality.err) return errorResult(centrality.err);
       const subjectivity = validateEnum(args.subjectivity, SUBJECTIVITY_VALUES, "subjectivity");
@@ -135,6 +154,15 @@ export function registerSentimentTools(server: Server): void {
         where.push(foldedEquals(f.column));
         params.push(f.value);
       }
+      // Asked for and unavailable is an error, not a dropped clause: the whole
+      // point of this filter is to NARROW to contested articles, so silently
+      // returning the uncontested ones alongside them inverts the answer.
+      if (disputed.canonical && !schema.has(CONSENSUS_DISPUTE_COL)) {
+        return errorResult({
+          error: `This dataset revision has no ${CONSENSUS_DISPUTE_COL} column, so disputed cannot be filtered`,
+        });
+      }
+      pipeValueFilterIfExists(schema, where, params, CONSENSUS_DISPUTE_COL, disputed.canonical);
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
 
@@ -177,8 +205,9 @@ export function registerSentimentTools(server: Server): void {
           .string()
           .optional()
           .describe(
-            `${SENTIMENT_MODEL_IDS.join(" | ")} | all — default ${DEFAULT_SENTIMENT_MODEL.id}; ` +
-              `"all" adds the cross-model agreement. The vendor shorthands ` +
+            `${SENTIMENT_MODEL_IDS.join(" | ")} | all | consensus — default ${DEFAULT_SENTIMENT_MODEL.id}; ` +
+              '"all" adds the cross-model agreement, "consensus" returns the panel\'s precomputed majority ' +
+              "(no annotator produced it, so it is never attributed to a model). The vendor shorthands " +
               `${SENTIMENT_MODELS.map((m) => m.aliases[0]).join("/")} also resolve to the model that ran. The ` +
               "generation-1 models (gemini-3-flash-preview, gpt-5-mini, ministral-14b-2512) are no longer served " +
               "and return an error rather than a substitute — and 'gemini' is refused rather than read as " +
@@ -196,8 +225,14 @@ export function registerSentimentTools(server: Server): void {
       // the canonical vocabulary, so resolution and the valid_values list differ.
       const raw = args.model?.trim();
       const wantsAll = raw !== undefined && raw.toLowerCase() === "all";
-      const resolved = raw === undefined || raw === "" ? DEFAULT_SENTIMENT_MODEL : resolveSentimentModel(raw);
-      if (!wantsAll && !resolved) {
+      // "consensus" is NOT routed through resolveSentimentModel, and must never
+      // be: no annotator produced those columns, so admitting it to the model
+      // registry would let a derived aggregate be echoed back in a `model` field
+      // that otherwise always names the exact model that judged.
+      const wantsConsensus = raw !== undefined && raw.toLowerCase() === "consensus";
+      const resolved =
+        raw === undefined || raw === "" ? DEFAULT_SENTIMENT_MODEL : resolveSentimentModel(raw);
+      if (!wantsAll && !wantsConsensus && !resolved) {
         // A retired handle names a real annotator that this server no longer
         // serves, so it gets its own error rather than the generic one — and is
         // never quietly re-pointed at the same vendor's successor, which scored
@@ -207,10 +242,10 @@ export function registerSentimentTools(server: Server): void {
           error: retired
             ? `Model '${raw}' is ${retired}. This server serves the generation-2 campaign only.`
             : `Invalid model: ${raw}`,
-          valid_values: [...SENTIMENT_MODEL_IDS, "all"],
+          valid_values: [...SENTIMENT_MODEL_IDS, "all", "consensus"],
         });
       }
-      const requested = wantsAll ? "all" : (resolved as SentimentModel).id;
+      const requested = wantsAll ? "all" : wantsConsensus ? "consensus" : (resolved as SentimentModel).id;
       const where: string[] = [];
       const params: Bindable[] = [];
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
@@ -221,16 +256,16 @@ export function registerSentimentTools(server: Server): void {
       // Only the models this revision actually carries. Asking for a missing
       // one is an error naming the real list, not a silent all-zero envelope.
       const available = SENTIMENT_MODELS.filter((m) => schema.has(sentimentCols(m).polarity));
-      if (!available.length) {
+      if (!available.length && !wantsConsensus) {
         return errorResult({ error: "This dataset revision carries no AI sentiment columns" });
       }
-      if (!wantsAll && !available.includes(resolved as SentimentModel)) {
+      if (!wantsAll && !wantsConsensus && !available.includes(resolved as SentimentModel)) {
         return errorResult({
           error: `Model '${requested}' is not in this dataset revision`,
           valid_values: available.map((m) => m.id),
         });
       }
-      const models: SentimentModel[] = wantsAll ? [...available] : [resolved as SentimentModel];
+      const models: SentimentModel[] = wantsAll || wantsConsensus ? [...available] : [resolved as SentimentModel];
 
       const total = Number(
         (await queryScalarSingle<number | bigint>(
@@ -337,6 +372,109 @@ export function registerSentimentTools(server: Server): void {
         return out;
       };
 
+      /**
+       * The panel's own conclusion, read from the precomputed columns rather
+       * than recomputed here. Worth serving next to `agreement` precisely
+       * because the two treat abstentions differently: `agreement` is measured
+       * on articles EVERY model scored, so a row one model skipped leaves it
+       * entirely, where the majority still decides that row on the votes cast.
+       */
+      const consensusBlock = async (): Promise<Record<string, unknown>> => {
+        const out: Record<string, unknown> = {};
+        const coverage: Record<string, number> = { matched_articles: total };
+        for (const [field, col] of [
+          ["polarity", CONSENSUS_COLS.polarity],
+          ["centrality", CONSENSUS_COLS.centrality],
+        ] as const) {
+          if (!schema.has(col)) continue;
+          const dist = rowsToMap(
+            await query(
+              `SELECT ${q(col)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
+              params,
+            ),
+          );
+          out[`${field}_distribution`] = dist;
+          coverage[field] = Object.values(dist).reduce((a, b) => a + b, 0);
+        }
+        // Subjectivity is a MEDIAN RANK stored as a float, not a label, so it
+        // gets a numeric summary and never a SUBJECTIVITY_VALUES lookup: an
+        // even number of voters lands on a half-rank that names no label.
+        const subjCol = CONSENSUS_COLS.subjectivity;
+        if (schema.has(subjCol)) {
+          const rows = await query(
+            `SELECT ${q(subjCol)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 1`,
+            params,
+          );
+          const ranks = rows
+            .filter((r) => r.k !== null && r.k !== undefined && r.k !== "")
+            .map((r) => ({ rank: Number(r.k), n: Number(r.c) }))
+            .filter((e) => Number.isFinite(e.rank))
+            .sort((a, b) => a.rank - b.rank);
+          const scored = ranks.reduce((a, e) => a + e.n, 0);
+          if (scored) {
+            coverage.subjectivity = scored;
+            let cumulative = 0;
+            let median: number | undefined;
+            for (const e of ranks) {
+              cumulative += e.n;
+              if (cumulative >= scored / 2) {
+                median = e.rank;
+                break;
+              }
+            }
+            out.subjectivity_median_rank = {
+              scale: `1 = ${SUBJECTIVITY_VALUES[0]} … 5 = ${SUBJECTIVITY_VALUES[4]}`,
+              scored,
+              mean: Math.round((ranks.reduce((a, e) => a + e.rank * e.n, 0) / scored) * 1000) / 1000,
+              median,
+              distribution: Object.fromEntries(ranks.map((e) => [String(e.rank), e.n])),
+              note:
+                "Median of the votes cast, NOT a majority label — which is why it resolves for more articles " +
+                "than the two label fields. Half-ranks (1.5, 2.5, …) come from an even number of voters and " +
+                "correspond to no label; never map these back onto the five labels.",
+              caveat: SUBJECTIVITY_CAVEAT,
+            };
+          }
+        }
+        if (schema.has(CONSENSUS_DISPUTE_COL)) {
+          // The FILTER placeholders sit in the SELECT list, so their parameters
+          // bind BEFORE the WHERE clause's.
+          const filters = DISPUTE_FIELDS.map(
+            (_f, i) => `COUNT(*) FILTER (WHERE ${pipeValueEquals(q(CONSENSUS_DISPUTE_COL))}) AS f_${i}`,
+          );
+          const row = await queryOne(
+            `SELECT ${filters.join(", ")},
+                    COUNT(*) FILTER (WHERE NULLIF(trim(${q(CONSENSUS_DISPUTE_COL)}), '') IS NOT NULL) AS any_field
+             FROM ${viewName("articles")} ${whereSql}`,
+            [...DISPUTE_FIELDS, ...params],
+          );
+          out.disputed = {
+            ...Object.fromEntries(DISPUTE_FIELDS.map((f, i) => [f, Number(row?.[`f_${i}`] ?? 0)])),
+            any: Number(row?.any_field ?? 0),
+            note:
+              "Fields the panel split on. On polarity and centrality a dispute is WHY the consensus is empty " +
+              "(no majority formed); on subjectivity the median still resolved, so a disputed row still carries " +
+              "a value. Read the articles behind these with search_by_sentiment(disputed=…).",
+          };
+        }
+        out.coverage = coverage;
+        out.note =
+          "Majority of the generation-2 panel, computed upstream and served as stored. The threshold follows " +
+          "the votes ACTUALLY CAST (over half, minimum two), so an article one model skipped is still decided " +
+          "by the rest, and these counts can exceed agreement.scored_by_all. An empty polarity or centrality " +
+          "value means NO MAJORITY formed, never 'not computed'. No single model produced these, so do not " +
+          "attribute them to one.";
+        return out;
+      };
+
+      if (wantsConsensus) {
+        if (!schema.has(CONSENSUS_COLS.polarity)) {
+          return errorResult({ error: "This dataset revision carries no consensus columns" });
+        }
+        Object.assign(payload, await consensusBlock());
+        return structuredResult(payload);
+      }
+
       if (!wantsAll) {
         Object.assign(payload, await distributionsFor(resolved as SentimentModel));
         return structuredResult(payload);
@@ -409,6 +547,11 @@ export function registerSentimentTools(server: Server): void {
         }
         payload.agreement_matrix = { rows: a.id, cols: b.id, counts };
       }
+
+      // "How often do they concur" is only half the question; the other half is
+      // what the panel concluded. Attached here so a caller comparing the five
+      // readings does not have to know a second call exists.
+      if (schema.has(CONSENSUS_COLS.polarity)) payload.consensus = await consensusBlock();
 
       return structuredResult(payload);
     },
