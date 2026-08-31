@@ -57,9 +57,13 @@ const INSTRUCTIONS =
   "in imprecise_date_count and are ABSENT from lunar counts, not zero. They do not exist for references " +
   "(an academic imprint date has no meaningful lunar reading).\n\n" +
   "FULL-TEXT COVERAGE: this is the public dataset, and OCR full text ships only for items whose " +
-  "content is public on islam.zmo.de — about 61% of articles (7,546/12,349) and 86% of " +
-  "publications (1,298/1,501). Titles, subjects and AI abstracts (French AND English) are searchable for ALL items, so " +
-  "nothing is invisible, but the full-text half of a keyword match covers only those shares. Call " +
+  "content is public on islam.zmo.de — about 56% of articles (7,546/13,397) and 86% of " +
+  "publications (1,298/1,501). Titles and subjects are searchable for ALL items, and AI abstracts " +
+  "(French AND English) for all but the newest arrivals: ingestion runs ahead of enrichment, so the " +
+  "most recent ~1,050 articles carry metadata only — no OCR, abstract, sentiment or topic — and, since " +
+  "rows come back newest-first, they sit on page 1. Nothing is invisible to discovery, but the " +
+  "full-text half of a keyword match covers only those shares, and a triage pass on description_ai " +
+  "should bound its dates rather than assume every row carries one. Call " +
   "get_collection_stats for the live `fulltext_coverage` figures, treat keyword totals as a floor " +
   "rather than a corpus-wide census, and disclose this whenever a count carries an argument.\n\n" +
   "CALL ECONOMY: hosts stop a turn after roughly 20 tool calls, and the cap counts turns of the tool " +

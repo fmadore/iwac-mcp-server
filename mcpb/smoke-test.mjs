@@ -32,11 +32,19 @@ const EXPECTED = {
   // or the masking pipeline moved, not that the server broke.
   // 2026-08-17 refresh: articles 12,356 -> 12,349 and with_fulltext 7,549 ->
   // 7,546 — a net withdrawal of 7 items, 3 of them public-OCR, so the share
-  // holds at 61%. Publications did not move. The user-facing copies
-  // (INSTRUCTIONS in src/index.ts and its mirror in the iwac-mcp skill) were
-  // brought to 7,546/12,349 the same day; the per-column coverage figures in
+  // held at 61%. Publications did not move. The per-column coverage figures in
   // references/tools-by-phase.md (LDA 12,234, embeddings 12,286, signed 9,664)
   // predate the July refresh and still want re-measuring together.
+  //
+  // 2026-08-31 refresh: articles 12,349 -> 13,397 with with_fulltext UNMOVED at
+  // 7,546, so the share is now ~56%. The ~1,050 arrivals are metadata-only —
+  // no public OCR, no AI abstract, no sentiment (the panel still reaches
+  // 12,298) and no LDA topic (12,291 classified) — because ingestion runs ahead
+  // of enrichment. That tail is the normal state of this corpus between passes,
+  // not a fault, so nothing here pins the total: what is pinned is the masked
+  // full-text count, which moves only when the publication policy does. The
+  // user-facing copies (INSTRUCTIONS in src/index.ts and its mirror in the
+  // iwac-mcp skill) were brought to 7,546/13,397 the same day.
   articlesWithFulltext: 7546,
   publicationsWithFulltext: 1298,
 };
@@ -367,8 +375,18 @@ await call("search_articles", { country: "Bénin", limit: 1 }, {
 await call("search_articles", { keyword: "ramadan", date_from: "1995-01-01", date_to: "1999-12-31", limit: 3 }, {
   check: (p) => (p.total_matches > 0 ? null : "date-filtered search returned nothing"),
 });
-await call("search_articles", { country: "Burkina Faso", with_description: true, limit: 2 }, {
-  check: (p) => (p.results?.[0]?.description_ai ? null : "with_description did not add description_ai"),
+// Bounded to the enriched era ON PURPOSE, and the check reads the whole page
+// rather than results[0]. What this guards is the PROJECTION — that
+// with_description adds the column at all — and results are ordered pub_date
+// DESC, so page 1 is whatever arrived last. The 2026-08 refresh put ~1,050
+// metadata-only articles at the head of that order and reddened the weekly run
+// on a server that was behaving correctly. A window whose rows were all
+// enriched long ago tests the projection without re-testing the harvest.
+await call("search_articles", { country: "Burkina Faso", with_description: true, date_to: "2024-12-31", limit: 3 }, {
+  check: (p) => {
+    if (!p.results?.length) return "no Burkina Faso articles on or before 2024-12-31";
+    return p.results.some((r) => r.description_ai) ? null : "with_description did not add description_ai";
+  },
 });
 // Bounded on both sides for the same reason as search_by_sentiment below: a
 // filter that stopped being applied would return the whole corpus. The ceiling
@@ -558,9 +576,10 @@ await call("get_sentiment_distribution", { model: "all" }, {
     if (p.models?.length !== 5) return `expected 5 models, got ${p.models}`;
     const a = p.agreement;
     if (!a) return "no agreement block";
-    // ~12,098 of 12,349 — the ~51 non-francophone articles are unscored by
-    // design and qwen is 200 further short, so this is deliberately not
-    // asserted equal to total_articles.
+    // ~12,098 of 13,397 — the ~51 non-francophone articles are unscored by
+    // design, qwen is 200 further short, and the unenriched tail of recent
+    // arrivals (~1,050 at the 2026-08 refresh) has not been scored at all, so
+    // this is deliberately not asserted equal to total_articles.
     if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all five (was 12,098)`;
     // ~32% unanimous across all five (36% for four, 43% for the first three). A
     // jump to 100% would mean the columns had collapsed onto one another.

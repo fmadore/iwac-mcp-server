@@ -1,7 +1,7 @@
 {
   "tokenizer": "o200k_base",
-  "footprint": 15210,
-  "instructions": 1624,
+  "footprint": 15282,
+  "instructions": 1696,
   "tools": {
     "search": 629,
     "fetch": 358,

@@ -28,7 +28,7 @@ const COVERAGE_RULE =
   "Disclose coverage limits in the write-up: Niger is thin (one newspaper, 2018 on), Nigeria has no press " +
   "articles at all (audiovisual and photographs only), the press is ~96% francophone, AI sentiment is " +
   "model-derived rather than editorial ground truth, and this public dataset carries OCR full text only for " +
-  "the items whose content is public (~61% of articles) — check `fulltext_coverage` in get_collection_stats " +
+  "the items whose content is public (~56% of articles) — check `fulltext_coverage` in get_collection_stats " +
   "and present keyword counts as a floor, not a census.";
 
 // Hosts stop a turn after ~20 tool calls ("Claude reached its tool-use limit"),

@@ -19,7 +19,7 @@ Fetch one item returned by `search`.
 ## Phase 1: Scoping Tools
 
 ### get_collection_stats *(reports `fulltext_coverage` since v0.12.0)*
-Overall collection statistics: subset record counts, articles by country, date range, newspaper count, and **`fulltext_coverage`** — how many items in each subset actually carry OCR in this public dataset (~61% of articles, ~86% of publications; the rest are masked per row by `OCR_is_public`). Read it before reporting any keyword total as a corpus-wide figure.
+Overall collection statistics: subset record counts, articles by country, date range, newspaper count, and **`fulltext_coverage`** — how many items in each subset actually carry OCR in this public dataset (~56% of articles, ~86% of publications; the rest are masked per row by `OCR_is_public`). Read it before reporting any keyword total as a corpus-wide figure.
 - No parameters. Use first to understand scale. (First call may trigger the parquet download.)
 
 ### get_country_comparison
@@ -251,7 +251,7 @@ The three fields do not behave alike, and this is the part to get right:
 
 **Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the five models agree unanimously on polarity for only 3,929 of the 12,098 articles they all scored (**32%**). That number is the confidence floor: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable. Four models reached 36% and the first three alone 43%, so a figure copied from an older draft will overstate the agreement.
 
-**Coverage is near-total but not complete** (measured 2026-08-17): 12,298 of 12,349 articles carry sentiment from every model; the 51 missing are the non-French/English ones, skipped by design. Compare `scored_by_all` against `total_articles` rather than assuming they match.
+**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-08-31): 12,298 articles carry sentiment from every model. Two different gaps separate that from the 13,397 in the corpus — 51 non-French/English articles skipped by design, and ~1,050 recent arrivals the enrichment pass has not reached yet (the 2026-08 refresh added them with no OCR, abstract, sentiment or topic). Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
 
 **Reliability differs sharply by scale** (κ measured full-corpus, all six model pairs). Polarity (0.26–0.57) and centrality (0.46–0.72) are the solid ones; **subjectivity is not** (0.16–0.47, and `deepseek-v4-flash-0731` reproduces its own answer only 47% of the time on a re-run), so report it as weak evidence with that caveat, or not at all. On *centrality* specifically, `mistral-small-2603` is a systematic outlier (its pairs run 0.46–0.53 against 0.67–0.72 for the non-Mistral ones, `gemma-4-31b-it` included) — a 3-of-4 majority there is the others outvoting Mistral, not a panel consensus.
 

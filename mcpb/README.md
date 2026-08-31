@@ -207,9 +207,11 @@ Environment variables (all transports unless noted):
   are lazily downloaded per subset (articles, publications, documents,
   audiovisual, images, index, references) and registered as DuckDB views over the local cache.
 - Full-text coverage: this is the **public** projection of the dataset, which
-  masks OCR per row by `OCR_is_public` (~61% of articles, ~86% of publications).
-  Titles, subjects and AI abstracts are present for every item, so nothing is
-  invisible, but a keyword count is a floor rather than a census.
+  masks OCR per row by `OCR_is_public` (~56% of articles, ~86% of publications).
+  Titles and subjects are present for every item, and AI abstracts for every
+  item enrichment has reached — ingestion runs ahead of it, so the newest
+  arrivals (~1,050 articles at the 2026-08 refresh) carry metadata only. Nothing
+  is invisible, but a keyword count is a floor rather than a census.
   `get_collection_stats` reports the live ratio as `fulltext_coverage`, and the
   handshake instructions tell clients to disclose it.
 - Queries: all tools use parameterised SQL against DuckDB. The query layer

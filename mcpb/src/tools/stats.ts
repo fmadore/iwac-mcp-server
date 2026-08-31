@@ -147,7 +147,7 @@ export function registerStatsTools(server: Server): void {
         // The public dataset masks full text per row (the `OCR_is_public` flag
         // mirrors whether the source content is public on islam.zmo.de). Stating
         // the ratio is the difference between "1,200 articles mention charia"
-        // meaning "of the whole corpus" and "of the 61% that are searchable".
+        // meaning "of the whole corpus" and "of the ~56% that are searchable".
         if (ft !== null && n > 0) {
           coverage[s] = { with_fulltext: ft, total: n, percent: Math.round((ft / n) * 100) };
         }

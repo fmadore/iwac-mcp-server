@@ -8,7 +8,7 @@ The Islam West Africa Collection (IWAC, <https://islam.zmo.de>) is a curated dig
 
 Six kinds of material:
 
-- **~12,300 newspaper articles** (mainstream press, five countries) — a continuous, dated record of Muslim life: religious celebrations, the hajj, mosque inaugurations, association politics, debates on laïcité and Islamic education, women and youth, security.
+- **~13,400 newspaper articles** (mainstream press, five countries) — a continuous, dated record of Muslim life: religious celebrations, the hajj, mosque inaugurations, association politics, debates on laïcité and Islamic education, women and youth, security.
 - **~1,500 Islamic publications** — 25 periodicals produced by associations, mosques and schools (Islam Info, An-Nasr Vendredi, Plume Libre, ASSALAM, Le CERFIste…): the community's own voice, with concerns and theological positions often absent from the mainstream press.
 - **~4,700 index records** — curated authority entries for persons, organizations, places, events and subjects, linked to the articles that mention them.
 - **864 academic references** — scholarship on Islam in the region, mostly in French and English, with some other languages.
