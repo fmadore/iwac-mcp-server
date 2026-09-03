@@ -150,8 +150,8 @@ rather than JSON.
 `granularity="lunar_month"` it pools every year into the twelve lunar months —
 the one bucket a Gregorian axis structurally cannot produce, because the Hijri
 year drifts ~11 days annually and so smears each observance across all twelve
-Gregorian months. Over the 12,220 fully-dated articles the archive's rhythm is
-plain: Ramadan +72%, Dhu al-Hijja +70% (hajj and Tabaski) and Shawwal +44%
+Gregorian months. Over the 13,261 fully-dated articles the archive's rhythm is
+plain: Ramadan +74%, Dhu al-Hijja +68% (hajj and Tabaski) and Shawwal +42%
 (Korité) against an even split, while Rabi' I — Maouloud — sits flat. `search_articles`
 and `search_publications` take `hijri_month` (1–12 or a name in either
 transliteration) and `hijri_year` to read the items behind a peak. The lunar
@@ -242,7 +242,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 3.5.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 3.5.1) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -250,7 +250,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {3.5.0},
+  version   = {3.5.1},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

@@ -9,6 +9,7 @@ import {
   DEFAULT_SENTIMENT_MODEL,
   errorResult,
   HIJRI_MONTHS,
+  hijriPart,
   keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
@@ -467,15 +468,20 @@ export function registerStatsTools(server: Server): void {
       // Gregorian buckets slice the ISO string; Hijri buckets read the
       // precomputed columns (post-processing/calculate_hijri_dates.py), which
       // are NULL for any date too imprecise to carry a lunar day.
+      //
+      // Both parts go through `hijriPart`, which carries the DOUBLE->INTEGER
+      // cast these columns need before they can be read as text (see there).
+      const hijriYear = hijriPart("hijri_year", 0);
+      const hijriMonth = hijriPart("hijri_month");
       let bucketExpr: string;
       if (!hijri) {
         bucketExpr = `NULLIF(substr(CAST(pub_date AS VARCHAR), 1, ${granularity === "month" ? 7 : 4}), '')`;
       } else if (granularity === "lunar_month") {
-        bucketExpr = `lpad(CAST("hijri_month" AS VARCHAR), 2, '0')`;
+        bucketExpr = hijriMonth;
       } else if (granularity === "month") {
-        bucketExpr = `CAST("hijri_year" AS VARCHAR) || '-' || lpad(CAST("hijri_month" AS VARCHAR), 2, '0')`;
+        bucketExpr = `${hijriYear} || '-' || ${hijriMonth}`;
       } else {
-        bucketExpr = `CAST("hijri_year" AS VARCHAR)`;
+        bucketExpr = hijriYear;
       }
       const groupSel = groupBy ? `, ${q(groupBy)} AS grp` : "";
       // `c_dated` splits the NULL-bucket rows: on the Hijri calendar a missing

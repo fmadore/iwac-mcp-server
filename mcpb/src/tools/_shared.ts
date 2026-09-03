@@ -620,14 +620,31 @@ export function resolveHijriMonth(value: string | undefined): { n?: number; err?
 export const HIJRI_COLS = ["hijri_year", "hijri_month", "hijri_day"];
 
 /**
+ * Render one Hijri column as a bucket/date part.
+ *
+ * The three columns are stored as DOUBLE in the parquet, so the INTEGER cast is
+ * load-bearing, not defensive: `CAST(3.0 AS VARCHAR)` is `'3.0'`, and DuckDB's
+ * `lpad` TRUNCATES a string that is already longer than the target width rather
+ * than leaving it alone — so padding it to 2 yielded `'3.'`, and an unpadded
+ * year yielded `'1440.0'`. Both read as plausible until you compare them with
+ * something: a month bucket matched no `month_labels` key, and every single
+ * `hijri_date` was malformed. Anything reading these columns as text must go
+ * through here.
+ */
+export const hijriPart = (column: string, pad = 2): string => {
+  const int = `CAST(CAST(${q(column)} AS INTEGER) AS VARCHAR)`;
+  return pad ? `lpad(${int}, ${pad}, '0')` : int;
+};
+
+/**
  * The lunar date as one `1440-09-15` string, mirroring how `pub_date` reads.
  * Numeric parts rather than a month name: the name would have to be a 12-branch
  * CASE in SQL that then drifts from HIJRI_MONTHS, and the model already has that
  * table from `month_labels`.
  */
 export const HIJRI_DATE_EXPR =
-  `CASE WHEN "hijri_year" IS NULL THEN NULL ELSE CAST("hijri_year" AS VARCHAR) || '-' || ` +
-  `lpad(CAST("hijri_month" AS VARCHAR), 2, '0') || '-' || lpad(CAST("hijri_day" AS VARCHAR), 2, '0') END`;
+  `CASE WHEN "hijri_year" IS NULL THEN NULL ELSE ${hijriPart("hijri_year", 0)} || '-' || ` +
+  `${hijriPart("hijri_month")} || '-' || ${hijriPart("hijri_day")} END`;
 
 /**
  * Guard for every Hijri-aware code path: the columns are written by the

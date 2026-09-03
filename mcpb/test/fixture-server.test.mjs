@@ -492,6 +492,19 @@ await call("get_temporal_distribution", { granularity: "lunar_month" }, {
     // Keys are zero-padded so they sort; names ride along so the model and the
     // chart never hard-code a transliteration.
     if (p.month_labels?.["09"] !== "Ramadan") return `month_labels wrong: ${JSON.stringify(p.month_labels)}`;
+    // The two key sets are a CONTRACT, not a coincidence: the chart looks each
+    // bucket up in month_labels, so a bucket key that misses is not an error
+    // anywhere — it is a bar that silently never draws. Assert the label set is
+    // exactly the twelve canonical keys, and that every bucket is one of them.
+    // (Shipped once as '3.' — DOUBLE columns cast straight to VARCHAR — which
+    // dropped nine of twelve months from the lunar chart without failing a
+    // single test.)
+    const canonical = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+    const labelKeys = Object.keys(p.month_labels ?? {}).sort();
+    if (labelKeys.length !== 12 || labelKeys.some((k, i) => k !== canonical[i]))
+      return `month_labels keys must be exactly 01..12, got ${JSON.stringify(labelKeys)}`;
+    const strays = Object.keys(d).filter((k) => !(k in (p.month_labels ?? {})));
+    if (strays.length) return `lunar buckets absent from month_labels (they would not render): ${JSON.stringify(strays)}`;
     if (!String(p.note ?? "").includes("pooled across all Hijri years"))
       return "lunar_month must disclose that it pools years and is not seasonality";
     return null;

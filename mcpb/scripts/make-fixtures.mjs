@@ -425,8 +425,14 @@ async function main() {
     // range) are left NULL — an imprecise date has no lunar day, and that
     // absence is a case the tools have to report rather than plot.
     if (HIJRI_SUBSETS.includes(subset)) {
+      // DOUBLE, not BIGINT, because that is what the real parquet stores — and
+      // the difference is not cosmetic. `CAST(3 AS VARCHAR)` is '3' but
+      // `CAST(3.0 AS VARCHAR)` is '3.0', so a fixture typed BIGINT renders
+      // every Hijri bucket and date correctly no matter how the SQL is written,
+      // and cannot reproduce a whole class of formatting bug that production
+      // hits on every row. It hid exactly that once already.
       for (const col of ["hijri_year", "hijri_month", "hijri_day"]) {
-        await conn.run(`ALTER TABLE ${table} ADD COLUMN "${col}" BIGINT`);
+        await conn.run(`ALTER TABLE ${table} ADD COLUMN "${col}" DOUBLE`);
       }
       for (const [greg, [hy, hm, hd]] of Object.entries(HIJRI)) {
         await conn.run(
