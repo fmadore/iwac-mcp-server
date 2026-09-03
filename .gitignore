@@ -45,3 +45,8 @@ Thumbs.db
 # Throwaway probe scripts used to check dataset shape against the real parquet.
 probe-tmp.mjs
 mcpb/probe-tmp.mjs
+
+# Chart payloads and the charts.html bundle captured for screenshots by
+# mcpb/scripts/capture-charts.mjs — this is its default output directory, and
+# everything in it is reproducible from the real cache at any time.
+/tmp/

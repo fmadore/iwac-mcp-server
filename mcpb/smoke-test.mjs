@@ -375,17 +375,35 @@ await call("search_articles", { country: "Bénin", limit: 1 }, {
 await call("search_articles", { keyword: "ramadan", date_from: "1995-01-01", date_to: "1999-12-31", limit: 3 }, {
   check: (p) => (p.total_matches > 0 ? null : "date-filtered search returned nothing"),
 });
-// Bounded to the enriched era ON PURPOSE, and the check reads the whole page
-// rather than results[0]. What this guards is the PROJECTION — that
-// with_description adds the column at all — and results are ordered pub_date
-// DESC, so page 1 is whatever arrived last. The 2026-08 refresh put ~1,050
-// metadata-only articles at the head of that order and reddened the weekly run
-// on a server that was behaving correctly. A window whose rows were all
-// enriched long ago tests the projection without re-testing the harvest.
-await call("search_articles", { country: "Burkina Faso", with_description: true, date_to: "2024-12-31", limit: 3 }, {
+// Bounded to a CLOSED window in the finished era, not merely to "long ago".
+// What this guards is the PROJECTION — that with_description adds the column at
+// all — and results are ordered pub_date DESC, so page 1 is whatever sorts
+// highest inside the bound. The AI-abstract pass runs behind ingestion and its
+// coverage frays from 2021 forward: for Burkina Faso 2020 is 241/280 enriched,
+// 2021 is 71/158, 2022-2024 roughly one in six, and the newest enriched article
+// is dated 2024-10-27. So an open-ended `date_to` anywhere in that zone puts
+// unenriched rows at the head of page 1 — which is exactly why the previous
+// bound of 2024-12-31 still failed on a server that was behaving correctly.
+// 2017 sits inside the era the pass has finished (274 of 275), so page 1 stays
+// enriched no matter what ingestion does next.
+//
+// It is a DIFFERENTIAL now, too. Asserting only that the flag ADDS the abstract
+// leaves the other half untested: a projection that always included it would
+// pass just as well. The same window without the flag must carry none.
+const DESC_WINDOW = { country: "Burkina Faso", date_from: "2017-01-01", date_to: "2017-12-31", limit: 5 };
+await call("search_articles", DESC_WINDOW, {
+  check: (p) =>
+    (p.results ?? []).some((r) => r.description_ai)
+      ? "description_ai came back WITHOUT with_description — the projection is not gated by the flag"
+      : null,
+});
+await call("search_articles", { ...DESC_WINDOW, with_description: true }, {
   check: (p) => {
-    if (!p.results?.length) return "no Burkina Faso articles on or before 2024-12-31";
-    return p.results.some((r) => r.description_ai) ? null : "with_description did not add description_ai";
+    const rows = p.results ?? [];
+    if (!rows.length) return `no Burkina Faso articles in ${DESC_WINDOW.date_from}..${DESC_WINDOW.date_to}`;
+    if (!rows.some((r) => r.description_ai))
+      return `with_description did not add description_ai (dates seen: ${rows.map((r) => r.date).join(", ")})`;
+    return null;
   },
 });
 // Bounded on both sides for the same reason as search_by_sentiment below: a
