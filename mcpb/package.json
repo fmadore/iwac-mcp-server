@@ -42,7 +42,7 @@
     "clean": "rimraf server",
     "test": "npm run test:unit && npm run test:fixture && npm run test:app && npm run test:skills && npm run test:http && npm run test:tokens",
     "test:unit": "tsx --test test/unit.test.ts test/hf-cache.test.ts test/vectors.test.ts test/view-contract.test.ts",
-    "test:fixture": "node scripts/make-fixtures.mjs && node test/fixture-server.test.mjs",
+    "test:fixture": "node scripts/make-fixtures.mjs && node --test test/fixture-client.test.mjs && node test/fixture-server.test.mjs",
     "test:http": "node scripts/make-fixtures.mjs && node test/http-server.test.mjs",
     "test:live": "node smoke-test.mjs",
     "prepack-mcpb": "npm run clean && npm run typecheck && npm run build",

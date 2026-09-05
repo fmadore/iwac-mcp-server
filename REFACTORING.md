@@ -9,7 +9,7 @@ model/chart data separation while improving internal boundaries.
 - [x] Extract cohesive modules from `tools/_shared.ts`.
 - [x] Split aggregate tools into domain modules with shared filters.
 - [x] Share chart payload types and view identifiers across both bundles.
-- [ ] Share offline integration-test connection and cleanup.
+- [x] Share offline integration-test connection and cleanup.
 
 Each implementation commit records its checks below. No dependency changes are
 planned. The existing fixture, app, HTTP, skill and token-budget suites remain
@@ -40,3 +40,10 @@ the public-contract regression checks.
   Added runtime and compile-time contract checks. Checks: typecheck, lint, build,
   and the full `npm test` suite passed (112 unit tests plus fixture, app, skills,
   HTTP, tokens). Tool footprint is unchanged; UI is 257.6 KB (300 KB limit).
+- Test lifecycle: fixture, app, skills, and token suites now use one configurable
+  offline connection scope. Cleanup runs on failure and supports explicit early
+  close, preserving original test errors. Degraded/stress caches and modern
+  protocol pinning remain configurable. Two lifecycle regression tests passed,
+  alongside typecheck, lint, unit, fixture, app, skills, and token checks.
+  Most test-file diff lines are indentation under the cleanup scope; use
+  `git show --ignore-all-space` to review the substantive changes.
