@@ -1,3 +1,5 @@
+import type { ChartPayload, ModelBlock } from "../viewContract.js";
+import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
@@ -26,7 +28,6 @@ import {
   SENTIMENT_MODEL_IDS,
   SENTIMENT_MODELS,
   sentimentCols,
-  structuredResult,
   subjectivityRank,
   SUBJECTIVITY_VALUES,
   textResult,
@@ -273,7 +274,7 @@ export function registerSentimentTools(server: Server): void {
           params,
         )) ?? 0,
       );
-      const payload: Record<string, unknown> = {
+      const payload: ChartPayload<"sentiment"> & Record<string, unknown> = {
         view: VIEW.sentiment,
         model: requested,
         total_articles: total,
@@ -285,9 +286,9 @@ export function registerSentimentTools(server: Server): void {
       };
 
       /** Polarity, centrality and subjectivity for one model, under this filter. */
-      const distributionsFor = async (model: SentimentModel): Promise<Record<string, unknown>> => {
+      const distributionsFor = async (model: SentimentModel): Promise<ModelBlock> => {
         const cols = sentimentCols(model);
-        const out: Record<string, unknown> = {};
+        const out: ModelBlock = {};
         if (schema.has(cols.polarity)) {
           out.polarity_distribution = rowsToMap(
             await query(
@@ -357,10 +358,10 @@ export function registerSentimentTools(server: Server): void {
         // articles than its neighbour looks identical to one that answered all
         // of them unless the denominator is stated outright.
         const coverage: Record<string, number> = {};
-        const sum = (d: unknown) => Object.values((d ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
+        const sum = (d: Record<string, number>) => Object.values(d).reduce((a, b) => a + b, 0);
         if (out.polarity_distribution) coverage.polarity = sum(out.polarity_distribution);
         if (out.centrality_distribution) coverage.centrality = sum(out.centrality_distribution);
-        const subj = out.subjectivity as { scored?: number } | undefined;
+        const subj = out.subjectivity;
         if (subj?.scored !== undefined) coverage.subjectivity = subj.scored;
         if (Object.keys(coverage).length) {
           coverage.matched_articles = total;
@@ -379,8 +380,8 @@ export function registerSentimentTools(server: Server): void {
        * on articles EVERY model scored, so a row one model skipped leaves it
        * entirely, where the majority still decides that row on the votes cast.
        */
-      const consensusBlock = async (): Promise<Record<string, unknown>> => {
-        const out: Record<string, unknown> = {};
+      const consensusBlock = async (): Promise<ModelBlock> => {
+        const out: ModelBlock = {};
         const coverage: Record<string, number> = { matched_articles: total };
         for (const [field, col] of [
           ["polarity", CONSENSUS_COLS.polarity],
@@ -472,15 +473,15 @@ export function registerSentimentTools(server: Server): void {
           return errorResult({ error: "This dataset revision carries no consensus columns" });
         }
         Object.assign(payload, await consensusBlock());
-        return structuredResult(payload);
+        return chartResult(payload);
       }
 
       if (!wantsAll) {
         Object.assign(payload, await distributionsFor(resolved as SentimentModel));
-        return structuredResult(payload);
+        return chartResult(payload);
       }
 
-      const byModel: Record<string, unknown> = {};
+      const byModel: Record<string, ModelBlock> = {};
       for (const m of models) byModel[m.id] = await distributionsFor(m);
       payload.models = models.map((m) => m.id);
       payload.by_model = byModel;
@@ -553,7 +554,7 @@ export function registerSentimentTools(server: Server): void {
       // readings does not have to know a second call exists.
       if (schema.has(CONSENSUS_COLS.polarity)) payload.consensus = await consensusBlock();
 
-      return structuredResult(payload);
+      return chartResult(payload);
     },
   );
 }

@@ -19,12 +19,8 @@ import { esc } from "./theme.js";
  * that strip unknown `_meta`, and doubles as a discriminant for any
  * programmatic client reading `structuredContent`.
  */
-export interface BasePayload {
-  view?: string;
-  error?: string;
-  note?: string;
-  [key: string]: unknown;
-}
+export type { BasePayload } from "../viewContract.js";
+import type { BasePayload } from "../viewContract.js";
 
 /**
  * View-local UI state — which of several readings of the SAME payload is on

@@ -1,3 +1,4 @@
+import type { CooccurrencePayload } from "../../viewContract.js";
 // get_cooccurrence → which values of a field are discussed together.
 //
 // The matrix and a ranked pair list side by side, because they answer different
@@ -11,22 +12,6 @@
 import { csv, empty, panels, type BasePayload, type ViewOptions, type ViewResult } from "../shell.js";
 import { forceGraph, heatmapMatrix, horizontalBar } from "../svg.js";
 import { clip, fmtInt } from "../theme.js";
-
-interface Pair {
-  a?: string;
-  b?: string;
-  count?: number;
-}
-
-export interface CooccurrencePayload extends BasePayload {
-  subset?: string;
-  field?: string;
-  filters?: Record<string, unknown>;
-  total_matches?: number;
-  values?: { value?: string; count?: number }[];
-  matrix?: number[][];
-  top_pairs?: Pair[];
-}
 
 /**
  * Edges worth drawing in the network. A complete graph over 15 values is 105
@@ -152,3 +137,5 @@ export function cooccurrenceView(payload: BasePayload, options: ViewOptions = {}
     },
   };
 }
+
+export type { CooccurrencePayload } from "../../viewContract.js";

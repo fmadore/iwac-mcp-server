@@ -1,3 +1,4 @@
+import type { ModelBlock, SentimentPayload } from "../../viewContract.js";
 // get_sentiment_distribution → the AI polarity and centrality mixes, and —
 // with model:"all" — how far the panel's models agree.
 //
@@ -28,58 +29,6 @@ import {
   POLARITY_ORDER,
   SUBJECTIVITY_ORDER,
 } from "../theme.js";
-
-interface Subjectivity {
-  scale?: string;
-  /** Derived by ranking the labels 1-5, not a stored score — hence the name. */
-  mean_rank?: number;
-  median_rank?: number;
-  rank_scale?: string;
-  scored?: number;
-  unscored?: number;
-  distribution?: Record<string, number>;
-  caveat?: string;
-}
-
-interface MedianRank {
-  scored?: number;
-  mean?: number;
-  median?: number;
-  distribution?: Record<string, number>;
-  note?: string;
-  caveat?: string;
-}
-
-interface ModelBlock {
-  polarity_distribution?: Record<string, number>;
-  centrality_distribution?: Record<string, number>;
-  /** Consensus only: subjectivity arrives as a float median, never as labels. */
-  subjectivity_median_rank?: MedianRank;
-  disputed?: Record<string, number | string>;
-  note?: string;
-  /** Per-scale scored counts. The distributions drop their unscored key, so a
-   * model that answered fewer articles is invisible without this. */
-  coverage?: Record<string, number>;
-  model_caveat?: string;
-  subjectivity?: Subjectivity;
-}
-
-export interface SentimentPayload extends BasePayload, ModelBlock {
-  model?: string;
-  total_articles?: number;
-  filters?: Record<string, unknown>;
-  models?: string[];
-  by_model?: Record<string, ModelBlock>;
-  agreement?: {
-    field?: string;
-    scored_by_all?: number;
-    unanimous?: number;
-    unanimous_percent?: number;
-    pairwise?: Record<string, number>;
-  };
-  agreement_matrix?: { rows?: string; cols?: string; counts?: Record<string, Record<string, number>> };
-  consensus?: ModelBlock;
-}
 
 function ring(dist: Record<string, number> | undefined, scale: string[], centerLabel: string, size = 200): string {
   if (!dist || !Object.keys(dist).length) return "";
@@ -367,3 +316,5 @@ export function sentimentView(payload: BasePayload): ViewResult {
   const block: ModelBlock = p.by_model?.[model] ?? p;
   return singleModel(p, block, model);
 }
+
+export type { SentimentPayload } from "../../viewContract.js";

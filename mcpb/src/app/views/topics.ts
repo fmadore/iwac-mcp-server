@@ -1,3 +1,4 @@
+import type { TopicsPayload } from "../../viewContract.js";
 // get_topic_distribution → the shape of what a corpus is about.
 //
 // A treemap of the 30 LDA topics, and — with over_time — a stacked area of how
@@ -8,23 +9,6 @@
 import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
 import { legend, stackedBar, treemap } from "../svg.js";
 import { fmtInt } from "../theme.js";
-
-interface Topic {
-  topic_id?: number;
-  label?: string;
-  count?: number;
-  avg_prob?: number;
-}
-
-export interface TopicsPayload extends BasePayload {
-  subset?: string;
-  filters?: Record<string, unknown>;
-  total_matches?: number;
-  classified?: number;
-  topics?: Topic[];
-  periods?: string[];
-  series_by_topic?: Record<string, Record<string, number>>;
-}
 
 /** First `n` terms of an LDA label, which is what fits in a cell or a legend. */
 export function shortLabel(label: string, n = 3): string {
@@ -133,3 +117,5 @@ export function topicsView(payload: BasePayload): ViewResult {
     },
   };
 }
+
+export type { TopicsPayload } from "../../viewContract.js";

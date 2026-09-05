@@ -1,3 +1,4 @@
+import type { SimilarPayload } from "../../viewContract.js";
 // get_similar_items → the nearest neighbours of one item, by cosine similarity.
 //
 // The chart is the scores, not the list: a ranked list of titles is something
@@ -8,22 +9,6 @@
 import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
 import { horizontalBar } from "../svg.js";
 import { clip, fmtNum } from "../theme.js";
-
-interface Neighbour {
-  id?: string;
-  title?: string;
-  score?: number;
-  newspaper?: string;
-  pub_date?: string;
-  country?: string;
-  url?: string;
-}
-
-export interface SimilarPayload extends BasePayload {
-  subset?: string;
-  source?: { id?: string; title?: string; url?: string };
-  neighbours?: Neighbour[];
-}
 
 /** At or above this, a neighbour is usually the same story reprinted. */
 const REPRINT = 0.85;
@@ -97,3 +82,5 @@ export function similarView(payload: BasePayload): ViewResult {
     },
   };
 }
+
+export type { SimilarPayload } from "../../viewContract.js";

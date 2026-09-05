@@ -1,10 +1,11 @@
+import type { ChartPayload } from "../../viewContract.js";
+import { chartResult } from "../shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryScalarSingle, viewName } from "../../db.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import {
   COUNTRIES,
   errorResult,
-  structuredResult,
   toolMeta,
   validateEnum,
   type Server,
@@ -121,7 +122,7 @@ export function registerLexicalTools(server: Server): void {
           )
         : 0;
 
-      const payload: Record<string, unknown> = {
+      const payload: ChartPayload<"lexical"> & Record<string, unknown> = {
         view: VIEW.lexical,
         group_by: groupBy,
         filters: echo,
@@ -149,6 +150,6 @@ export function registerLexicalTools(server: Server): void {
       if (groupBy === "newspaper" && rows.length >= topN) {
         payload.note = `Showing the ${topN} newspapers with the most matching items.`;
       }
-      return structuredResult(payload);
+      return chartResult(payload);
     },
   );}

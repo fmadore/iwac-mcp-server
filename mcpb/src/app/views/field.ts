@@ -1,3 +1,4 @@
+import type { FieldPayload } from "../../viewContract.js";
 // get_field_distribution → ranked values of one field, plus how its coverage
 // moves over time.
 //
@@ -9,23 +10,6 @@
 import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { columns, horizontalBar } from "../svg.js";
 import { fmtInt, fmtPct } from "../theme.js";
-
-interface Value {
-  value?: string;
-  count?: number;
-}
-
-export interface FieldPayload extends BasePayload {
-  subset?: string;
-  field?: string;
-  filters?: Record<string, unknown>;
-  total_matches?: number;
-  items_with_value?: number;
-  distinct_values?: number;
-  values?: Value[];
-  other_values?: number;
-  coverage_by_year?: Record<string, { total?: number; with_value?: number }>;
-}
 
 /** How the field reads in a heading. */
 const FIELD_TITLES: Record<string, string> = {
@@ -145,3 +129,5 @@ export function fieldView(payload: BasePayload): ViewResult {
     },
   };
 }
+
+export type { FieldPayload } from "../../viewContract.js";

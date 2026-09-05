@@ -1,3 +1,4 @@
+import type { LunarPayload } from "../../viewContract.js";
 // get_temporal_distribution (granularity=lunar_month) → the lunar year as bars.
 //
 // This is the one chart in the suite that a Gregorian axis cannot produce. The
@@ -21,12 +22,7 @@
 import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
 import { bar } from "../svg.js";
 import { esc, fmtInt } from "../theme.js";
-import { carryFilters, type TemporalPayload } from "./temporal.js";
-
-export interface LunarPayload extends TemporalPayload {
-  imprecise_date_count?: number;
-  month_labels?: Record<string, string>;
-}
+import { carryFilters } from "./temporal.js";
 
 /** Fallback if the server ever stops sending month_labels. */
 const FALLBACK_MONTHS = [
@@ -166,3 +162,5 @@ export function lunarView(payload: BasePayload): ViewResult {
     ],
   };
 }
+
+export type { LunarPayload } from "../../viewContract.js";

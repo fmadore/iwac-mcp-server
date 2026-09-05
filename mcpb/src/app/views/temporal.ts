@@ -1,3 +1,4 @@
+import type { TemporalPayload } from "../../viewContract.js";
 // get_temporal_distribution → stacked bars of items per year or month.
 //
 // The original (and still the most useful) IWAC chart: 30 years of coverage
@@ -5,20 +6,6 @@
 import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
 import { legend, stackedBar } from "../svg.js";
 import { esc, fmtInt } from "../theme.js";
-
-export interface TemporalPayload extends BasePayload {
-  subset?: string;
-  granularity?: string;
-  calendar?: string;
-  group_by?: string;
-  filters?: Record<string, unknown>;
-  total_matches?: number;
-  dated_count?: number;
-  undated_count?: number;
-  imprecise_date_count?: number;
-  distribution?: Record<string, number>;
-  distribution_by_group?: Record<string, Record<string, number>>;
-}
 
 /** The filters the tool accepts, so a re-call can carry them forward verbatim. */
 export function carryFilters(p: TemporalPayload): Record<string, unknown> {
@@ -140,3 +127,5 @@ export function temporalView(payload: BasePayload): ViewResult {
     ],
   };
 }
+
+export type { TemporalPayload } from "../../viewContract.js";

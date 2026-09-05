@@ -1,3 +1,4 @@
+import type { CountriesPayload } from "../../viewContract.js";
 // get_country_comparison → article volume per country, plus how the AI polarity
 // mix differs between them.
 //
@@ -9,21 +10,6 @@
 import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { horizontalBar, legend, stackedBar } from "../svg.js";
 import { fmtInt, fmtPct, ordinalColor, orderBy, POLARITY_ORDER } from "../theme.js";
-
-interface Country {
-  country?: string;
-  article_count?: number;
-  newspaper_count?: number;
-  date_range?: { earliest?: string; latest?: string };
-  polarity?: Record<string, number>;
-}
-
-export interface CountriesPayload extends BasePayload {
-  total_countries?: number;
-  /** Which model produced the polarity buckets — three scored the corpus. */
-  polarity_model?: string;
-  countries?: Country[];
-}
 
 export function countriesView(payload: BasePayload): ViewResult {
   const p = payload as CountriesPayload;
@@ -128,3 +114,5 @@ export function countriesView(payload: BasePayload): ViewResult {
     },
   };
 }
+
+export type { CountriesPayload } from "../../viewContract.js";

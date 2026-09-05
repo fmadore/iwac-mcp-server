@@ -1,3 +1,4 @@
+import type { LexicalGroup, LexicalPayload } from "../../viewContract.js";
 // get_lexical_metrics → how the press writes, by year, newspaper or country.
 //
 // Three metrics on three axes rather than one chart, because they do not share
@@ -15,28 +16,7 @@ import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.
 import { columns, horizontalBar } from "../svg.js";
 import { fmtInt, fmtNum } from "../theme.js";
 
-interface Group {
-  group?: string;
-  items?: number;
-  readability_avg?: number;
-  readability_median?: number;
-  readability_n?: number;
-  mattr_avg?: number;
-  mattr_median?: number;
-  words_avg?: number;
-  words_median?: number;
-}
-
-export interface LexicalPayload extends BasePayload {
-  group_by?: string;
-  filters?: Record<string, unknown>;
-  total_matches?: number;
-  groups?: Group[];
-  metrics?: Record<string, { label?: string; higher_is?: string; range?: string }>;
-  readability_excluded?: number;
-}
-
-const SERIES: { key: keyof Group; title: string; places: number }[] = [
+const SERIES: { key: keyof LexicalGroup; title: string; places: number }[] = [
   { key: "readability_avg", title: "Readability (French, higher = easier)", places: 1 },
   { key: "mattr_avg", title: "Lexical richness (MATTR)", places: 3 },
   { key: "words_avg", title: "Words per item", places: 0 },
@@ -58,7 +38,7 @@ export function lexicalView(payload: BasePayload): ViewResult {
   const labels = groups.map((g) => g.group ?? "");
   // A year axis is ordered and dense, so it reads as a trend; newspapers and
   // countries are an unordered set and read as a ranking.
-  const draw = (key: keyof Group, places: number): string => {
+  const draw = (key: keyof LexicalGroup, places: number): string => {
     const values = groups.map((g) => Number(g[key] ?? 0));
     if (!values.some((v) => v > 0)) return "";
     const format = (v: number) => fmtNum(v, places);
@@ -100,7 +80,7 @@ export function lexicalView(payload: BasePayload): ViewResult {
     actions: [
       {
         id: "group",
-        label: groupBy === "year" ? "Group by newspaper" : "Group by year",
+        label: groupBy === "year" ? "LexicalGroup by newspaper" : "LexicalGroup by year",
         run: (ctx) =>
           ctx.run("get_lexical_metrics", {
             group_by: groupBy === "year" ? "newspaper" : "year",
@@ -132,3 +112,5 @@ export function lexicalView(payload: BasePayload): ViewResult {
     ],
   };
 }
+
+export type { LexicalPayload } from "../../viewContract.js";

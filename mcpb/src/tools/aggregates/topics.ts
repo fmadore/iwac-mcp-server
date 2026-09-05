@@ -1,3 +1,5 @@
+import type { ChartModelPayload, ChartOnlyData } from "../../viewContract.js";
+import { chartResult, chartViewResult } from "../shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, query, queryScalarSingle, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
@@ -5,8 +7,6 @@ import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import {
   COUNTRIES,
   errorResult,
-  structuredResult,
-  viewResult,
   toolMeta,
   validateEnum,
   type Server,
@@ -103,7 +103,7 @@ export function registerTopicsTools(server: Server): void {
       );
       const classified = rows.reduce((a, r) => a + Number(r.count), 0);
 
-      const payload: Record<string, unknown> = {
+      const payload: ChartModelPayload<"topics"> & Record<string, unknown> = {
         view: VIEW.topics,
         subset,
         filters: { ...echo, min_prob: args.min_prob ?? null },
@@ -118,7 +118,7 @@ export function registerTopicsTools(server: Server): void {
       };
 
       // Set only when over_time produced a series: the chart's copy of it.
-      let viewOnly: Record<string, unknown> | null = null;
+      let viewOnly: ChartOnlyData["topics"] | null = null;
 
       if (args.over_time && schema.has("pub_date")) {
         const topN = Math.max(1, Math.min(15, args.top_n ?? 8));
@@ -150,7 +150,7 @@ export function registerTopicsTools(server: Server): void {
         // from a trend is its shape, so it gets that instead: when each band
         // peaks, and where its mass sits. Reading 65 raw cells to find the
         // maximum is work the server can do once, exactly.
-        const shape: Record<string, unknown> = {};
+        const shape: NonNullable<ChartModelPayload<"topics">["trend_by_topic"]> = {};
         for (const [label, byYear] of Object.entries(series)) {
           const years = Object.keys(byYear).sort();
           if (!years.length) continue;
@@ -197,7 +197,7 @@ export function registerTopicsTools(server: Server): void {
           ` and are not in the distribution.` +
           (payload.note ? ` ${payload.note}` : "");
       }
-      return viewOnly ? viewResult(payload, viewOnly) : structuredResult(payload);
+      return viewOnly ? chartViewResult(payload, viewOnly) : chartResult(payload);
     },
   );
 

@@ -1,3 +1,4 @@
+import { chartResult } from "../shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
@@ -6,7 +7,6 @@ import {
   COUNTRIES,
   errorResult,
   rowsToMap,
-  structuredResult,
   toolMeta,
   validateEnum,
   type Server,
@@ -129,7 +129,7 @@ export function registerPlacesTools(server: Server): void {
           )
         : {};
 
-      return structuredResult({
+      return chartResult({
         view: VIEW.places,
         subset,
         filters: echo,

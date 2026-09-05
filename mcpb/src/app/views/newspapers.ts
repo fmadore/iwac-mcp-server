@@ -1,3 +1,4 @@
+import type { NewspapersPayload } from "../../viewContract.js";
 // get_newspaper_stats → ranked bars of the titles that carry the corpus.
 //
 // The tool returns every newspaper (~100). Drawing all of them makes a 2,600px
@@ -9,21 +10,6 @@ import { horizontalBar } from "../svg.js";
 import { fmtInt, fmtPct } from "../theme.js";
 
 const TOP_N = 25;
-
-interface Newspaper {
-  newspaper?: string;
-  country?: string;
-  article_count?: number;
-  earliest_date?: string;
-  latest_date?: string;
-}
-
-export interface NewspapersPayload extends BasePayload {
-  country_filter?: string;
-  total_newspapers?: number;
-  total_articles?: number;
-  newspapers?: Newspaper[];
-}
 
 export function newspapersView(payload: BasePayload): ViewResult {
   const p = payload as NewspapersPayload;
@@ -88,3 +74,5 @@ export function newspapersView(payload: BasePayload): ViewResult {
     },
   };
 }
+
+export type { NewspapersPayload } from "../../viewContract.js";

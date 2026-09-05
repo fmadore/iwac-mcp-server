@@ -8,7 +8,7 @@ model/chart data separation while improving internal boundaries.
 - [x] Share embedding validation and normalization; test malformed vectors.
 - [x] Extract cohesive modules from `tools/_shared.ts`.
 - [x] Split aggregate tools into domain modules with shared filters.
-- [ ] Share chart payload types and view identifiers across both bundles.
+- [x] Share chart payload types and view identifiers across both bundles.
 - [ ] Share offline integration-test connection and cleanup.
 
 Each implementation commit records its checks below. No dependency changes are
@@ -33,3 +33,10 @@ the public-contract regression checks.
   schemas and domain constants; common filters remain shared. Registration order
   is unchanged. Checks: typecheck, lint, build, fixture, app, and token-budget
   suites passed; UI size and tool-definition token footprint are unchanged.
+- Chart contracts: all 14 renderer payloads and view identifiers now live in the
+  dependency-free `viewContract.ts`. Typed result builders check server writes;
+  split summaries forbid chart-only fields. Browser dispatch checks view names,
+  including rejection of inherited object keys. Runtime schemas remain unchanged.
+  Added runtime and compile-time contract checks. Checks: typecheck, lint, build,
+  and the full `npm test` suite passed (112 unit tests plus fixture, app, skills,
+  HTTP, tokens). Tool footprint is unchanged; UI is 257.6 KB (300 KB limit).

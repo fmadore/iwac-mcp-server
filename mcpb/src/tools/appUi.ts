@@ -43,25 +43,7 @@ export const CHARTS_UI_META = { ui: { resourceUri: CHARTS_UI_URI } };
  * app a bare CallToolResult with no tool name — and because the app also makes
  * its own follow-up calls, where no host notification exists at all.
  */
-export const VIEW = {
-  temporal: "temporal",
-  // The lunar cycle is a different SHAPE, not just a different calendar: twelve
-  // fixed named categories with a meaningful baseline, where `temporal` plots an
-  // open-ended time series. Hijri year/month buckets stay on `temporal`.
-  lunar: "lunar",
-  periodicals: "periodicals",
-  countries: "countries",
-  newspapers: "newspapers",
-  sentiment: "sentiment",
-  collection: "collection",
-  topics: "topics",
-  field: "field",
-  cooccurrence: "cooccurrence",
-  lexical: "lexical",
-  places: "places",
-  semanticMap: "semanticMap",
-  similar: "similar",
-} as const;
+export { VIEW } from "../viewContract.js";
 
 export function registerAppResources(server: Server): void {
   // In dev (tsx, no esbuild define) the constant is absent; fall back to a

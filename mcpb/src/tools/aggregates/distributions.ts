@@ -1,3 +1,5 @@
+import type { ChartPayload } from "../../viewContract.js";
+import { chartResult } from "../shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
@@ -5,7 +7,6 @@ import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import {
   COUNTRIES,
   errorResult,
-  structuredResult,
   toolMeta,
   validateEnum,
   type Server,
@@ -121,7 +122,7 @@ export function registerDistributionsTools(server: Server): void {
         (await queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM (${exploded})`, params)) ?? 0,
       );
 
-      const payload: Record<string, unknown> = {
+      const payload: ChartPayload<"field"> & Record<string, unknown> = {
         view: VIEW.field,
         subset,
         field,
@@ -141,7 +142,7 @@ export function registerDistributionsTools(server: Server): void {
            GROUP BY 1 ORDER BY 1`,
           params,
         );
-        const coverage: Record<string, unknown> = {};
+        const coverage: NonNullable<ChartPayload<"field">["coverage_by_year"]> = {};
         for (const r of perYear) {
           if (r.bucket == null) continue;
           coverage[String(r.bucket)] = { total: Number(r.total), with_value: Number(r.with_value) };
@@ -154,7 +155,7 @@ export function registerDistributionsTools(server: Server): void {
           `'${field}' is multi-valued: counts sum to more than ${filled} because an item with several values ` +
           `is counted under each.`;
       }
-      return structuredResult(payload);
+      return chartResult(payload);
     },
   );
 
@@ -248,7 +249,7 @@ export function registerDistributionsTools(server: Server): void {
         .sort((x, y) => y.count - x.count)
         .slice(0, 15);
 
-      return structuredResult({
+      return chartResult({
         view: VIEW.cooccurrence,
         subset,
         field,

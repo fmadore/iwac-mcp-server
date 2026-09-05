@@ -1,3 +1,4 @@
+import type { SemanticMapPayload } from "../../viewContract.js";
 // get_semantic_map → a 2-D scatter of a result set, projected by PCA.
 //
 // The roadmap called this a "stand-in for UMAP" and warned it would look
@@ -14,24 +15,6 @@
 import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
 import { legend, scatter } from "../svg.js";
 import { fmtInt, fmtPct } from "../theme.js";
-
-interface Point {
-  id?: string;
-  title?: string;
-  group?: string;
-  x?: number;
-  y?: number;
-}
-
-export interface SemanticMapPayload extends BasePayload {
-  subset?: string;
-  filters?: Record<string, unknown>;
-  total_matches?: number;
-  projected?: number;
-  color_by?: string;
-  explained_variance?: number[];
-  points?: Point[];
-}
 
 /**
  * Below this, the two axes describe so little that reading distances off the
@@ -121,3 +104,5 @@ export function semanticMapView(payload: BasePayload): ViewResult {
     ],
   };
 }
+
+export type { SemanticMapPayload } from "../../viewContract.js";

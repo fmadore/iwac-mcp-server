@@ -1,3 +1,4 @@
+import { chartResult, chartViewResult } from "../shared/chartResults.js";
 import { sentimentCols } from "../shared/sentiment.js";
 import { isFiniteVector } from "../../vectors.js";
 import { z } from "zod";
@@ -10,8 +11,6 @@ import {
   DEFAULT_SENTIMENT_MODEL,
   errorResult,
   itemUrl,
-  structuredResult,
-  viewResult,
   TITLE_COL,
   toolMeta,
   validateEnum,
@@ -186,7 +185,7 @@ export function registerSemanticTools(server: Server): void {
         });
       }
       if (!vectors.length) {
-        return structuredResult({
+        return chartResult({
           view: VIEW.semanticMap,
           subset,
           filters: echo,
@@ -220,7 +219,7 @@ export function registerSemanticTools(server: Server): void {
 
       // The coordinates go to the chart only: ~11.5k tokens of the ~11.7k this
       // tool used to spend, for data the model cannot read. See viewResult.
-      return viewResult(
+      return chartViewResult(
         {
           view: VIEW.semanticMap,
           subset,
@@ -361,7 +360,7 @@ export function registerSemanticTools(server: Server): void {
         .filter((r) => min === undefined || (r.score as number) >= min);
 
       const reprints = neighbours.filter((r) => (r.score as number) >= 0.85).length;
-      return structuredResult({
+      return chartResult({
         view: VIEW.similar,
         subset,
         source: { id: String(source.id), title: clipTitle(source.title), url: itemUrl(String(source.id)) },

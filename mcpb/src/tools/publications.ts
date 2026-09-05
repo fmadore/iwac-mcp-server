@@ -1,3 +1,4 @@
+import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, getById, query, selectList, viewName, type Bindable } from "../db.js";
 import { config } from "../config.js";
@@ -21,7 +22,6 @@ import {
   resolveHijriMonth,
   resolveLimit,
   runListQuery,
-  structuredResult,
   TEXT_COLS,
   textResult,
   toolMeta,
@@ -136,7 +136,7 @@ export function registerPublicationTools(server: Server): void {
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
       if (!schema.has("newspaper"))
-        return structuredResult({ view: VIEW.periodicals, total_periodicals: 0, periodicals: [] });
+        return chartResult({ view: VIEW.periodicals, total_periodicals: 0, periodicals: [] });
       const where: string[] = [`NULLIF(trim(newspaper), '') IS NOT NULL`];
       const params: Bindable[] = [];
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
@@ -152,9 +152,9 @@ export function registerPublicationTools(server: Server): void {
          ORDER BY issue_count DESC`,
         params,
       );
-      return structuredResult({
+      return chartResult({
         view: VIEW.periodicals,
-        country_filter: country.canonical ?? null,
+        country_filter: country.canonical,
         total_periodicals: rows.length,
         periodicals: rows,
       });

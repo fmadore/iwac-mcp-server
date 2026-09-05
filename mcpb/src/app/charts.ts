@@ -20,7 +20,7 @@ import { chips, empty, type BasePayload, type ViewContext, type ViewOptions, typ
 import { esc } from "./theme.js";
 import { setTheme } from "./theme.js";
 import { VIEWS } from "./views/index.js";
-import { VIEW_DATA_META_KEY } from "../viewContract.js";
+import { VIEW_DATA_META_KEY, isViewName } from "../viewContract.js";
 
 const app = new App({ name: "IWAC charts", version: "3.0.0" });
 const root = document.getElementById("root") as HTMLElement;
@@ -117,7 +117,7 @@ function render(payload: BasePayload): void {
     options = {};
   }
 
-  const view = payload.view ? VIEWS[payload.view] : undefined;
+  const view = payload.view && isViewName(payload.view) ? VIEWS[payload.view] : undefined;
   if (!view) {
     // A tool declared this resource but its payload carries no view this bundle
     // knows — most likely a server newer than the packaged UI. Say which.

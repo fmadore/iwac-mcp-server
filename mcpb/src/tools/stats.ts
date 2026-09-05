@@ -1,3 +1,5 @@
+import type { ChartPayload, Coverage } from "../viewContract.js";
+import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
@@ -16,7 +18,6 @@ import {
   requireHijriColumns,
   rowsToMap,
   sentimentCols,
-  structuredResult,
   TEXT_COLS,
   toolMeta,
   validateDateBounds,
@@ -138,7 +139,7 @@ export function registerStatsTools(server: Server): void {
       );
       const counts: Record<string, number> = {};
       const failed: string[] = [];
-      const coverage: Record<string, unknown> = {};
+      const coverage: Record<string, Coverage> = {};
       for (const [s, n, , ft] of entries) {
         if (n === null) {
           failed.push(s);
@@ -157,7 +158,7 @@ export function registerStatsTools(server: Server): void {
       // Empty set when articles failed to load: the article-specific extras
       // below are skipped and the subset-count envelope still goes out.
       const schema = entries.find(([s]) => s === "articles")?.[2] ?? new Set<string>();
-      const payload: Record<string, unknown> = {
+      const payload: ChartPayload<"collection"> & Record<string, unknown> = {
         view: VIEW.collection,
         collection_name: "Islam West Africa Collection (IWAC)",
         dataset_url: "https://huggingface.co/datasets/fmadore/islam-west-africa-collection",
@@ -199,7 +200,7 @@ export function registerStatsTools(server: Server): void {
           };
         }
       }
-      return structuredResult(payload);
+      return chartResult(payload);
     },
   );
 
@@ -220,9 +221,9 @@ export function registerStatsTools(server: Server): void {
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
       if (!schema.has("newspaper")) {
-        return structuredResult({
+        return chartResult({
           view: VIEW.newspapers,
-          country_filter: country.canonical ?? null,
+          country_filter: country.canonical,
           total_newspapers: 0,
           total_articles: 0,
           newspapers: [],
@@ -254,9 +255,9 @@ export function registerStatsTools(server: Server): void {
           params,
         )) ?? 0,
       );
-      return structuredResult({
+      return chartResult({
         view: VIEW.newspapers,
-        country_filter: country.canonical ?? null,
+        country_filter: country.canonical,
         total_newspapers: rows.length,
         total_articles: total,
         newspapers: rows,
@@ -278,7 +279,7 @@ export function registerStatsTools(server: Server): void {
     },
     async () => {
       const schema = await ensureView("articles");
-      if (!schema.has("country")) return structuredResult({ view: VIEW.countries, total_countries: 0, countries: [] });
+      if (!schema.has("country")) return chartResult({ view: VIEW.countries, total_countries: 0, countries: [] });
 
       const dateSel = schema.has("pub_date")
         ? `, MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest`
@@ -328,7 +329,7 @@ export function registerStatsTools(server: Server): void {
         if (pol && Object.keys(pol).length) rec.polarity = pol;
         return rec;
       });
-      return structuredResult({
+      return chartResult({
         view: VIEW.countries,
         total_countries: countries.length,
         // Name the annotator: this is one model's reading of every country, and
@@ -524,7 +525,7 @@ export function registerStatsTools(server: Server): void {
         }
       }
 
-      const payload: Record<string, unknown> = {
+      const payload: ChartPayload<"temporal" | "lunar"> & Record<string, unknown> = {
         // Which chart the MCP App should draw. Costs a handful of tokens and
         // is the app's only reliable dispatch signal; see tools/appUi.ts.
         view: granularity === "lunar_month" ? VIEW.lunar : VIEW.temporal,
@@ -575,7 +576,7 @@ export function registerStatsTools(server: Server): void {
         );
       }
       if (notes.length) payload.note = notes.join(" ");
-      return structuredResult(payload);
+      return chartResult(payload);
     },
   );
 }

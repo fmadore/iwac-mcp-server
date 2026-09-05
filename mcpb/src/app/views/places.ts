@@ -1,3 +1,4 @@
+import type { Place, PlacesPayload } from "../../viewContract.js";
 // get_place_distribution → where the coverage points, on a map.
 //
 // Scoped as "choropleth + bubbles", not "a map": under the app CSP there are no
@@ -18,24 +19,6 @@ import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.
 import { BASEMAP, BASEMAP_BOUNDS } from "../basemap.js";
 import { bubbleMap, horizontalBar } from "../svg.js";
 import { fmtInt } from "../theme.js";
-
-interface Place {
-  place?: string;
-  count?: number;
-  lat?: number;
-  lng?: number;
-}
-
-export interface PlacesPayload extends BasePayload {
-  subset?: string;
-  filters?: Record<string, unknown>;
-  total_matches?: number;
-  items_with_place?: number;
-  items_by_country?: Record<string, number>;
-  places?: Place[];
-  ungeocoded?: { place?: string; count?: number }[];
-  ungeocoded_mentions?: number;
-}
 
 const inFrame = (p: Place): boolean =>
   Number.isFinite(p.lng) &&
@@ -222,3 +205,5 @@ export function placesView(payload: BasePayload): ViewResult {
     },
   };
 }
+
+export type { PlacesPayload } from "../../viewContract.js";

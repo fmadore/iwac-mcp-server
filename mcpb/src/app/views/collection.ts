@@ -1,3 +1,4 @@
+import type { CollectionPayload } from "../../viewContract.js";
 // get_collection_stats → what the collection is made of, and how much of it is
 // actually readable.
 //
@@ -9,24 +10,6 @@
 import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { gauge, treemap } from "../svg.js";
 import { fmtInt, fmtPct } from "../theme.js";
-
-interface Coverage {
-  with_fulltext?: number;
-  total?: number;
-  percent?: number;
-}
-
-export interface CollectionPayload extends BasePayload {
-  collection_name?: string;
-  subset_counts?: Record<string, number>;
-  failed_subsets?: string[];
-  total_records?: number;
-  fulltext_coverage?: Record<string, Coverage>;
-  fulltext_note?: string;
-  articles_by_country?: Record<string, number>;
-  newspaper_count?: number;
-  date_range?: { earliest?: string; latest?: string };
-}
 
 export function collectionView(payload: BasePayload): ViewResult {
   const p = payload as CollectionPayload;
@@ -108,3 +91,5 @@ export function collectionView(payload: BasePayload): ViewResult {
     },
   };
 }
+
+export type { CollectionPayload } from "../../viewContract.js";

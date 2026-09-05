@@ -1,3 +1,4 @@
+import type { PeriodicalsPayload } from "../../viewContract.js";
 // list_periodicals → a runs gantt of the Islamic periodical series.
 //
 // The one chart in the suite that needs no new server work at all: the tool
@@ -8,20 +9,6 @@
 import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
 import { gantt } from "../svg.js";
 import { fmtInt } from "../theme.js";
-
-interface Periodical {
-  newspaper?: string;
-  country?: string;
-  issue_count?: number;
-  earliest_year?: number;
-  latest_year?: number;
-}
-
-export interface PeriodicalsPayload extends BasePayload {
-  country_filter?: string;
-  total_periodicals?: number;
-  periodicals?: Periodical[];
-}
 
 export function periodicalsView(payload: BasePayload): ViewResult {
   const p = payload as PeriodicalsPayload;
@@ -83,3 +70,5 @@ export function periodicalsView(payload: BasePayload): ViewResult {
     },
   };
 }
+
+export type { PeriodicalsPayload } from "../../viewContract.js";
