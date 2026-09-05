@@ -7,7 +7,7 @@ model/chart data separation while improving internal boundaries.
 
 - [x] Share embedding validation and normalization; test malformed vectors.
 - [x] Extract cohesive modules from `tools/_shared.ts`.
-- [ ] Split aggregate tools into domain modules with shared filters.
+- [x] Split aggregate tools into domain modules with shared filters.
 - [ ] Share chart payload types and view identifiers across both bundles.
 - [ ] Share offline integration-test connection and cleanup.
 
@@ -28,3 +28,8 @@ the public-contract regression checks.
   now an 11-line compatibility barrel; extracted modules use direct imports.
   Checks: typecheck, lint, 110 unit tests, build, fixture and token-budget suites
   passed. Tool-definition footprint changed by zero tokens.
+- Aggregates: split topics, field/co-occurrence distributions, places, semantic
+  tools, and lexical metrics into five domain modules. Each owns its output
+  schemas and domain constants; common filters remain shared. Registration order
+  is unchanged. Checks: typecheck, lint, build, fixture, app, and token-budget
+  suites passed; UI size and tool-definition token footprint are unchanged.
