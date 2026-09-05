@@ -1,3 +1,4 @@
+import { isFiniteVector } from "../vectors.js";
 // Corpus-level aggregates: topics, field rankings, co-occurrence, press language.
 //
 // Everything here is one SQL pass over the cached parquet — columns that exist
@@ -861,16 +862,10 @@ export function registerAggregateTools(server: Server): void {
       const vectors: number[][] = [];
       let dim = 0;
       for (const r of rows) {
-        const emb = r.emb as unknown;
-        if (!Array.isArray(emb) || emb.length === 0) continue;
+        const emb = r.emb;
+        if (!isFiniteVector(emb, dim || undefined)) continue;
         if (dim === 0) dim = emb.length;
-        // A ragged or non-finite row would poison EVERY coordinate with NaN,
-        // not just its own — PCA mixes all rows through the covariance — so a
-        // bad vector has to be dropped rather than merely tolerated.
-        if (emb.length !== dim || !(emb as unknown[]).every((x) => typeof x === "number" && Number.isFinite(x))) {
-          continue;
-        }
-        vectors.push(emb as number[]);
+        vectors.push(emb);
         kept.push({
           id: String(r.id),
           // Titles are the bulk of this payload and only ever become a chart

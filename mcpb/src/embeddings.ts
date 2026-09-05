@@ -1,3 +1,4 @@
+import { isFiniteVector, normalizeVector } from "./vectors.js";
 import { config, type Subset } from "./config.js";
 import { ensureView, q, query, viewName } from "./db.js";
 
@@ -69,19 +70,17 @@ async function buildIndex(subset: Subset, embeddingColumn: string): Promise<Embe
   let dim = 0;
   let skipped = 0;
   for (const r of rows) {
-    const emb = r.emb as unknown;
-    if (!Array.isArray(emb) || emb.length === 0) continue;
-    const arr = emb as number[];
-    if (dim === 0) dim = arr.length;
-    if (arr.length !== dim) {
+    const arr = r.emb;
+    if (!isFiniteVector(arr, dim || undefined)) {
       skipped++;
       continue;
     }
+    if (dim === 0) dim = arr.length;
     ids.push(String(r.id));
     vectors.push(arr);
   }
   if (skipped > 0) {
-    console.error(`[iwac] skipped ${skipped} ${subset} embeddings with dim != ${dim}`);
+    console.error(`[iwac] skipped ${skipped} ${subset} invalid embeddings (expected dim ${dim})`);
   }
   if (ids.length === 0) {
     throw new Error(`No embeddings found in column ${embeddingColumn} of subset ${subset}`);
@@ -89,12 +88,7 @@ async function buildIndex(subset: Subset, embeddingColumn: string): Promise<Embe
 
   const matrix = new Float32Array(ids.length * dim);
   for (let i = 0; i < ids.length; i++) {
-    const v = vectors[i];
-    let norm = 0;
-    for (let j = 0; j < dim; j++) norm += v[j] * v[j];
-    const invNorm = norm > 0 ? 1 / Math.sqrt(norm) : 0;
-    const offset = i * dim;
-    for (let j = 0; j < dim; j++) matrix[offset + j] = v[j] * invNorm;
+    matrix.set(normalizeVector(vectors[i]), i * dim);
   }
 
   console.error(`[iwac] semantic index built: ${ids.length} items, dim=${dim}`);
@@ -112,15 +106,10 @@ async function embedQuery(text: string): Promise<Float32Array> {
     },
   });
   const values = res.embeddings?.[0]?.values;
-  if (!values || values.length === 0) {
-    throw new Error("Gemini returned an empty embedding");
+  if (!isFiniteVector(values)) {
+    throw new Error("Gemini returned an empty or non-finite embedding");
   }
-  const v = new Float32Array(values);
-  let norm = 0;
-  for (let i = 0; i < v.length; i++) norm += v[i] * v[i];
-  const invNorm = norm > 0 ? 1 / Math.sqrt(norm) : 0;
-  for (let i = 0; i < v.length; i++) v[i] *= invNorm;
-  return v;
+  return normalizeVector(values);
 }
 
 export interface SemanticHit {
