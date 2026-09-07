@@ -61,4 +61,16 @@ the public-contract regression checks.
 - `4f4b705`: aggregate domain modules.
 - `12c3738`: shared chart payload contracts.
 - `cd9d1c6`: offline integration-test lifecycle.
-- Final follow-up: sparse-vector validation and final verification record.
+- `c3985d7`: sparse-vector validation and final verification record.
+
+## Release v3.5.2
+
+- Integrated upstream commits `80563b5` and `275a2eb` without rewriting the
+  refactoring commits, then synchronized package, lockfile, manifest, and citation
+  metadata for v3.5.2 (2026-09-07).
+- Refreshed `fast-uri` to 3.1.7 and `qs` to 6.16.0 within the existing dependency
+  ranges, along with their compatible dependencies. npm audit reports zero
+  vulnerabilities.
+- Release checks passed: version consistency, typecheck, lint, build, all 112
+  unit tests, two lifecycle tests, fixture, app, skills, HTTP, and token budgets.
+  Release notes are in `docs/releases/v3.5.2.md`.
