@@ -1,8 +1,12 @@
 /** A stored/query vector must be non-empty, finite, and dimensionally consistent. */
 export function isFiniteVector(value: unknown, dimension?: number): value is number[] {
-  return Array.isArray(value) && value.length > 0 &&
-    (dimension === undefined || value.length === dimension) &&
-    value.every((v) => typeof v === "number" && Number.isFinite(v));
+  if (!Array.isArray(value) || value.length === 0 ||
+    (dimension !== undefined && value.length !== dimension)) return false;
+  // Iteration visits sparse-array holes as undefined; Array.every skips them.
+  for (const v of value) {
+    if (typeof v !== "number" || !Number.isFinite(v)) return false;
+  }
+  return true;
 }
 
 /** Normalize into a new float32 vector; preserve zero vectors as zeros. */

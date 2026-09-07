@@ -47,3 +47,18 @@ the public-contract regression checks.
   alongside typecheck, lint, unit, fixture, app, skills, and token checks.
   Most test-file diff lines are indentation under the cleanup scope; use
   `git show --ignore-all-space` to review the substantive changes.
+- Final review: finite-vector validation now also rejects sparse arrays, whose
+  holes `Array.every()` would otherwise skip. Regression assertions cover both
+  validation and normalization. Final verification on 2026-09-07: typecheck,
+  lint, build, and the full `npm test` suite passed (112 unit tests, two lifecycle
+  tests, fixture, app, skills, HTTP, and token-budget checks). Tool-definition
+  footprint remains unchanged. Live dataset/Gemini tests were not run.
+
+## Commit index
+
+- `f023f32`: embedding validation and normalization.
+- `1c56956`: shared helper modules.
+- `4f4b705`: aggregate domain modules.
+- `12c3738`: shared chart payload contracts.
+- `cd9d1c6`: offline integration-test lifecycle.
+- Final follow-up: sparse-vector validation and final verification record.

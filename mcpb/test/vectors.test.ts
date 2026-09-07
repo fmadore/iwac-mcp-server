@@ -8,6 +8,8 @@ test("rejects missing, ragged and non-finite vectors", () => {
   }
   equal(isFiniteVector([1, 2], 3), false);
   equal(isFiniteVector([1, 2], 2), true);
+  equal(isFiniteVector(new Array(2)), false);
+  throws(() => normalizeVector(new Array(2)), /finite/);
   throws(() => normalizeVector([NaN]), /finite/);
 });
 
