@@ -5,7 +5,7 @@ import * as path from "node:path";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { config } from "../src/config.js";
+import { config, datasetCacheDir, PRIVATE_DATASET_REPO } from "../src/config.js";
 import { ensureSubset } from "../src/hf.js";
 import {
   CACHE_MANIFEST_FILE,
@@ -127,6 +127,57 @@ describe("Hugging Face cache freshness", () => {
       globalThis.fetch = original.fetch;
       console.error = original.consoleError;
       await fs.rm(cacheDir, { recursive: true, force: true });
+    }
+  });
+});
+
+
+describe("private dataset access", () => {
+  it("isolates caches and authenticates both requests without public token use", async () => {
+    const base = await fs.mkdtemp(path.join(os.tmpdir(), "iwac-private-"));
+    const original = { ...config };
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; auth: string | null }> = [];
+    try {
+      assert.notEqual(datasetCacheDir(base, false), datasetCacheDir(base, true));
+      config.privateDataset = true;
+      config.datasetRepo = PRIVATE_DATASET_REPO;
+      config.cacheDir = datasetCacheDir(base, true);
+      config.offline = false;
+      config.hfToken = "hf_test_only";
+      globalThis.fetch = (async (input, init) => {
+        requests.push({ url: String(input), auth: new Headers(init?.headers).get("Authorization") });
+        return String(input).includes("/api/datasets/")
+          ? Response.json([{ type: "file", path: "articles/train.parquet", size: 7 }])
+          : new Response("private");
+      }) as typeof fetch;
+      const dir = await ensureSubset("articles");
+      assert.equal(await fs.readFile(path.join(dir, "train.parquet"), "utf8"), "private");
+      assert.equal(requests.length, 2);
+      assert.ok(requests.every(r => r.auth === "Bearer hf_test_only" && r.url.includes(PRIVATE_DATASET_REPO)));
+      // Even with cached text, invalid/missing credentials must fail online.
+      config.hfToken = undefined;
+      await assert.rejects(ensureSubset("articles"), /requires IWAC_HF_TOKEN/);
+      config.hfToken = "hf_test_only";
+      for (const status of [401, 403, 404]) {
+        globalThis.fetch = (async () => new Response(null, { status })) as typeof fetch;
+        await assert.rejects(ensureSubset("articles"), new RegExp(`HTTP ${status}`));
+      }
+      config.offline = true;
+      assert.equal(await ensureSubset("articles"), dir);
+      config.privateDataset = false;
+      config.cacheDir = datasetCacheDir(base, false);
+      await assert.rejects(ensureSubset("articles"), /no cached parquet/);
+      config.offline = false;
+      globalThis.fetch = (async (_input, init) => {
+        assert.equal(new Headers(init?.headers).get("Authorization"), null);
+        return Response.json([]);
+      }) as typeof fetch;
+      await assert.rejects(ensureSubset("articles"), /No parquet files/);
+    } finally {
+      Object.assign(config, original);
+      globalThis.fetch = originalFetch;
+      await fs.rm(base, { recursive: true, force: true });
     }
   });
 });

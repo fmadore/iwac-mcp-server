@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 export const DATASET_REPO = "fmadore/islam-west-africa-collection";
+export const PRIVATE_DATASET_REPO = `${DATASET_REPO}-full`;
 export const DATASET_REVISION = "main";
 
 export type Subset =
@@ -108,11 +109,18 @@ function readBearerToken(): string | undefined {
 }
 
 const httpOrigins = parseAllowedOrigins(process.env.IWAC_MCP_ALLOWED_ORIGINS);
+const privateDataset = parseBool(process.env.IWAC_PRIVATE_DATASET, false);
+
+export function datasetCacheDir(base: string, usePrivate: boolean): string {
+  return usePrivate ? path.join(base, "private-full") : base;
+}
 
 export const config = {
-  datasetRepo: DATASET_REPO,
+  datasetRepo: privateDataset ? PRIVATE_DATASET_REPO : DATASET_REPO,
+  privateDataset,
+  hfToken: process.env.IWAC_HF_TOKEN?.trim() || process.env.HF_TOKEN?.trim() || undefined,
   datasetRevision: DATASET_REVISION,
-  cacheDir: resolveCacheDir(),
+  cacheDir: datasetCacheDir(resolveCacheDir(), privateDataset),
   // Offline mode: trust whatever parquet is cached, never touch the network.
   // Used by the hermetic fixture tests and useful on flaky links.
   offline: parseBool(process.env.IWAC_OFFLINE, false),

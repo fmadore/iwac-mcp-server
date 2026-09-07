@@ -335,3 +335,24 @@ bundled Node runtime, which means zero installation friction for end users.
 bindings and the optional `@google/genai` client stay external (the former can't
 be inlined; the latter is only needed when semantic search is enabled), so those
 two trees are the only runtime `node_modules` the packed bundle relies on.
+
+## Optional private full-text access
+
+Public data remains the default and needs no token. In the desktop extension,
+enable **Use private full dataset**, enter the **Hugging Face token (private dataset only)**,
+and restart. Use a fine-grained token with read access to
+`fmadore/islam-west-africa-collection-full`. The token field is marked sensitive.
+Never paste your token into a chat or commit it.
+
+Other local launchers can set `IWAC_PRIVATE_DATASET=true` and provide
+`IWAC_HF_TOKEN` (or `HF_TOKEN`). A token alone does not enable private mode;
+public downloads do not send it. No new dependency or account system is needed.
+
+Private files use a separate `private-full/` subdirectory of `IWAC_CACHE_DIR`
+(default: `~/.iwac-mcp/cache`). Restart after changing modes. Missing tokens
+and private HTTP 401/403/404 errors fail without cache fallback. Network outages
+may use that mode's cache. Explicit `IWAC_OFFLINE=true` uses downloaded files
+without authentication; removing a token does not erase private files.
+
+Keep the shared hosted endpoint public. This setting applies to the whole instance:
+everyone who can query a private instance can access its full text.

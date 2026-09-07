@@ -13,9 +13,30 @@ import {
   type TreeEntry,
 } from "./hfCache.js";
 
+class HuggingFaceAccessError extends Error {}
+
+function authHeaders(): HeadersInit | undefined {
+  if (!config.privateDataset) return undefined;
+  if (!config.hfToken) {
+    throw new HuggingFaceAccessError(
+      "Private dataset access requires IWAC_HF_TOKEN or HF_TOKEN with read access to the full mirror.",
+    );
+  }
+  return { Authorization: `Bearer ${config.hfToken}` };
+}
+
+function checkAccess(res: Response): void {
+  if (config.privateDataset && [401, 403, 404].includes(res.status)) {
+    throw new HuggingFaceAccessError(
+      `Hugging Face private dataset access failed (HTTP ${res.status}). Check that your token has read access to ${config.datasetRepo}.`,
+    );
+  }
+}
+
 async function listTree(subset: Subset): Promise<TreeEntry[]> {
   const url = `https://huggingface.co/api/datasets/${config.datasetRepo}/tree/${config.datasetRevision}/${subset}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  const res = await fetch(url, { headers: authHeaders(), signal: AbortSignal.timeout(30_000) });
+  checkAccess(res);
   if (!res.ok) {
     throw new Error(`Failed to list ${subset} tree: HTTP ${res.status}`);
   }
@@ -25,7 +46,8 @@ async function listTree(subset: Subset): Promise<TreeEntry[]> {
 async function downloadFile(remotePath: string, destPath: string): Promise<void> {
   const url = `https://huggingface.co/datasets/${config.datasetRepo}/resolve/${config.datasetRevision}/${remotePath}`;
   // Generous timeout: the largest subset is ~185 MB and may run on slow links.
-  const res = await fetch(url, { signal: AbortSignal.timeout(15 * 60_000) });
+  const res = await fetch(url, { headers: authHeaders(), signal: AbortSignal.timeout(15 * 60_000) });
+  checkAccess(res);
   const body = res.body;
   if (!res.ok || !body) {
     throw new Error(`Failed to download ${remotePath}: HTTP ${res.status}`);
@@ -150,6 +172,7 @@ export async function ensureSubset(subset: Subset): Promise<string> {
   try {
     tree = await listTree(subset);
   } catch (err) {
+    if (err instanceof HuggingFaceAccessError) throw err;
     if (await hasLocalParquet(localDir)) {
       console.error(
         `[iwac] warning: failed to refresh Hugging Face metadata for ${subset}; using cached parquet files in ${localDir}. ` +

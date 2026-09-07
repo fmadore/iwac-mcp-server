@@ -242,7 +242,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 3.5.2) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 3.6.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -250,7 +250,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {3.5.2},
+  version   = {3.6.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},
@@ -276,3 +276,24 @@ the archival work lives.
 - [IWAC Hugging Face Dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection)
 - [IWAC Digital Archive](https://islam.zmo.de/s/westafrica/)
 - [Desktop Extensions spec (MCPB)](https://github.com/modelcontextprotocol/mcpb)
+
+## Optional private full-text access
+
+Public data remains the default and needs no token. In the desktop extension,
+enable **Use private full dataset**, enter the **Hugging Face token (private dataset only)**,
+and restart. Use a fine-grained token with read access to
+`fmadore/islam-west-africa-collection-full`. The token field is marked sensitive.
+Never paste your token into a chat or commit it.
+
+Other local launchers can set `IWAC_PRIVATE_DATASET=true` and provide
+`IWAC_HF_TOKEN` (or `HF_TOKEN`). A token alone does not enable private mode;
+public downloads do not send it. No new dependency or account system is needed.
+
+Private files use a separate `private-full/` subdirectory of `IWAC_CACHE_DIR`
+(default: `~/.iwac-mcp/cache`). Restart after changing modes. Missing tokens
+and private HTTP 401/403/404 errors fail without cache fallback. Network outages
+may use that mode's cache. Explicit `IWAC_OFFLINE=true` uses downloaded files
+without authentication; removing a token does not erase private files.
+
+Keep the shared hosted endpoint public. This setting applies to the whole instance:
+everyone who can query a private instance can access its full text.

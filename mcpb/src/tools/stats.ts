@@ -2,7 +2,7 @@ import type { ChartPayload, Coverage } from "../viewContract.js";
 import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
-import { ALL_SUBSETS, type Subset } from "../config.js";
+import { config, ALL_SUBSETS, type Subset } from "../config.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   COUNTRIES,
@@ -121,13 +121,13 @@ export function registerStatsTools(server: Server): void {
         ALL_SUBSETS.map(async (s) => {
           try {
             const schema = await ensureView(s);
-            // Row count and full-text coverage in ONE pass. `OCR_is_public` is a
-            // boolean column, so counting it costs 1-7 ms; the equivalent
-            // `length(trim(OCR)) > 0` has to decompress the OCR column itself
-            // (344 ms on publications) for an identical answer.
-            const hasFlag = schema.has("OCR_is_public");
+            // Public visibility is a cheap coverage proxy for the public dataset.
+            // In the full mirror that flag still describes source visibility,
+            // so count actual non-empty OCR instead.
+            const hasFlag = config.privateDataset ? schema.has("OCR") : schema.has("OCR_is_public");
+            const predicate = config.privateDataset ? `length(trim(COALESCE("OCR", ''))) > 0` : '"OCR_is_public"';
             const row = await queryOne(
-              `SELECT COUNT(*) AS n${hasFlag ? `, COUNT(*) FILTER (WHERE "OCR_is_public") AS ft` : ""} FROM ${viewName(s)}`,
+              `SELECT COUNT(*) AS n${hasFlag ? `, COUNT(*) FILTER (WHERE ${predicate}) AS ft` : ""} FROM ${viewName(s)}`,
             );
             const n = Number(row?.n ?? 0);
             const ft = hasFlag ? Number(row?.ft ?? 0) : null;
@@ -161,14 +161,16 @@ export function registerStatsTools(server: Server): void {
       const payload: ChartPayload<"collection"> & Record<string, unknown> = {
         view: VIEW.collection,
         collection_name: "Islam West Africa Collection (IWAC)",
-        dataset_url: "https://huggingface.co/datasets/fmadore/islam-west-africa-collection",
+        dataset_url: `https://huggingface.co/datasets/${config.datasetRepo}`,
         subset_counts: counts,
         ...(failed.length ? { failed_subsets: failed } : {}),
         total_records: Object.values(counts).reduce<number>((a, b) => a + b, 0),
         ...(Object.keys(coverage).length
           ? {
               fulltext_coverage: coverage,
-              fulltext_note:
+              fulltext_note: config.privateDataset
+                ? "PRIVATE full mirror: coverage counts non-empty OCR, including restricted source content. Missing OCR may still limit keyword results."
+                :
                 "This is the PUBLIC dataset: full text (OCR) ships only for items whose content is public on " +
                 "islam.zmo.de, per item. Keyword search still reaches every item's title, subjects and AI " +
                 "abstract, but the full-text half of a keyword match only covers the counts above — so report " +
