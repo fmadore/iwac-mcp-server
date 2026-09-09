@@ -1,6 +1,7 @@
 # IWAC MCP Server
 
 [![CI](https://github.com/fmadore/iwac-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/fmadore/iwac-mcp-server/actions/workflows/ci.yml)
+[![Release build](https://github.com/fmadore/iwac-mcp-server/actions/workflows/docker-publish.yml/badge.svg?event=push)](https://github.com/fmadore/iwac-mcp-server/actions/workflows/docker-publish.yml)
 [![Latest release](https://img.shields.io/github/v/release/fmadore/iwac-mcp-server?label=release)](https://github.com/fmadore/iwac-mcp-server/releases/latest)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.fmadore%2Fiwac--mcp--server-0a7ea4)](https://registry.modelcontextprotocol.io/?search=iwac)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -29,18 +30,58 @@ queries.
 
 | Your OS                            | Download                       |
 | ---------------------------------- | ------------------------------ |
-| Windows (Intel/AMD or Snapdragon)  | `iwac-mcp-server-windows.mcpb` |
-| macOS (Apple Silicon or Intel)     | `iwac-mcp-server-macos.mcpb`   |
+| Windows (Intel/AMD or Snapdragon)  | [iwac-mcp-server-windows.mcpb](https://github.com/fmadore/iwac-mcp-server/releases/latest/download/iwac-mcp-server-windows.mcpb) |
+| macOS (Apple Silicon or Intel)     | [iwac-mcp-server-macos.mcpb](https://github.com/fmadore/iwac-mcp-server/releases/latest/download/iwac-mcp-server-macos.mcpb)   |
 
-1. Download the bundle for your OS from
-   [Releases](https://github.com/fmadore/iwac-mcp-server/releases).
+1. Download the latest bundle for your OS using the links above.
 2. Double-click the file. Claude Desktop shows an install dialog — click **Install**.
 3. On first use the server downloads ~250 MB of parquet data from Hugging Face
    into `~/.iwac-mcp/cache/` (override in the extension settings).
 
-No Python, no `uv`, no venv — the bundle ships a self-contained Node runtime and
-the DuckDB binaries for your OS (x64 and arm64; Claude Desktop picks the right
-one). Claude Desktop has no Linux build, so no Linux bundle is published.
+The bundle contains the server and DuckDB binaries for your OS (x64 and arm64).
+[Claude Desktop supplies the Node.js runtime](https://github.com/modelcontextprotocol/mcpb#language-choice-recommendation),
+so no separate Node.js or Python installation is needed. We publish desktop
+bundles for Windows and macOS.
+
+#### Extension settings and updates
+
+Open **Settings → Extensions → Islam West Africa Collection (IWAC)** in Claude
+Desktop to configure these options:
+
+| Feature | Credentials | Settings |
+| --- | --- | --- |
+| Public keyword search, filters, statistics, and item details | None | Default; leave both optional toggles off. |
+| Semantic search | Google / Gemini API key | Turn on **Enable semantic search (optional)** and enter the key. |
+| Private full text | Hugging Face token authorized to read the private dataset | Enable **Use private full dataset** and enter **Hugging Face token (private dataset only)**. |
+
+Semantic search and private access are independent options. Using both requires
+both credentials. The shared hosted endpoint serves public data.
+
+**Updating:** download and open the latest bundle for your OS to update the
+extension. If the Hugging Face fields are missing, your installed extension may
+predate **v3.6.0**. After updating, review the settings, save any changes, and
+restart Claude Desktop.
+
+#### Optional private full-text access
+
+Public data remains the default and needs no token. In the desktop extension,
+enable **Use private full dataset**, enter the **Hugging Face token (private dataset only)**,
+save the settings, and restart. Use a fine-grained token with read access to
+`fmadore/islam-west-africa-collection-full`. The token field is marked sensitive.
+Never paste your token into a chat or commit it.
+
+Other local launchers can set `IWAC_PRIVATE_DATASET=true` and provide
+`IWAC_HF_TOKEN` (or `HF_TOKEN`). A token alone does not enable private mode;
+public downloads do not send it. No new dependency or account system is needed.
+
+Private files use a separate `private-full/` subdirectory of `IWAC_CACHE_DIR`
+(default: `~/.iwac-mcp/cache`). Restart after changing modes. Missing tokens
+and private HTTP 401/403/404 errors fail without cache fallback. Network outages
+may use that mode's cache. Explicit `IWAC_OFFLINE=true` uses downloaded files
+without authentication; removing a token does not erase private files.
+
+Keep the shared hosted endpoint public. This setting applies to the whole instance:
+everyone who can query a private instance can access its full text.
 
 ### 2. The research skill — `iwac-mcp-skill.zip` (strongly recommended)
 
@@ -53,7 +94,7 @@ sources properly, and returns a cited synthesis instead of a raw tool dump. You
 can run the tools without it, but you'll get more out of every query with it
 installed.
 
-Download `iwac-mcp-skill.zip` from the same release, then:
+Download the latest [iwac-mcp-skill.zip](https://github.com/fmadore/iwac-mcp-server/releases/latest/download/iwac-mcp-skill.zip), then:
 
 - **Claude Desktop** — open **Customize → Skills → + → Create skill → Upload a
   skill** and select the zip. (Or unzip it into `~/.claude/skills/` and restart
@@ -276,24 +317,3 @@ the archival work lives.
 - [IWAC Hugging Face Dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection)
 - [IWAC Digital Archive](https://islam.zmo.de/s/westafrica/)
 - [Desktop Extensions spec (MCPB)](https://github.com/modelcontextprotocol/mcpb)
-
-## Optional private full-text access
-
-Public data remains the default and needs no token. In the desktop extension,
-enable **Use private full dataset**, enter the **Hugging Face token (private dataset only)**,
-and restart. Use a fine-grained token with read access to
-`fmadore/islam-west-africa-collection-full`. The token field is marked sensitive.
-Never paste your token into a chat or commit it.
-
-Other local launchers can set `IWAC_PRIVATE_DATASET=true` and provide
-`IWAC_HF_TOKEN` (or `HF_TOKEN`). A token alone does not enable private mode;
-public downloads do not send it. No new dependency or account system is needed.
-
-Private files use a separate `private-full/` subdirectory of `IWAC_CACHE_DIR`
-(default: `~/.iwac-mcp/cache`). Restart after changing modes. Missing tokens
-and private HTTP 401/403/404 errors fail without cache fallback. Network outages
-may use that mode's cache. Explicit `IWAC_OFFLINE=true` uses downloaded files
-without authentication; removing a token does not erase private files.
-
-Keep the shared hosted endpoint public. This setting applies to the whole instance:
-everyone who can query a private instance can access its full text.
