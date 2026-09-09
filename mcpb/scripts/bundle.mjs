@@ -19,6 +19,9 @@ import { collectSkills } from "./collect-skills.mjs";
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
 const manifest = JSON.parse(readFileSync(join(rootDir, "manifest.json"), "utf8"));
+if (manifest.version !== pkg.version) {
+  throw new Error(`version mismatch: package.json ${pkg.version}, manifest.json ${manifest.version}`);
+}
 const runtimeRange = manifest.compatibility?.runtimes?.node;
 const runtimeMatch = typeof runtimeRange === "string" ? /^>=\s*(\d+)(?:\.|$)/.exec(runtimeRange) : null;
 if (!runtimeMatch) {

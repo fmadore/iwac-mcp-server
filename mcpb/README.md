@@ -103,10 +103,15 @@ Pack the per-OS server bundles (one `.mcpb` per OS, each with only that OS's
 DuckDB binaries):
 
 ```bash
-npm run release        # prepack-mcpb + install-bindings + pack-platforms + pack-skill + make-server-json
-# or just repackage without rebuilding server/index.js:
+npm run release        # install-bindings + pack-platforms + pack-skill + make-server-json
+# or rebuild and package only the desktop bundles:
 npm run pack-platforms # -> iwac-mcp-server-windows.mcpb + iwac-mcp-server-macos.mcpb
 ```
+
+`npm run pack-platforms` automatically cleans, typechecks, and rebuilds the server
+before packaging. The build rejects differing package and manifest versions.
+Run it again after changing versions or source; existing local archives are not
+updated by the tag-triggered GitHub release workflow.
 
 `pack-platforms` stashes the non-target binaries out of the pack tree per OS, so
 it runs offline against whatever `install-bindings` has placed in `node_modules`.
