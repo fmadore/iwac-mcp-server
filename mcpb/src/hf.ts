@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { config, type Subset } from "./config.js";
 import {
   buildCacheManifest,
@@ -43,42 +46,49 @@ async function listTree(subset: Subset): Promise<TreeEntry[]> {
   return (await res.json()) as TreeEntry[];
 }
 
-async function downloadFile(remotePath: string, destPath: string): Promise<void> {
-  const url = `https://huggingface.co/datasets/${config.datasetRepo}/resolve/${config.datasetRevision}/${remotePath}`;
+/**
+ * Download one Hub file to `destPath`, verified before it is trusted.
+ *
+ * The bytes are hashed as they stream to `<dest>.partial`, then checked
+ * against the size and LFS SHA-256 the tree listing gave. Only a file that
+ * matches is renamed into place. Without the check, a transfer cut short or
+ * corrupted in transit would still be renamed and recorded in the manifest,
+ * and the view built over it would fail every query on that subset until
+ * the process restarted. A mismatch removes the partial file and throws, so
+ * the manifest is not written and the next attempt downloads again.
+ */
+async function downloadFile(entry: TreeEntry, destPath: string): Promise<void> {
+  const url = `https://huggingface.co/datasets/${config.datasetRepo}/resolve/${config.datasetRevision}/${entry.path}`;
   // Generous timeout: the largest subset is ~185 MB and may run on slow links.
   const res = await fetch(url, { headers: authHeaders(), signal: AbortSignal.timeout(15 * 60_000) });
   checkAccess(res);
   const body = res.body;
   if (!res.ok || !body) {
-    throw new Error(`Failed to download ${remotePath}: HTTP ${res.status}`);
+    throw new Error(`Failed to download ${entry.path}: HTTP ${res.status}`);
   }
   await fs.mkdir(path.dirname(destPath), { recursive: true });
   const tmp = `${destPath}.partial`;
-  const fh = await fs.open(tmp, "w");
+  const hash = createHash("sha256");
+  let bytes = 0;
+  const meter = new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      hash.update(chunk);
+      bytes += chunk.length;
+      done(null, chunk);
+    },
+  });
   try {
-    const writer = fh.createWriteStream();
-    await new Promise<void>((resolve, reject) => {
-      const reader = body.getReader();
-      const pump = async () => {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (!writer.write(Buffer.from(value))) {
-              await new Promise<void>((r) => writer.once("drain", () => r()));
-            }
-          }
-          writer.end(() => resolve());
-        } catch (e) {
-          writer.destroy();
-          reject(e);
-        }
-      };
-      writer.on("error", reject);
-      void pump();
-    });
-  } finally {
-    await fh.close();
+    await pipeline(Readable.fromWeb(body as WebReadableStream), meter, createWriteStream(tmp));
+    if (entry.size !== undefined && bytes !== entry.size) {
+      throw new Error(`Download of ${entry.path} is ${bytes} bytes, but the Hub lists ${entry.size}`);
+    }
+    const expected = remoteSha256(entry);
+    if (expected !== undefined && hash.digest("hex") !== expected) {
+      throw new Error(`Download of ${entry.path} does not match its SHA-256 on the Hub`);
+    }
+  } catch (err) {
+    await fs.rm(tmp, { force: true });
+    throw err;
   }
   await fs.rename(tmp, destPath);
 }
@@ -271,7 +281,7 @@ export async function ensureSubset(subset: Subset): Promise<SubsetFiles> {
     const name = downloadName(entry);
     const dest = path.join(localDir, name);
     console.error(`[iwac] downloading ${entry.path} -> ${dest}`);
-    await downloadFile(entry.path, dest);
+    await downloadFile(entry, dest);
     names.push(name);
     downloaded = true;
   }

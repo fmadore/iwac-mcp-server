@@ -210,6 +210,42 @@ describe("private dataset access", () => {
   });
 });
 
+describe("download verification", () => {
+  it("rejects bytes that do not match the Hub listing and keeps nothing of them", async () => {
+    const cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), "iwac-verify-"));
+    const original = { ...config };
+    const originalFetch = globalThis.fetch;
+    const originalError = console.error;
+    const listed = "genuine";
+    let served = "tamper!"; // same length, different content
+    try {
+      Object.assign(config, { cacheDir, datasetRepo: "example/iwac", datasetRevision: "main", offline: false, privateDataset: false });
+      console.error = () => {};
+      globalThis.fetch = (async (input) =>
+        String(input).includes("/api/datasets/")
+          ? Response.json([{ type: "file", path: "documents/train.parquet", size: listed.length, lfs: { oid: sha256(listed) } }])
+          : new Response(served)) as typeof fetch;
+      const dir = path.join(cacheDir, "documents");
+
+      await assert.rejects(ensureSubset("documents"), /does not match its SHA-256/);
+      assert.deepEqual(await fs.readdir(dir), [], "no parquet, partial or manifest may survive");
+
+      served = "short";
+      await assert.rejects(ensureSubset("documents"), /is 5 bytes, but the Hub lists 7/);
+      assert.deepEqual(await fs.readdir(dir), []);
+
+      served = listed;
+      const { files } = await ensureSubset("documents");
+      assert.equal(await fs.readFile(files[0], "utf8"), listed);
+    } finally {
+      Object.assign(config, original);
+      globalThis.fetch = originalFetch;
+      console.error = originalError;
+      await fs.rm(cacheDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("content-named downloads", () => {
   it("names a download after its content identity, and only then", () => {
     const entry = { type: "file" as const, path: "articles/train-00000-of-00001.parquet", lfs: { oid: "a".repeat(64) } };
