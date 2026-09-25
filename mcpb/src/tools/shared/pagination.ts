@@ -28,8 +28,14 @@ export async function paginated<T>(
   offset: number,
   limit: ResolvedLimit,
 ): Promise<PaginationEnvelope<T>> {
-  const total = Number((await queryScalarSingle<number | bigint>(countSql, countParams)) ?? 0);
-  const results = (await query(pageSql, pageParams)) as unknown as T[];
+  // Independent scans of the same view: run them side by side (db.ts gives
+  // each its own connection) rather than paying for both in turn.
+  const [rawTotal, rows] = await Promise.all([
+    queryScalarSingle<number | bigint>(countSql, countParams),
+    query(pageSql, pageParams),
+  ]);
+  const total = Number(rawTotal ?? 0);
+  const results = rows as unknown as T[];
   const hasMore = offset + limit.value < total;
   const env: PaginationEnvelope<T> = {
     count: results.length,

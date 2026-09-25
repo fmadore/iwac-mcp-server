@@ -54,7 +54,7 @@ import {
   yearRangeFilter,
 } from "../src/tools/_shared.js";
 import { interleave, tokenize, tokenizedWhere } from "../src/tools/search.js";
-import { q, selectList, type Bindable } from "../src/db.js";
+import { q, query, selectList, type Bindable } from "../src/db.js";
 import { ALL_SUBSETS, parseAllowedOrigins, parsePositiveInt } from "../src/config.js";
 
 describe("configuration parsing", () => {
@@ -686,6 +686,20 @@ describe("db helpers", () => {
       { k: "Togo", c: "7" },
     ];
     assert.deepEqual(rowsToMap(rows as Record<string, unknown>[]), { Benin: 5, Togo: 7 });
+  });
+  // One shared connection ran one statement at a time, so a trivial lookup
+  // waited out any scan already in flight: search's Promise.all fan-out ran
+  // serially, and on the HTTP endpoint one caller's full-text scan stalled
+  // everyone else's requests.
+  it("query does not queue behind a statement already running", async () => {
+    const finished: string[] = [];
+    const slow = query(
+      "SELECT count(*) AS n FROM range(8000000) t(x) WHERE strip_accents(lower(CAST(x AS VARCHAR))) LIKE '%99999%'",
+    ).then(() => finished.push("slow"));
+    await new Promise((resolve) => setTimeout(resolve, 50)); // let the scan start first
+    await query("SELECT 1 AS one").then(() => finished.push("fast"));
+    await slow;
+    assert.deepEqual(finished, ["fast", "slow"]);
   });
 });
 

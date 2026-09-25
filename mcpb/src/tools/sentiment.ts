@@ -482,7 +482,12 @@ export function registerSentimentTools(server: Server): void {
       }
 
       const byModel: Record<string, ModelBlock> = {};
-      for (const m of models) byModel[m.id] = await distributionsFor(m);
+      // One block per model, fetched concurrently; assigned in panel order so
+      // `by_model` keeps the same key order as `models`.
+      const blocks = await Promise.all(models.map(distributionsFor));
+      models.forEach((m, i) => {
+        byModel[m.id] = blocks[i];
+      });
       payload.models = models.map((m) => m.id);
       payload.by_model = byModel;
 

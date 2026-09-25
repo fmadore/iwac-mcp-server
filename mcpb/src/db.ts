@@ -2,32 +2,57 @@ import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb
 import { ensureSubset, subsetGlob } from "./hf.js";
 import type { Subset } from "./config.js";
 
-let _connPromise: Promise<DuckDBConnection> | null = null;
+let _instancePromise: Promise<DuckDBInstance> | null = null;
 const _schemas: Map<Subset, Promise<Set<string>>> = new Map();
 
 /**
- * Lazily open the single shared in-memory DuckDB connection. The in-flight
- * PROMISE is memoized (not just the resolved connection) so that concurrent
- * first-callers share one `:memory:` instance. get_collection_stats fans
+ * Lazily open the single shared in-memory DuckDB instance. The in-flight
+ * PROMISE is memoized (not just the resolved instance) so that concurrent
+ * first-callers share one `:memory:` database. get_collection_stats fans
  * ensureView() across all six subsets at once via Promise.all; if we only
- * cached the resolved connection, each racing caller would see `_conn === null`
- * (the first `await` yields before assignment) and create its OWN separate
+ * cached the resolved instance, each racing caller would see it unset (the
+ * first `await` yields before assignment) and create its OWN separate
  * in-memory database. Views created on one such database are invisible to
  * queries run on another, surfacing as "Table with name articles does not
- * exist" — intermittent, because it depends on which connection wins the race.
+ * exist" — intermittent, because it depends on which caller wins the race.
  */
-function getConn(): Promise<DuckDBConnection> {
-  if (!_connPromise) {
-    _connPromise = (async () => {
-      const instance = await DuckDBInstance.create(":memory:");
-      return instance.connect();
-    })();
+function getInstance(): Promise<DuckDBInstance> {
+  if (!_instancePromise) {
+    _instancePromise = DuckDBInstance.create(":memory:");
     // If the very first open fails, drop the cached promise so a later call can retry.
-    _connPromise.catch(() => {
-      _connPromise = null;
+    _instancePromise.catch(() => {
+      _instancePromise = null;
     });
   }
-  return _connPromise;
+  return _instancePromise;
+}
+
+/** Idle connections kept for reuse. More can be open at once under load; the
+ * surplus is closed on release rather than parked. */
+const MAX_IDLE_CONNECTIONS = 8;
+const _idle: DuckDBConnection[] = [];
+
+/**
+ * Run `fn` on a connection no concurrent caller is using.
+ *
+ * A DuckDB connection executes ONE statement at a time, so a single shared
+ * connection queued every query in the process behind whatever was already
+ * running: measured, a `SELECT 1` issued behind a 4.6 s scan waited 4.5 s on
+ * the same connection and 5 ms on a second one. That serialised the fan-outs
+ * `search` and `get_collection_stats` run through Promise.all, and on the
+ * shared HTTP endpoint it made every caller wait out any other caller's
+ * full-text scan. Connections of one instance share its catalog, so the views
+ * ensureView() creates are visible from all of them; opening one costs ~0.1 ms
+ * and they carry no per-connection state here (no SET, no temp objects).
+ */
+async function withConnection<T>(fn: (conn: DuckDBConnection) => Promise<T>): Promise<T> {
+  const conn = _idle.pop() ?? (await (await getInstance()).connect());
+  try {
+    return await fn(conn);
+  } finally {
+    if (_idle.length < MAX_IDLE_CONNECTIONS) _idle.push(conn);
+    else conn.closeSync();
+  }
 }
 
 /**
@@ -56,17 +81,18 @@ export function ensureView(subset: Subset): Promise<Set<string>> {
 }
 
 async function buildView(subset: Subset): Promise<Set<string>> {
-  const conn = await getConn();
   const localDir = await ensureSubset(subset);
   const glob = subsetGlob(localDir);
   const quoted = viewName(subset);
-  await conn.run(
-    `CREATE OR REPLACE VIEW ${quoted} AS SELECT * FROM read_parquet('${glob.replace(/'/g, "''")}')`,
-  );
-  const reader = await conn.runAndReadAll(
-    `SELECT column_name FROM (DESCRIBE SELECT * FROM ${quoted} LIMIT 0)`,
-  );
-  return new Set<string>(reader.getRowsJS().map((r) => String(r[0])));
+  return withConnection(async (conn) => {
+    await conn.run(
+      `CREATE OR REPLACE VIEW ${quoted} AS SELECT * FROM read_parquet('${glob.replace(/'/g, "''")}')`,
+    );
+    const reader = await conn.runAndReadAll(
+      `SELECT column_name FROM (DESCRIBE SELECT * FROM ${quoted} LIMIT 0)`,
+    );
+    return new Set<string>(reader.getRowsJS().map((r) => String(r[0])));
+  });
 }
 
 /** Quote an identifier for SQL. */
@@ -112,9 +138,9 @@ export type Bindable = string | number | boolean | null;
  * JS values (string, number, boolean, null) are accepted directly.
  */
 export async function query(sql: string, params: Bindable[] = []): Promise<Row[]> {
-  const conn = await getConn();
-  const reader = await conn.runAndReadAll(sql, params as DuckDBValue[]);
-  return reader.getRowObjectsJS() as Row[];
+  return withConnection(
+    async (conn) => (await conn.runAndReadAll(sql, params as DuckDBValue[])).getRowObjectsJS() as Row[],
+  );
 }
 
 export async function queryOne(
@@ -132,9 +158,9 @@ export async function queryScalar<T = unknown>(
   sql: string,
   params: Bindable[] = [],
 ): Promise<T[]> {
-  const conn = await getConn();
-  const reader = await conn.runAndReadAll(sql, params as DuckDBValue[]);
-  const rows = reader.getRowsJS() as unknown[][];
+  const rows = await withConnection(
+    async (conn) => (await conn.runAndReadAll(sql, params as DuckDBValue[])).getRowsJS() as unknown[][],
+  );
   return rows.map((r) => r[0] as T);
 }
 
