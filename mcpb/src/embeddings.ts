@@ -126,11 +126,19 @@ export async function semanticSearch(opts: {
   embeddingColumn: string;
   query: string;
   limit: number;
-  candidateIds?: Iterable<string | number>;
+  /** Restrict ranking to these ids. May be a promise, so the caller's SQL
+   * prefilter can run while the query is being embedded. */
+  candidateIds?: Iterable<string | number> | Promise<Iterable<string | number> | undefined>;
 }): Promise<SemanticHit[]> {
   requireSemanticEnabled();
-  const idx = await loadIndex(opts.subset, opts.embeddingColumn);
-  const q = await embedQuery(opts.query);
+  // Three independent waits: the Gemini round-trip, the index (a full column
+  // read on first use) and the caller's prefilter. Awaiting them in turn made
+  // every search pay the embedding call on top of the other two.
+  const [idx, q, candidateIds] = await Promise.all([
+    loadIndex(opts.subset, opts.embeddingColumn),
+    embedQuery(opts.query),
+    opts.candidateIds,
+  ]);
   if (q.length !== idx.dim) {
     throw new Error(
       `Query embedding dim ${q.length} does not match index dim ${idx.dim}. Check IWAC_EMBEDDING_MODEL / IWAC_EMBEDDING_DIMENSIONALITY.`,
@@ -139,8 +147,8 @@ export async function semanticSearch(opts: {
 
   const dim = idx.dim;
   let targetIndexes: number[];
-  if (opts.candidateIds) {
-    const candidateSet = new Set(Array.from(opts.candidateIds, (v) => String(v)));
+  if (candidateIds) {
+    const candidateSet = new Set(Array.from(candidateIds, (v) => String(v)));
     targetIndexes = [];
     for (let i = 0; i < idx.ids.length; i++) {
       if (candidateSet.has(idx.ids[i])) targetIndexes.push(i);

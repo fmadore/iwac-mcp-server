@@ -178,29 +178,31 @@ export function registerStatsTools(server: Server): void {
             }
           : {}),
       };
-      if (schema.has("country")) {
-        const rows = await query(
-          `SELECT country AS k, COUNT(*) AS c FROM ${viewName("articles")} WHERE NULLIF(trim(country), '') IS NOT NULL GROUP BY country ORDER BY c DESC`,
-        );
-        payload.articles_by_country = rowsToMap(rows);
-      }
-      if (schema.has("newspaper")) {
-        payload.newspaper_count = Number(
-          (await queryScalarSingle<number | bigint>(
-            `SELECT COUNT(DISTINCT NULLIF(trim(newspaper), '')) FROM ${viewName("articles")}`,
-          )) ?? 0,
-        );
-      }
-      if (schema.has("pub_date")) {
-        const dateRow = await queryOne(
-          `SELECT MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest FROM ${viewName("articles")}`,
-        );
-        if (dateRow?.earliest) {
-          payload.date_range = {
-            earliest: String(dateRow.earliest).slice(0, 10),
-            latest: String(dateRow.latest).slice(0, 10),
-          };
-        }
+      // Three independent scans of articles, run side by side. Results are
+      // assigned in a fixed order below, so the payload's key order does not
+      // depend on which query finishes first.
+      const [byCountry, newspaperCount, dateRow] = await Promise.all([
+        schema.has("country")
+          ? query(
+              `SELECT country AS k, COUNT(*) AS c FROM ${viewName("articles")} WHERE NULLIF(trim(country), '') IS NOT NULL GROUP BY country ORDER BY c DESC`,
+            )
+          : undefined,
+        schema.has("newspaper")
+          ? queryScalarSingle<number | bigint>(
+              `SELECT COUNT(DISTINCT NULLIF(trim(newspaper), '')) FROM ${viewName("articles")}`,
+            )
+          : undefined,
+        schema.has("pub_date")
+          ? queryOne(`SELECT MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest FROM ${viewName("articles")}`)
+          : undefined,
+      ]);
+      if (byCountry) payload.articles_by_country = rowsToMap(byCountry);
+      if (schema.has("newspaper")) payload.newspaper_count = Number(newspaperCount ?? 0);
+      if (dateRow?.earliest) {
+        payload.date_range = {
+          earliest: String(dateRow.earliest).slice(0, 10),
+          latest: String(dateRow.latest).slice(0, 10),
+        };
       }
       return chartResult(payload);
     },
@@ -244,19 +246,17 @@ export function registerStatsTools(server: Server): void {
       const dateCols = hasDate
         ? `, MIN(${DATE_EXPR}) AS earliest_date, MAX(${DATE_EXPR}) AS latest_date`
         : "";
-      const rows = await query(
-        `SELECT newspaper, country, COUNT(*) AS article_count${dateCols}
-         FROM ${viewName("articles")} ${groupWhereSql}
-         GROUP BY newspaper, country
-         ORDER BY article_count DESC`,
-        params,
-      );
-      const total = Number(
-        (await queryScalarSingle<number | bigint>(
-          `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`,
+      const [rows, rawTotal] = await Promise.all([
+        query(
+          `SELECT newspaper, country, COUNT(*) AS article_count${dateCols}
+           FROM ${viewName("articles")} ${groupWhereSql}
+           GROUP BY newspaper, country
+           ORDER BY article_count DESC`,
           params,
-        )) ?? 0,
-      );
+        ),
+        queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`, params),
+      ]);
+      const total = Number(rawTotal ?? 0);
       return chartResult({
         view: VIEW.newspapers,
         country_filter: country.canonical,
@@ -289,24 +289,30 @@ export function registerStatsTools(server: Server): void {
       const newsSel = schema.has("newspaper")
         ? ", COUNT(DISTINCT NULLIF(trim(newspaper), '')) AS newspaper_count"
         : "";
-      const summary = await query(`
-        SELECT country, COUNT(*) AS article_count${newsSel}${dateSel}
-        FROM ${viewName("articles")}
-        WHERE NULLIF(trim(country), '') IS NOT NULL
-        GROUP BY country
-        ORDER BY article_count DESC
-      `);
-
       const polarityCol = sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity;
-      const polarityByCountry = new Map<string, Record<string, number>>();
-      if (schema.has(polarityCol)) {
-        const rows = await query(`
-          SELECT country, ${q(polarityCol)} AS k, COUNT(*) AS c
+      // The per-country summary and the polarity breakdown are independent
+      // scans, so they run side by side.
+      const [summary, polarityRows] = await Promise.all([
+        query(`
+          SELECT country, COUNT(*) AS article_count${newsSel}${dateSel}
           FROM ${viewName("articles")}
           WHERE NULLIF(trim(country), '') IS NOT NULL
-          GROUP BY country, ${q(polarityCol)}
-        `);
-        for (const r of rows) {
+          GROUP BY country
+          ORDER BY article_count DESC
+        `),
+        schema.has(polarityCol)
+          ? query(`
+              SELECT country, ${q(polarityCol)} AS k, COUNT(*) AS c
+              FROM ${viewName("articles")}
+              WHERE NULLIF(trim(country), '') IS NOT NULL
+              GROUP BY country, ${q(polarityCol)}
+            `)
+          : undefined,
+      ]);
+
+      const polarityByCountry = new Map<string, Record<string, number>>();
+      if (polarityRows) {
+        for (const r of polarityRows) {
           const c = String(r.country);
           const bucket = polarityByCountry.get(c) ?? {};
           if (r.k != null && String(r.k).trim() !== "") bucket[String(r.k)] = Number(r.c);

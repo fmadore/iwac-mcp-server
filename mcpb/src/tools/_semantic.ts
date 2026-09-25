@@ -38,21 +38,25 @@ export async function runSemanticSearchTool(opts: {
     const candidateWhere: string[] = [];
     const candidateParams: Bindable[] = [];
     opts.buildCandidateFilters?.(schema, candidateWhere, candidateParams);
-    const candidateRows = candidateWhere.length
-      ? await query(
+    // Not awaited here: semanticSearch overlaps it with the embedding call.
+    const candidates: Promise<string[] | undefined> = candidateWhere.length
+      ? query(
           `SELECT CAST("o:id" AS VARCHAR) AS id FROM ${viewName(subset)} WHERE ${candidateWhere.join(" AND ")}`,
           candidateParams,
-        )
-      : null;
-    const candidateIds = candidateRows?.map((r) => String(r.id));
+        ).then((rows) => rows.map((r) => String(r.id)))
+      : Promise.resolve(undefined);
+    // Observed below either way; this only stops a prefilter that fails after
+    // semanticSearch has already thrown from becoming an unhandled rejection.
+    candidates.catch(() => {});
 
     const hits = await semanticSearch({
       subset,
       embeddingColumn,
       query: queryStr,
       limit: limit.value,
-      candidateIds,
+      candidateIds: candidates,
     });
+    const candidateIds = await candidates;
 
     const rows = await getManyByIds(subset, cols, hits.map((h) => h.id));
     const byId = new Map(rows.map((r) => [String(r.id), r]));
