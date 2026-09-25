@@ -10,7 +10,7 @@ interface EmbeddingIndex {
 
 // In-flight PROMISES are memoized (not just resolved indexes) so two concurrent
 // first semantic searches share one index build instead of both running the
-// full SELECT + matrix normalisation — the same race class getConn()/ensureView()
+// full SELECT + matrix normalisation — the same race class getInstance()/ensureView()
 // in db.ts document and solve the same way. A failed build is evicted for retry.
 const _indexCache: Map<string, Promise<EmbeddingIndex>> = new Map();
 let _genaiClient: import("@google/genai").GoogleGenAI | null = null;

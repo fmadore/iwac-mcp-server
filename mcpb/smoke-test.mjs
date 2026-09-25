@@ -134,8 +134,8 @@ if (instructions) {
 
 // --- cold-start fan-out (regression guard) ---------------------------------
 // MUST be the first tool call: get_collection_stats fans ensureView() across
-// all seven subsets at once, which is the only path that races getConn(). Running
-// it cold (before any single-subset call warms the shared connection) is what
+// all seven subsets at once, which is the only path that races getInstance(). Running
+// it cold (before any single-subset call opens the shared instance) is what
 // catches a reintroduced "Table with name articles does not exist" race. Under
 // the bug, racing callers build views on throwaway in-memory DBs, so the later
 // articles query throws (whole call isError) and/or subset_counts go null.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { registerTools } from "./tools/register.js";
+import { registerServerFeatures } from "./tools/register.js";
 import { SKILLS_CAPABILITY, servesSkills } from "./tools/skills.js";
 import { startHttpServer } from "./http.js";
 import { config } from "./config.js";
@@ -175,7 +175,7 @@ export function createServer(): McpServer {
       },
     },
   );
-  registerTools(server);
+  registerServerFeatures(server);
   return server;
 }
 

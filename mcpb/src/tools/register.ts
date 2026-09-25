@@ -87,9 +87,9 @@ let replays: Replay[] | undefined;
  * The tool set depends only on process-level config, and no handler captures
  * its server or keeps per-server state: what they share (the DuckDB pool, the
  * embedding cache) already lives at module scope. So the arguments are built
- * once and replayed, handing every server the same schema and handler objects. That is
- * the SDK's own advice: keep the factory cheap and hold what is shared at
- * module scope.
+ * once and replayed, handing every server the same schema and handler
+ * objects. That is the SDK's own advice: keep the factory cheap and hold what
+ * is shared at module scope.
  *
  * The recorder answers exactly the `Server` surface. That type is narrowed
  * to these four members for this reason, so a register function cannot reach
@@ -122,8 +122,9 @@ function recordRegistrations(): Replay[] {
   return recorded;
 }
 
-/** Apply every IWAC registration to `server`, recording them on first use. */
-export function registerTools(server: McpServer): void {
+/** Apply every IWAC tool, resource, prompt and method registration to
+ * `server`, recording them on first use. */
+export function registerServerFeatures(server: McpServer): void {
   replays ??= recordRegistrations();
   for (const replay of replays) replay(server);
 }

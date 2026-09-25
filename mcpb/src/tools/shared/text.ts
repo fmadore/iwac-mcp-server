@@ -70,7 +70,7 @@ export function capText(
 export function foldText(s: string): string {
   return s
     .normalize("NFC")
-    .replace(/İ/g, "I")
+    .replace(/\u0130/g, "I")
     .toLowerCase()
     .replace(/[À-ɏḀ-ỿ]/g, (c) => c.normalize("NFD")[0] ?? c);
 }

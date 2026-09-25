@@ -74,3 +74,34 @@ the public-contract regression checks.
 - Release checks passed: version consistency, typecheck, lint, build, all 112
   unit tests, two lifecycle tests, fixture, app, skills, HTTP, and token budgets.
   Release notes are in `docs/releases/v3.5.2.md`.
+
+## Review 2026-09-25: efficiency and MCP SDK 2.1
+
+Scope: the same as above. Public tool names, descriptions, schemas and response
+shapes are unchanged. The one change on the wire is the capability block,
+which now declares `listChanged: false`.
+
+- SDK: `@modelcontextprotocol/server`, `node` and `client` moved to 2.1.0. The
+  lockfile refresh cleared the hono advisory, and npm audit now reports 0
+  vulnerabilities. ext-apps stays on 1.7.5, because 2.0.0 grows the chart UI
+  to 336.6 kb, over the 300 kb gate (see TODO.md).
+- DuckDB: each query now takes its own connection from a small pool, instead
+  of every query queuing on one shared connection. Measured: `SELECT 1` behind
+  a 4.6 s scan took 4.5 s on the shared connection and 5 ms on a second one.
+  With the pool, `paginated()` runs COUNT and page together, and
+  `get_sentiment_distribution(model="all")` fetches its model blocks together.
+- Factory: registrations are recorded once and replayed onto each per-request
+  server. JSON Schema conversions are memoized, and every call still returns a
+  fresh copy. `createServer()` fell from 13.2 ms to 0.9 ms. Over HTTP,
+  `tools/list` fell from 24.9 ms to 9.2 ms and `search` on the fixtures from
+  73 ms to 27 ms. The handshake and all list outputs are byte-identical to the
+  previous build, with semantic search both off and on.
+- Fixes: `foldText` maps U+0130 (İ) to I, restoring its offset stability for
+  keyword excerpts. Tools, resources and prompts declare `listChanged: false`,
+  since those lists never change.
+- Checks: typecheck, lint, build and the full `npm test` passed on Node 24 and
+  on the Node 20 runtime floor: 117 unit tests, 3 lifecycle tests, and the
+  fixture, app, skills, HTTP and token-budget suites. The token footprint is
+  +0. Each new test was confirmed to fail on the old code. The live smoke test
+  could not run, because the review sandbox's network policy blocks
+  huggingface.co.
