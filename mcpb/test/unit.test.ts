@@ -57,7 +57,7 @@ import { interleave, tokenize, tokenizedWhere } from "../src/tools/search.js";
 import { q, query, selectList, type Bindable } from "../src/db.js";
 import { memoizeJsonSchema } from "../src/tools/register.js";
 import { z } from "zod";
-import { ALL_SUBSETS, parseAllowedOrigins, parsePositiveInt } from "../src/config.js";
+import { ALL_SUBSETS, parseAllowedOrigins, parsePositiveInt, parseRefreshHours } from "../src/config.js";
 
 describe("configuration parsing", () => {
   it("accepts only complete positive decimal integers", () => {
@@ -67,6 +67,16 @@ describe("configuration parsing", () => {
       assert.equal(parsePositiveInt(bad, 42), 42, `${String(bad)} should fall back`);
     }
     assert.equal(parsePositiveInt("65536", 8000, 65_535), 8000);
+  });
+
+  it("reads IWAC_REFRESH_HOURS as whole hours, 0 to disable", () => {
+    assert.equal(parseRefreshHours(undefined), 24);
+    assert.equal(parseRefreshHours("6"), 6);
+    assert.equal(parseRefreshHours(" 0 "), 0);
+    // A typo must not silently turn the refresh off.
+    for (const bad of ["", "-1", "1.5", "daily", "0x10"]) {
+      assert.equal(parseRefreshHours(bad), 24, `${bad} should fall back`);
+    }
   });
 
   it("normalises exact HTTP(S) origins and reports unsafe entries", () => {

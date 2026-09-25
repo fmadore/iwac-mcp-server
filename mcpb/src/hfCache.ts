@@ -50,15 +50,19 @@ export function remoteSha256(entry: TreeEntry): string | undefined {
   return oid && /^[a-f\d]{64}$/i.test(oid) ? oid.toLowerCase() : undefined;
 }
 
+/** `files` is keyed by LOCAL file name, which differs from the Hub name for
+ * content-named downloads (see downloadName in hf.ts); `localNames[i]` names
+ * the copy of `entries[i]`, and defaults to the Hub name. */
 export function buildCacheManifest(
   datasetRepo: string,
   datasetRevision: string,
   entries: TreeEntry[],
+  localNames: string[] = [],
 ): CacheManifest {
   const files: Record<string, CachedFileMetadata> = {};
-  for (const entry of entries) {
+  for (const [i, entry] of entries.entries()) {
     const identity = remoteIdentity(entry);
-    files[path.basename(entry.path)] = {
+    files[localNames[i] ?? path.basename(entry.path)] = {
       remotePath: entry.path,
       ...(entry.size === undefined ? {} : { size: entry.size }),
       ...(identity === undefined ? {} : { identity }),

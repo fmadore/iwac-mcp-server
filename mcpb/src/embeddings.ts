@@ -1,6 +1,6 @@
 import { isFiniteVector, normalizeVector } from "./vectors.js";
 import { config, type Subset } from "./config.js";
-import { ensureView, q, query, viewName } from "./db.js";
+import { ensureView, q, query, viewGeneration, viewName } from "./db.js";
 
 interface EmbeddingIndex {
   ids: string[];
@@ -12,7 +12,9 @@ interface EmbeddingIndex {
 // first semantic searches share one index build instead of both running the
 // full SELECT + matrix normalisation — the same race class getInstance()/ensureView()
 // in db.ts document and solve the same way. A failed build is evicted for retry.
-const _indexCache: Map<string, Promise<EmbeddingIndex>> = new Map();
+// Each entry remembers the view generation it was read from, so an index built
+// before a dataset refresh (db.ts) is rebuilt instead of serving vanished ids.
+const _indexCache: Map<string, { generation: number; index: Promise<EmbeddingIndex> }> = new Map();
 let _genaiClient: import("@google/genai").GoogleGenAI | null = null;
 
 /** Cap on a single Gemini embedContent call — the one network dependency at
@@ -44,19 +46,21 @@ async function getClient(): Promise<import("@google/genai").GoogleGenAI> {
   return _genaiClient;
 }
 
-function loadIndex(subset: Subset, embeddingColumn: string): Promise<EmbeddingIndex> {
+async function loadIndex(subset: Subset, embeddingColumn: string): Promise<EmbeddingIndex> {
+  await ensureView(subset);
   const cacheKey = `${subset}:${embeddingColumn}`;
-  let p = _indexCache.get(cacheKey);
-  if (!p) {
-    p = buildIndex(subset, embeddingColumn);
-    p.catch(() => _indexCache.delete(cacheKey)); // allow retry after a failed build
-    _indexCache.set(cacheKey, p);
-  }
-  return p;
+  const generation = viewGeneration(subset);
+  const cached = _indexCache.get(cacheKey);
+  if (cached?.generation === generation) return cached.index;
+  const index = buildIndex(subset, embeddingColumn);
+  index.catch(() => {
+    if (_indexCache.get(cacheKey)?.index === index) _indexCache.delete(cacheKey); // allow retry after a failed build
+  });
+  _indexCache.set(cacheKey, { generation, index });
+  return index;
 }
 
 async function buildIndex(subset: Subset, embeddingColumn: string): Promise<EmbeddingIndex> {
-  await ensureView(subset);
   console.error(`[iwac] loading ${embeddingColumn} from ${subset}...`);
   const rows = await query(
     `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(embeddingColumn)} AS emb FROM ${viewName(subset)} WHERE ${q(embeddingColumn)} IS NOT NULL`,

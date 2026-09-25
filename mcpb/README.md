@@ -172,6 +172,7 @@ Environment variables (all transports unless noted):
 | -------- | ------- | ------- |
 | `IWAC_CACHE_DIR` | `~/.iwac-mcp/cache` (`/cache` in Docker) | Where parquet data is cached (~250 MB) |
 | `IWAC_OFFLINE` | `false` | Trust the cache as-is; never touch the network |
+| `IWAC_REFRESH_HOURS` | `24` | Hours before a loaded subset is re-checked against Hugging Face. The check runs in the background on the next call that touches the subset, and a newer revision is swapped in without a restart. `0` disables it |
 | `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Register the three `semantic_search_*` tools |
 | `IWAC_GOOGLE_API_KEY` (or `GOOGLE_API_KEY` / `GEMINI_API_KEY`) | — | Gemini key for semantic search |
 | `IWAC_EMBEDDING_MODEL` | `gemini-embedding-2` | Query-embedding model (must match the dataset's) |

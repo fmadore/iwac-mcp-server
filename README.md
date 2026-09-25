@@ -238,7 +238,9 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
   [IWAC Hugging Face dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection)
   are lazily downloaded per subset (articles, publications, documents,
   audiovisual, index, references) into a local cache and queried through DuckDB
-  views. All SQL is parameterised; matching is accent/case-insensitive.
+  views. A long-running server re-checks each subset daily (`IWAC_REFRESH_HOURS`)
+  and swaps in a newer revision without a restart. All SQL is parameterised;
+  matching is accent/case-insensitive.
 - **Transports**: stdio (the default — what the Claude Desktop `.mcpb` uses),
   and a stateless Streamable-HTTP mode (`node server/index.js --http`) behind a
   bearer token, which the Docker image runs for the hosted

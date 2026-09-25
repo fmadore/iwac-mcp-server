@@ -57,6 +57,13 @@ export function parsePositiveInt(
   return Number.isSafeInteger(n) && n > 0 && n <= max ? n : fallback;
 }
 
+/** Hours between background checks for a newer dataset revision. `0` turns
+ * them off; anything else that is not a positive whole number falls back to
+ * the default rather than silently disabling the refresh. */
+export function parseRefreshHours(v: string | undefined, fallback = 24): number {
+  return v?.trim() === "0" ? 0 : parsePositiveInt(v, fallback, 24 * 365);
+}
+
 export interface ParsedOrigins {
   allowed: ReadonlySet<string>;
   invalid: string[];
@@ -124,6 +131,11 @@ export const config = {
   // Offline mode: trust whatever parquet is cached, never touch the network.
   // Used by the hermetic fixture tests and useful on flaky links.
   offline: parseBool(process.env.IWAC_OFFLINE, false),
+  // How long a loaded subset is trusted before the next tool call that touches
+  // it checks the Hub for a newer revision in the background (db.ts). A
+  // long-running server (the HTTP endpoint, a desktop session left open)
+  // otherwise serves the data it started with until it is restarted.
+  refreshIntervalMs: parseRefreshHours(process.env.IWAC_REFRESH_HOURS) * 3_600_000,
   semanticSearchEnabled: parseBool(process.env.IWAC_SEMANTIC_SEARCH_ENABLED, false),
   embeddingModel: process.env.IWAC_EMBEDDING_MODEL?.trim() || "gemini-embedding-2",
   embeddingDimensionality: parsePositiveInt(process.env.IWAC_EMBEDDING_DIMENSIONALITY, 768),

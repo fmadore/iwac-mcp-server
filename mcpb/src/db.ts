@@ -1,9 +1,20 @@
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
-import { ensureSubset, subsetGlob } from "./hf.js";
-import type { Subset } from "./config.js";
+import { ensureSubset, parquetList, pruneSubset } from "./hf.js";
+import { config, type Subset } from "./config.js";
 
 let _instancePromise: Promise<DuckDBInstance> | null = null;
 const _schemas: Map<Subset, Promise<Set<string>>> = new Map();
+
+/** What a loaded subset's view reads, and when that was last checked. */
+interface ViewState {
+  files: string[];
+  checkedAt: number;
+  /** Bumped each time the view is rebuilt over new files, so caches derived
+   * from its rows (the embedding index) know to rebuild too. */
+  generation: number;
+  refresh?: Promise<void>;
+}
+const _views: Map<Subset, ViewState> = new Map();
 
 /**
  * Lazily open the single shared in-memory DuckDB instance. The in-flight
@@ -69,30 +80,96 @@ export function viewName(subset: Subset): string {
  * and cache its column list. The in-flight promise is cached (not just the
  * result) so two concurrent tool calls on the same subset share one download
  * instead of racing on the same `.partial` temp file.
+ *
+ * Once loaded, a subset is re-checked against the Hub every
+ * `config.refreshIntervalMs`, stale-while-revalidate: the call that notices
+ * the interval has passed is answered from the current view at once, and the
+ * check runs in the background (see refreshView).
  */
 export function ensureView(subset: Subset): Promise<Set<string>> {
   let p = _schemas.get(subset);
   if (!p) {
-    p = buildView(subset);
-    p.catch(() => _schemas.delete(subset)); // allow retry after a failed download
-    _schemas.set(subset, p);
+    const build = buildView(subset);
+    build.catch(() => {
+      if (_schemas.get(subset) === build) _schemas.delete(subset); // allow retry after a failed download
+    });
+    _schemas.set(subset, build);
+    p = build;
+  } else {
+    maybeRefresh(subset);
   }
   return p;
 }
 
+/** How many times this subset's view has been rebuilt over new files (0 before
+ * it first loads). A cache built from the view's rows is stale once this moves. */
+export function viewGeneration(subset: Subset): number {
+  return _views.get(subset)?.generation ?? 0;
+}
+
+/** The background refresh in flight for a subset, if any. For tests. */
+export function pendingRefresh(subset: Subset): Promise<void> | undefined {
+  return _views.get(subset)?.refresh;
+}
+
 async function buildView(subset: Subset): Promise<Set<string>> {
-  const localDir = await ensureSubset(subset);
-  const glob = subsetGlob(localDir);
+  const { files } = await ensureSubset(subset);
+  const schema = await createView(subset, files);
+  _views.set(subset, { files, checkedAt: Date.now(), generation: 1 });
+  await pruneSubset(subset, files);
+  return schema;
+}
+
+/** Point the subset's view at exactly `files` and return its columns. One
+ * CREATE OR REPLACE, so a query sees the old file list or the new one, never
+ * a mix, and a query already running finishes on the files it started with. */
+async function createView(subset: Subset, files: string[]): Promise<Set<string>> {
   const quoted = viewName(subset);
   return withConnection(async (conn) => {
-    await conn.run(
-      `CREATE OR REPLACE VIEW ${quoted} AS SELECT * FROM read_parquet('${glob.replace(/'/g, "''")}')`,
-    );
+    await conn.run(`CREATE OR REPLACE VIEW ${quoted} AS SELECT * FROM read_parquet(${parquetList(files)})`);
     const reader = await conn.runAndReadAll(
       `SELECT column_name FROM (DESCRIBE SELECT * FROM ${quoted} LIMIT 0)`,
     );
     return new Set<string>(reader.getRowsJS().map((r) => String(r[0])));
   });
+}
+
+function maybeRefresh(subset: Subset): void {
+  const state = _views.get(subset);
+  const interval = config.refreshIntervalMs;
+  if (!state || state.refresh || config.offline || interval <= 0) return;
+  if (Date.now() - state.checkedAt < interval) return;
+  state.refresh = refreshView(subset, state).finally(() => {
+    state.checkedAt = Date.now();
+    state.refresh = undefined;
+  });
+}
+
+/**
+ * Re-check a loaded subset against the Hub and, if a newer revision was
+ * downloaded, swap the view over to it. ensureSubset gives new revisions new
+ * file names, so the files the old view reads are untouched until pruneSubset
+ * runs after the swap. Any failure keeps the data already loaded: a refresh
+ * must never cost the server a subset it was serving.
+ */
+async function refreshView(subset: Subset, state: ViewState): Promise<void> {
+  try {
+    const { files, downloaded } = await ensureSubset(subset);
+    const changed =
+      downloaded || files.length !== state.files.length || files.some((file, i) => file !== state.files[i]);
+    if (changed) {
+      const schema = await createView(subset, files);
+      _schemas.set(subset, Promise.resolve(schema));
+      state.files = files;
+      state.generation += 1;
+      console.error(`[iwac] ${subset}: switched to the newer dataset revision`);
+    }
+    await pruneSubset(subset, state.files);
+  } catch (err) {
+    console.error(
+      `[iwac] warning: could not refresh ${subset}; still serving the data loaded earlier. ${(err as Error).message}`,
+    );
+  }
 }
 
 /** Quote an identifier for SQL. */
