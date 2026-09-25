@@ -89,7 +89,16 @@ interface Skill {
   files: SkillFile[];
 }
 
+let catalogue: Skill[] | undefined;
+
+/** The embedded skill tree, parsed once: it is ~110 kb of JSON and fixed at
+ * build time, and createServer() consults it on every server it builds. */
 function loadCatalogue(): Skill[] {
+  catalogue ??= parseCatalogue();
+  return catalogue;
+}
+
+function parseCatalogue(): Skill[] {
   // In dev (tsx, no esbuild define) the constant is absent. Degrade to serving
   // no skills rather than crashing the server on a ReferenceError, the same
   // contract registerAppResources() uses for the chart HTML.

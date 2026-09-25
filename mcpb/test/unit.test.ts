@@ -55,6 +55,8 @@ import {
 } from "../src/tools/_shared.js";
 import { interleave, tokenize, tokenizedWhere } from "../src/tools/search.js";
 import { q, query, selectList, type Bindable } from "../src/db.js";
+import { memoizeJsonSchema } from "../src/tools/register.js";
+import { z } from "zod";
 import { ALL_SUBSETS, parseAllowedOrigins, parsePositiveInt } from "../src/config.js";
 
 describe("configuration parsing", () => {
@@ -659,6 +661,33 @@ describe("sentiment model registry (generation 2)", () => {
     assert.deepEqual(SUBJECTIVITY_VALUES.map(subjectivityRank), [1, 2, 3, 4, 5]);
     assert.equal(subjectivityRank(" Mixte "), 3);
     for (const bad of ["", "2", "Non abordé", "Très positif"]) assert.equal(subjectivityRank(bad), undefined, bad);
+  });
+});
+
+describe("memoizeJsonSchema (per-request server factory)", () => {
+  const convert = (schema: z.ZodType, io: "input" | "output") =>
+    (schema["~standard"] as unknown as { jsonSchema: Record<string, (o: unknown) => Record<string, unknown>> })
+      .jsonSchema[io]({ target: "draft-2020-12" });
+  it("returns what a fresh conversion returns, as a new object every call", () => {
+    const schema = z.object({ q: z.string().describe("query"), n: z.number().int().optional() });
+    const fresh = convert(schema, "input");
+    memoizeJsonSchema(schema);
+    const a = convert(schema, "input");
+    const b = convert(schema, "input");
+    assert.deepEqual(a, fresh);
+    assert.notEqual(a, b);
+    // One caller mutating its copy must not leak into the next caller's.
+    (a.properties as Record<string, unknown>).q = "clobbered";
+    assert.deepEqual(convert(schema, "input"), fresh);
+    assert.deepEqual(convert(schema, "output"), z.toJSONSchema(schema, { target: "draft-2020-12", io: "output" }));
+  });
+  it("ignores values without a Standard JSON Schema hook and is idempotent", () => {
+    memoizeJsonSchema(undefined);
+    memoizeJsonSchema({});
+    const schema = z.object({ a: z.string() });
+    memoizeJsonSchema(schema);
+    memoizeJsonSchema(schema);
+    assert.deepEqual(convert(schema, "input"), z.toJSONSchema(schema, { target: "draft-2020-12", io: "input" }));
   });
 });
 

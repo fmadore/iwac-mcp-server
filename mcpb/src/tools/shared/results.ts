@@ -1,7 +1,17 @@
 import { VIEW_DATA_META_KEY } from "../../viewContract.js";
 
-/** The McpServer type, aliased once so tool modules don't repeat the import path. */
-export type Server = import("@modelcontextprotocol/server").McpServer;
+type McpServer = import("@modelcontextprotocol/server").McpServer;
+
+/**
+ * The registration surface tool, resource and prompt modules are handed.
+ * Deliberately narrower than McpServer: tools/register.ts records these calls
+ * once per process and replays them onto every server the factory builds, so
+ * a module reaching for any other member would escape the replay. Typing it
+ * this narrowly makes that a compile error rather than a startup crash.
+ */
+export type Server = Pick<McpServer, "registerTool" | "registerResource" | "registerPrompt"> & {
+  server: Pick<McpServer["server"], "setRequestHandler">;
+};
 
 // -----------------------------------------------------------------------------
 // Tool result / annotation helpers

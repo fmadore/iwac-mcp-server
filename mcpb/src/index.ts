@@ -3,7 +3,6 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { registerTools } from "./tools/register.js";
 import { SKILLS_CAPABILITY, servesSkills } from "./tools/skills.js";
-import { registerPrompts } from "./prompts.js";
 import { startHttpServer } from "./http.js";
 import { config } from "./config.js";
 
@@ -111,7 +110,10 @@ const INSTRUCTIONS =
   "Polarity/sentiment fields are AI-derived, not editorial ground truth; press coverage reflects " +
   "what was published, not necessarily what happened.{{SEMANTIC_CAVEAT}}";
 
-/** Resolve the semantic-search placeholders against the actual tool registration. */
+/** Resolve the semantic-search placeholders against the actual tool registration.
+ * Config is fixed for the process, so this runs once, not once per server. */
+const RESOLVED_INSTRUCTIONS = buildInstructions();
+
 function buildInstructions(): string {
   return INSTRUCTIONS.replace(
     "{{SEMANTIC_QUERY_LANGUAGE}}",
@@ -155,7 +157,7 @@ export function createServer(): McpServer {
   const server = new McpServer(
     { name: "iwac-mcp-server", version: VERSION },
     {
-      instructions: buildInstructions(),
+      instructions: RESOLVED_INSTRUCTIONS,
       cacheHints: CACHE_HINTS,
       // Draft SEP-2640, declared only when this build actually carries a skill,
       // so a host never negotiates the extension against an empty catalogue.
@@ -164,7 +166,6 @@ export function createServer(): McpServer {
     },
   );
   registerTools(server);
-  registerPrompts(server);
   return server;
 }
 
