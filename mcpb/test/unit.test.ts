@@ -54,7 +54,7 @@ import {
   yearRangeFilter,
 } from "../src/tools/_shared.js";
 import { interleave, tokenize, tokenizedWhere } from "../src/tools/search.js";
-import { q, query, selectList, type Bindable } from "../src/db.js";
+import { activeQueries, MAX_ACTIVE_QUERIES, q, query, selectList, type Bindable } from "../src/db.js";
 import { memoizeJsonSchema } from "../src/tools/register.js";
 import { z } from "zod";
 import { ALL_SUBSETS, parseAllowedOrigins, parsePositiveInt, parseRefreshHours } from "../src/config.js";
@@ -748,6 +748,20 @@ describe("db helpers", () => {
     await query("SELECT 1 AS one").then(() => finished.push("fast"));
     await slow;
     assert.deepEqual(finished, ["fast", "slow"]);
+  });
+  it("caps queries in flight and serves the overflow in turn", async () => {
+    const n = MAX_ACTIVE_QUERIES * 2 + 3;
+    let peak = 0;
+    const runs = Array.from({ length: n }, (_, i) =>
+      query("SELECT ? AS i, count(*) AS c FROM range(200000)", [i]).then((rows) => {
+        peak = Math.max(peak, activeQueries());
+        return Number(rows[0].i);
+      }),
+    );
+    peak = Math.max(peak, activeQueries());
+    assert.equal(peak, MAX_ACTIVE_QUERIES, "the burst should fill the cap and not exceed it");
+    assert.deepEqual(await Promise.all(runs), Array.from({ length: n }, (_, i) => i));
+    assert.equal(activeQueries(), 0, "every slot is released");
   });
 });
 

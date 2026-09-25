@@ -57,13 +57,51 @@ const _idle: DuckDBConnection[] = [];
  * and they carry no per-connection state here (no SET, no temp objects).
  */
 async function withConnection<T>(fn: (conn: DuckDBConnection) => Promise<T>): Promise<T> {
-  const conn = _idle.pop() ?? (await (await getInstance()).connect());
+  await acquireSlot();
   try {
-    return await fn(conn);
+    const conn = _idle.pop() ?? (await (await getInstance()).connect());
+    try {
+      return await fn(conn);
+    } finally {
+      if (_idle.length < MAX_IDLE_CONNECTIONS) _idle.push(conn);
+      else conn.closeSync();
+    }
   } finally {
-    if (_idle.length < MAX_IDLE_CONNECTIONS) _idle.push(conn);
-    else conn.closeSync();
+    releaseSlot();
   }
+}
+
+/**
+ * Queries allowed to run at once; later callers wait their turn in arrival
+ * order. The single shared connection this replaced allowed one. Unbounded,
+ * a burst on the shared endpoint could put every caller's full-text scan in
+ * flight together and exhaust memory. DuckDB's thread pool divides the CPU
+ * among the queries that are running, so a short lookup still overtakes a
+ * long scan unless this many are already in flight.
+ */
+export const MAX_ACTIVE_QUERIES = 16;
+let _active = 0;
+const _waiting: Array<() => void> = [];
+
+async function acquireSlot(): Promise<void> {
+  if (_active < MAX_ACTIVE_QUERIES) {
+    _active += 1;
+    return;
+  }
+  // releaseSlot hands its slot straight to the next waiter, so _active is
+  // not decremented and re-incremented in between.
+  await new Promise<void>((resolve) => _waiting.push(resolve));
+}
+
+function releaseSlot(): void {
+  const next = _waiting.shift();
+  if (next) next();
+  else _active -= 1;
+}
+
+/** Queries running now, for tests. */
+export function activeQueries(): number {
+  return _active;
 }
 
 /**
