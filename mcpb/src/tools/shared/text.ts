@@ -60,10 +60,17 @@ export function capText(
  * desynchronised the two folds: SQL matched `Muhammad` against an OCR blob
  * containing `Muḥammad`, then the excerpt path folded only the query and
  * reported "keyword not found in full text" for an item search had just returned.
+ *
+ * U+0130 (İ, dotted capital I) is mapped to a plain I before lowercasing
+ * because it is the ONE code point whose toLowerCase() is longer than itself
+ * ("i" + combining dot, two units). Left alone, each occurrence shifted every
+ * later excerpt offset by one. DuckDB folds it to a bare "i", so this also keeps
+ * the two folds in agreement.
  */
 export function foldText(s: string): string {
   return s
     .normalize("NFC")
+    .replace(/İ/g, "I")
     .toLowerCase()
     .replace(/[À-ɏḀ-ỿ]/g, (c) => c.normalize("NFD")[0] ?? c);
 }

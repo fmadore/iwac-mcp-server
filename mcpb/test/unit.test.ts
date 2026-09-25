@@ -109,6 +109,15 @@ describe("foldText", () => {
       assert.equal(foldText(s).length, s.length, `length changed for ${s}`);
     }
   });
+  // "\u0130".toLowerCase() is "i\u0307" (two units): the only code point whose
+  // lowercase is longer, so each occurrence used to shift later excerpt offsets.
+  it("keeps dotted capital I (U+0130) index-stable, folding it to i like SQL", () => {
+    assert.equal(foldText("\u0130stanbul"), "istanbul");
+    const text = `${"\u0130".repeat(400)} ${"x".repeat(300)} Maouloud ${"y".repeat(300)}`;
+    assert.equal(foldText(text).length, text.length);
+    const { excerpts } = keywordExcerpts(text, "maouloud", { contextChars: 200 });
+    assert.ok(excerpts[0]?.includes("Maouloud"), `excerpt drifted off the match: ${excerpts[0]}`);
+  });
 });
 
 describe("escapeLike", () => {
