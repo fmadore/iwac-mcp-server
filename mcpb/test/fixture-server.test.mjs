@@ -363,6 +363,24 @@ await withFixtureScope(async (fixtures) => {
     structured: true,
     check: (p) => (p.total_articles === 1 ? null : `Niger fixture count ${p.total_articles}, expected 1 (Nigeria conflation?)`),
   });
+  // Every fixture newspaper has one article, so the order is decided entirely
+  // by the tie-break. Without one, DuckDB's parallel aggregation returned
+  // these rows in a different order from run to run, and the same question
+  // got a differently ordered answer each time it was asked.
+  await call("get_newspaper_stats", {}, {
+    structured: true,
+    check: (p) => {
+      const rows = p.newspapers ?? [];
+      for (let i = 1; i < rows.length; i++) {
+        const [a, b] = [rows[i - 1], rows[i]];
+        const inOrder =
+          a.article_count > b.article_count ||
+          (a.article_count === b.article_count && String(a.newspaper) <= String(b.newspaper));
+        if (!inOrder) return `newspapers not ordered by count, then name: ${a.newspaper} before ${b.newspaper}`;
+      }
+      return rows.length > 1 ? null : "expected several fixture newspapers";
+    },
+  });
   await call("get_country_comparison", {}, {
     structured: true,
     check: (p) => {

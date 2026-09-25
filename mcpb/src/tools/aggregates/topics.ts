@@ -98,7 +98,7 @@ export function registerTopicsTools(server: Server): void {
         `SELECT lda_topic_label AS label, CAST(coalesce(lda_topic_id, -1) AS INTEGER) AS topic_id,
                 COUNT(*) AS count, ROUND(AVG(lda_topic_prob), 3) AS avg_prob
          FROM ${viewName(subset)} ${topicWhereSql}
-         GROUP BY 1, 2 ORDER BY count DESC`,
+         GROUP BY 1, 2 ORDER BY count DESC, topic_id`,
         topicParams,
       );
       const classified = rows.reduce((a, r) => a + Number(r.count), 0);

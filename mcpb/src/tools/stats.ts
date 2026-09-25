@@ -184,7 +184,7 @@ export function registerStatsTools(server: Server): void {
       const [byCountry, newspaperCount, dateRow] = await Promise.all([
         schema.has("country")
           ? query(
-              `SELECT country AS k, COUNT(*) AS c FROM ${viewName("articles")} WHERE NULLIF(trim(country), '') IS NOT NULL GROUP BY country ORDER BY c DESC`,
+              `SELECT country AS k, COUNT(*) AS c FROM ${viewName("articles")} WHERE NULLIF(trim(country), '') IS NOT NULL GROUP BY country ORDER BY c DESC, k`,
             )
           : undefined,
         schema.has("newspaper")
@@ -251,7 +251,7 @@ export function registerStatsTools(server: Server): void {
           `SELECT newspaper, country, COUNT(*) AS article_count${dateCols}
            FROM ${viewName("articles")} ${groupWhereSql}
            GROUP BY newspaper, country
-           ORDER BY article_count DESC`,
+           ORDER BY article_count DESC, newspaper, country`,
           params,
         ),
         queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`, params),
@@ -298,7 +298,7 @@ export function registerStatsTools(server: Server): void {
           FROM ${viewName("articles")}
           WHERE NULLIF(trim(country), '') IS NOT NULL
           GROUP BY country
-          ORDER BY article_count DESC
+          ORDER BY article_count DESC, country
         `),
         schema.has(polarityCol)
           ? query(`
@@ -306,6 +306,7 @@ export function registerStatsTools(server: Server): void {
               FROM ${viewName("articles")}
               WHERE NULLIF(trim(country), '') IS NOT NULL
               GROUP BY country, ${q(polarityCol)}
+              ORDER BY country, c DESC, k
             `)
           : undefined,
       ]);

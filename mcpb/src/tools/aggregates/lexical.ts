@@ -98,7 +98,7 @@ export function registerLexicalTools(server: Server): void {
         )
         .join(", ");
 
-      const order = groupBy === "year" ? "ORDER BY grp" : `ORDER BY items DESC LIMIT ${topN}`;
+      const order = groupBy === "year" ? "ORDER BY grp" : `ORDER BY items DESC, grp LIMIT ${topN}`;
       const rows = await query(
         `SELECT ${groupExpr} AS grp, COUNT(*) AS items, ${selects}
          FROM ${viewName("articles")} ${whereSql}

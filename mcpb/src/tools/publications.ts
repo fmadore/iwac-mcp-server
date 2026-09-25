@@ -149,7 +149,7 @@ export function registerPublicationTools(server: Server): void {
         `SELECT newspaper, country, COUNT(*) AS issue_count${dateCols}
          FROM ${viewName("publications")} ${whereSql}
          GROUP BY newspaper, country
-         ORDER BY issue_count DESC`,
+         ORDER BY issue_count DESC, newspaper, country`,
         params,
       );
       return chartResult({

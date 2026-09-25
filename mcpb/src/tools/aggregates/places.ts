@@ -123,7 +123,7 @@ export function registerPlacesTools(server: Server): void {
             await query(
               `SELECT trim(raw) AS k, COUNT(*) AS c
                FROM (SELECT unnest(str_split(coalesce(country, ''), '|')) AS raw FROM ${viewName(subset)} ${whereSql})
-               WHERE NULLIF(trim(raw), '') IS NOT NULL GROUP BY 1`,
+               WHERE NULLIF(trim(raw), '') IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1`,
               params,
             ),
           )

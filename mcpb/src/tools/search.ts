@@ -115,12 +115,13 @@ async function searchSubset(
   const params: Bindable[] = [];
   if (!tokenizedWhere(schema, cols, queryStr, where, params)) return { hits: [], searchable: false };
 
-  // Rank: most-referenced authority entries first, otherwise newest first.
+  // Rank: most-referenced authority entries first, otherwise newest first. The
+  // id breaks ties, so a query returns the same items every time it is run.
   const orderBy = schema.has("frequency")
-    ? "ORDER BY frequency DESC NULLS LAST"
+    ? `ORDER BY frequency DESC NULLS LAST, "o:id"`
     : schema.has("pub_date")
-      ? "ORDER BY pub_date DESC NULLS LAST"
-      : "";
+      ? `ORDER BY pub_date DESC NULLS LAST, "o:id"`
+      : `ORDER BY "o:id"`;
   // `iwac_url` is selected when present but never required: the id alone yields
   // the canonical page (itemUrl), and a blank url costs the caller a citation.
   const urlSel = schema.has("iwac_url") ? "iwac_url" : "NULL";

@@ -292,7 +292,7 @@ export function registerSentimentTools(server: Server): void {
         if (schema.has(cols.polarity)) {
           out.polarity_distribution = rowsToMap(
             await query(
-              `SELECT ${q(cols.polarity)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
+              `SELECT ${q(cols.polarity)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
               params,
             ),
           );
@@ -300,7 +300,7 @@ export function registerSentimentTools(server: Server): void {
         if (schema.has(cols.centrality)) {
           out.centrality_distribution = rowsToMap(
             await query(
-              `SELECT ${q(cols.centrality)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
+              `SELECT ${q(cols.centrality)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
               params,
             ),
           );
@@ -313,7 +313,7 @@ export function registerSentimentTools(server: Server): void {
         if (schema.has(cols.subjectivity)) {
           const distribution = rowsToMap(
             await query(
-              `SELECT ${q(cols.subjectivity)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
+              `SELECT ${q(cols.subjectivity)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
               params,
             ),
           );
@@ -390,7 +390,7 @@ export function registerSentimentTools(server: Server): void {
           if (!schema.has(col)) continue;
           const dist = rowsToMap(
             await query(
-              `SELECT ${q(col)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1`,
+              `SELECT ${q(col)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
               params,
             ),
           );
@@ -541,7 +541,7 @@ export function registerSentimentTools(server: Server): void {
         const [a, b] = models;
         const cells = await query(
           `SELECT ${q(sentimentCols(a).polarity)} AS ra, ${q(sentimentCols(b).polarity)} AS rb, COUNT(*) AS c
-           FROM ${viewName("articles")} ${whereSql} GROUP BY 1, 2`,
+           FROM ${viewName("articles")} ${whereSql} GROUP BY 1, 2 ORDER BY 1, 2`,
           params,
         );
         const counts: Record<string, Record<string, number>> = {};

@@ -341,7 +341,7 @@ export function registerSemanticTools(server: Server): void {
          target AS MATERIALIZED (SELECT v FROM src WHERE id = ? LIMIT 1)
          SELECT id, title${extraSel}, list_inner_product(v, (SELECT v FROM target)) AS score
          FROM src WHERE id <> ?
-         ORDER BY score DESC LIMIT ${limit}`,
+         ORDER BY score DESC, id LIMIT ${limit}`,
         [id, id],
       );
 
