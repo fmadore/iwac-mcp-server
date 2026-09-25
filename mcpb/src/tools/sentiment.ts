@@ -289,34 +289,28 @@ export function registerSentimentTools(server: Server): void {
       const distributionsFor = async (model: SentimentModel): Promise<ModelBlock> => {
         const cols = sentimentCols(model);
         const out: ModelBlock = {};
-        if (schema.has(cols.polarity)) {
-          out.polarity_distribution = rowsToMap(
-            await query(
-              `SELECT ${q(cols.polarity)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
-              params,
-            ),
-          );
-        }
-        if (schema.has(cols.centrality)) {
-          out.centrality_distribution = rowsToMap(
-            await query(
-              `SELECT ${q(cols.centrality)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
-              params,
-            ),
-          );
-        }
+        // Three independent tallies of one filter, so they run side by side.
+        const tally = (col: string) =>
+          schema.has(col)
+            ? query(
+                `SELECT ${q(col)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
+                params,
+              ).then(rowsToMap)
+            : Promise.resolve(undefined);
+        const [polarity, centrality, subjectivity] = await Promise.all([
+          tally(cols.polarity),
+          tally(cols.centrality),
+          tally(cols.subjectivity),
+        ]);
+        if (polarity) out.polarity_distribution = polarity;
+        if (centrality) out.centrality_distribution = centrality;
         // Subjectivity is an ordinal LABEL, so the distribution is the answer and
         // the scalars are derived: mean_rank/median_rank come from ranking the
         // five labels 1-5 in TypeScript, not from anything stored. They are named
         // `_rank` for that reason — a bare `mean: 2.12` reads as "21% subjective"
         // to anyone assuming a normalised score, and here it is not even a score.
-        if (schema.has(cols.subjectivity)) {
-          const distribution = rowsToMap(
-            await query(
-              `SELECT ${q(cols.subjectivity)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
-              params,
-            ),
-          );
+        if (subjectivity) {
+          const distribution = subjectivity;
           const ranked = Object.entries(distribution)
             .map(([label, n]) => ({ rank: subjectivityRank(label), n }))
             .filter((e): e is { rank: number; n: number } => e.rank !== undefined)

@@ -99,28 +99,26 @@ export function registerLexicalTools(server: Server): void {
         .join(", ");
 
       const order = groupBy === "year" ? "ORDER BY grp" : `ORDER BY items DESC, grp LIMIT ${topN}`;
-      const rows = await query(
-        `SELECT ${groupExpr} AS grp, COUNT(*) AS items, ${selects}
-         FROM ${viewName("articles")} ${whereSql}
-         GROUP BY 1 HAVING ${groupExpr} IS NOT NULL ${order}`,
-        params,
-      );
-      const total = Number(
-        (await queryScalarSingle<number | bigint>(
-          `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`,
+      // Three independent scans of the same filter, run side by side.
+      const [rows, rawTotal, rawExcluded] = await Promise.all([
+        query(
+          `SELECT ${groupExpr} AS grp, COUNT(*) AS items, ${selects}
+           FROM ${viewName("articles")} ${whereSql}
+           GROUP BY 1 HAVING ${groupExpr} IS NOT NULL ${order}`,
           params,
-        )) ?? 0,
-      );
-      const excluded = schema.has("language")
-        ? Number(
-            (await queryScalarSingle<number | bigint>(
+        ),
+        queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`, params),
+        schema.has("language")
+          ? queryScalarSingle<number | bigint>(
               `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}${whereSql ? " AND" : " WHERE"} ` +
                 `"Lisibilite_OCR" IS NOT NULL AND NULLIF(trim(language), '') IS NOT NULL ` +
                 `AND language NOT ILIKE '%français%'`,
               params,
-            )) ?? 0,
-          )
-        : 0;
+            )
+          : 0,
+      ]);
+      const total = Number(rawTotal ?? 0);
+      const excluded = Number(rawExcluded ?? 0);
 
       const payload: ChartPayload<"lexical"> & Record<string, unknown> = {
         view: VIEW.lexical,
