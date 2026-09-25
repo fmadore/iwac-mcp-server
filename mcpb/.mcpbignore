@@ -1,33 +1,49 @@
+# Applies to `npm run pack-mcpb` (a single bundle packed from this directory).
+# The release bundles are built by scripts/pack-platforms.mjs from a staging
+# directory that holds only what ships, and do not read this file.
+#
+# Anchor project paths with a leading slash. Ignore patterns match at ANY depth
+# otherwise: an unanchored `src/` once removed google-auth-library's and gaxios's
+# `build/src/` from node_modules, and semantic search could not start.
+
 # Source & build config (keep only the bundled server/index.js)
-src/
-scripts/
-tsconfig.json
+/src/
+/scripts/
+/test/
+/tsconfig.json
 *.ts
 *.map
 
 # Local test scripts & fixtures
-smoke-test.mjs
-probe-cols.mjs
-download-all.mjs
-test/
+/smoke-test.mjs
+/probe-cols.mjs
+/download-all.mjs
+
+# Container and lint config: the desktop bundle runs none of them
+/Dockerfile
+/.dockerignore
+/biome.json
 
 # Built bundles (never pack a bundle inside another bundle)
 *.mcpb
-manifest.json.orig
+/manifest.json.orig
 
-# Dev-only node_modules trees: the packed bundle needs ONLY @duckdb/* and
-# @google/genai (the two externals of the esbuild bundle). `mcpb clean` also
-# prunes dev packages, but listing the toolchain here makes the exclusion
-# structural rather than tool-dependent.
+# Dev-only node_modules trees. The server needs only @duckdb/* and
+# @google/genai at runtime (the two externals of the esbuild bundle).
+# `mcpb clean` does NOT prune development packages reliably: its dependency
+# walker stops at the first module it cannot find and then prunes nothing.
+# So the heavy toolchain is listed here explicitly.
 node_modules/.bin/
 node_modules/@anthropic-ai/
 node_modules/@types/
 node_modules/@esbuild/
 node_modules/esbuild/
 node_modules/typescript/
+node_modules/@typescript/
+node_modules/@biomejs/
 node_modules/tsx/
 node_modules/rimraf/
-# ~53 MB of BPE ranks, used only by the token budget test — larger unpacked than
+# ~53 MB of BPE ranks, used only by the token budget test: larger unpacked than
 # everything else the bundle ships put together.
 node_modules/gpt-tokenizer/
 
@@ -39,4 +55,4 @@ node_modules/gpt-tokenizer/
 .env
 .env.*
 
-# Keep: manifest.json, package.json, server/, node_modules/, README.md
+# Keep: manifest.json, package.json, server/, node_modules/, README.md, icon.png

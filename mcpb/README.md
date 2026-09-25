@@ -198,14 +198,14 @@ Environment variables (all transports unless noted):
 | `scripts/collect-skills.mjs` | Collect `.agents/skills/` for the `skill://` resources |
 | `scripts/duckdb-bindings.mjs`| Shared helper: fetch/extract platform bindings  |
 | `scripts/install-duckdb-bindings.mjs` | Fetch the 4 macOS/Windows bindings     |
-| `scripts/pack-platforms.mjs` | Build one `.mcpb` per OS (Windows, macOS)       |
+| `scripts/pack-platforms.mjs` | Build one `.mcpb` per OS (Windows, macOS) from a staged runtime-only tree, then unpack and verify it |
 | `scripts/make-fixtures.mjs`  | Generate synthetic parquet test fixtures        |
 | `scripts/make-stress-fixtures.mjs` | Inflate those fixtures for the token budget |
 | `scripts/make-server-json.mjs` | Generate `server.json` for the MCP Registry   |
 | `test/`                      | Unit tests + offline fixture/HTTP MCP tests     |
 | `test/token-baseline.json`   | Committed always-on token footprint baseline    |
 | `smoke-test.mjs`             | Live MCP round-trip test (real dataset)         |
-| `.mcpbignore`                | Files excluded from the `.mcpb` archive         |
+| `.mcpbignore`                | Files excluded by `npm run pack-mcpb` (the release packer stages its own tree) |
 
 ## How the server works
 
