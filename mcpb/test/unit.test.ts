@@ -17,6 +17,7 @@ import { VIEW } from "../src/tools/appUi.js";
 
 import {
   capText,
+  codePointBoundary,
   colsFor,
   COUNTRIES,
   countryParam,
@@ -223,6 +224,31 @@ describe("capText", () => {
     assert.equal(capped.text.length, 25_000);
     assert.equal(capped.truncated, true);
     assert.match(String(capped.truncation_message), /keyword/);
+  });
+});
+
+// String.slice counts UTF-16 units. Cutting between the two halves of an
+// emoji left a lone surrogate that JSON serialises as an escape like "\udd4c".
+describe("cutting text on code-point boundaries", () => {
+  const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  it("moves a cut off the second half of a surrogate pair", () => {
+    const s = "a\u{1F54C}b"; // a, mosque emoji (2 units), b
+    assert.equal(codePointBoundary(s, 2), 1);
+    assert.equal(codePointBoundary(s, 1), 1);
+    assert.equal(codePointBoundary(s, 3), 3);
+    assert.equal(codePointBoundary(s, 0), 0);
+    assert.equal(codePointBoundary(s, s.length), s.length);
+  });
+  it("keeps capText and keyword excerpts free of lone surrogates", () => {
+    const capped = capText(`a${"\u{1F54C}".repeat(20)}`, { limit: 10 });
+    assert.ok(capped.truncated);
+    assert.doesNotMatch(capped.text, loneSurrogate);
+    const text = `${"\u{1F54C}".repeat(150)} Maouloud ${"\u{1F54C}".repeat(150)}`;
+    for (const contextChars of [200, 201, 202, 203]) {
+      const [excerpt] = keywordExcerpts(text, "maouloud", { contextChars }).excerpts;
+      assert.match(excerpt, /Maouloud/);
+      assert.doesNotMatch(excerpt, loneSurrogate, `contextChars ${contextChars}`);
+    }
   });
 });
 

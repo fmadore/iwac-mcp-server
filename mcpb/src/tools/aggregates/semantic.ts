@@ -7,6 +7,7 @@ import type { Subset } from "../../config.js";
 import { project2d } from "../../pca.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import {
+  codePointBoundary,
   COUNTRIES,
   DEFAULT_SENTIMENT_MODEL,
   errorResult,
@@ -57,7 +58,7 @@ const EMBEDDING_COLS: Partial<Record<Subset, string>> = {
  */
 function clipTitle(value: unknown): string {
   const s = value == null ? "" : String(value).trim();
-  return s.length <= 70 ? s : `${s.slice(0, 69)}…`;
+  return s.length <= 70 ? s : `${s.slice(0, codePointBoundary(s, 69))}…`;
 }
 
 const SEMANTIC_MAP_OUTPUT = z.object({

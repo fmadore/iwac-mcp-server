@@ -13,6 +13,21 @@ export function rowsToMap(rows: Record<string, unknown>[]): Record<string, numbe
   return out;
 }
 
+/**
+ * `i`, moved back one unit if it would cut an astral character (an emoji, a
+ * rare CJK or historic-script letter) between its two UTF-16 halves.
+ * String.slice counts UTF-16 units, so a cut there left a lone surrogate at
+ * the edge of the text. JSON serialises that as an escape such as "\udd4c",
+ * and the reader gets noise where a character was. YouTube titles and
+ * descriptions in the audiovisual subset carry emoji routinely.
+ */
+export function codePointBoundary(s: string, i: number): number {
+  if (i <= 0 || i >= s.length) return i;
+  const low = s.charCodeAt(i);
+  const high = s.charCodeAt(i - 1);
+  return low >= 0xdc00 && low <= 0xdfff && high >= 0xd800 && high <= 0xdbff ? i - 1 : i;
+}
+
 export interface CappedText {
   text: string;
   truncated: boolean;
@@ -34,7 +49,7 @@ export function capText(
     ? " Pass a `keyword` to retrieve focused excerpts around matches instead."
     : " Narrow the request to see the rest.";
   return {
-    text: text.slice(0, limit),
+    text: text.slice(0, codePointBoundary(text, limit)),
     truncated: true,
     truncation_message: `Text truncated from ${text.length} to ${limit} characters.${hint}`,
   };
@@ -163,8 +178,8 @@ export function keywordExcerpts(
       capped = true;
       break;
     }
-    const start = Math.max(0, idx - half);
-    const end = Math.min(ocr.length, idx + needle.length + half);
+    const start = codePointBoundary(ocr, Math.max(0, idx - half));
+    const end = codePointBoundary(ocr, Math.min(ocr.length, idx + needle.length + half));
     let ex = ocr.slice(start, end);
     if (start > 0) ex = `...${ex}`;
     if (end < ocr.length) ex += "...";
