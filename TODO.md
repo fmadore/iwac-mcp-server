@@ -80,7 +80,8 @@
   `mcpb/package.json` forces `@hono/node-server` to `^2.0.12` via `overrides`
   because the entire 1.x line carries GHSA-frvp-7c67-39w9 (Windows
   `serve-static` path traversal) with no backport, while
-  `@modelcontextprotocol/node@2.0.0` still declares `^1.19.9`. Running a
+  `@modelcontextprotocol/node` still declares `^1.19.9` (re-checked at 2.1.0,
+  2026-09-25). Running a
   transitive dep a major above what upstream asks for is safe *here* — the SDK
   imports exactly one symbol, `getRequestListener`, which v2 still exports, v2
   wants Node ≥20 against this project's ≥24, and it peers on `hono ^4` — and the
@@ -89,6 +90,18 @@
   hono's `serve()`). Once `@modelcontextprotocol/node` widens its own range,
   *remove* the override rather than bumping it, so the resolved version goes
   back to being upstream's problem.
+
+- [ ] **Move the chart UI to `@modelcontextprotocol/ext-apps` 2.x when it fits
+  the budget** — 2.0.0 (2026-09-24) ports the `App` class to the split v2 SDK
+  and would drop the v1 `@modelcontextprotocol/sdk` + Express tree (~75
+  packages) that 1.7.5 pulls in as a dev-only peer. It builds and typechecks
+  unchanged, but the UI resource grows 257.6 → 336.6 kb, over the 300 kb gate in
+  `test/app.test.mjs`: ext-apps imports `Protocol` from
+  `@modelcontextprotocol/client`, whose single 87 kb chunk (OAuth, transports,
+  validators) does not tree-shake, and `@modelcontextprotocol/core` does not
+  export `Protocol` publicly. 1.7.x is wire-compatible with v2 hosts, so nothing
+  is broken by staying. Re-measure on each ext-apps release; a Dependabot PR
+  for the major will fail the size gate until then, which is the gate working.
 
 - [x] **Migrate to MCP TypeScript SDK v2 / protocol 2026-07-28** — done
   2026-07-29. `@modelcontextprotocol/server` 2.0.0 went stable 2026-07-27, four
