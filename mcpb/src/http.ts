@@ -38,6 +38,9 @@ import { config } from "./config.js";
 /** Cap on request body size — MCP JSON-RPC payloads are tiny; larger is abuse. */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
+/** How long a SIGTERM waits for in-flight requests before exiting anyway. */
+const SHUTDOWN_GRACE_MS = 8_000;
+
 /** Tagged error so the catch-all can answer 413 instead of a generic parse error. */
 class BodyTooLargeError extends Error {
   constructor() {
@@ -180,14 +183,23 @@ export function startHttpServer(createServer: () => McpServer): void {
     });
   });
 
-  // The handler owns the in-flight per-request instances now, so it has to be
-  // closed alongside the listener for the container to stop cleanly.
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      server.close();
+  // Drain, then exit: stop accepting connections, let the requests already in
+  // flight finish, and only then close the handler that owns their
+  // per-request server instances. Exiting as soon as the handler closed, as
+  // this used to, cut any response still being computed (a full-text search
+  // can take seconds) on every `docker stop` and redeploy. Docker sends
+  // SIGKILL 10 s after SIGTERM, so stop waiting a little before that.
+  let draining = false;
+  const drain = () => {
+    if (draining) return;
+    draining = true;
+    setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS).unref();
+    server.close(() => {
       void mcpHandler.close().finally(() => process.exit(0));
     });
-  }
+    server.closeIdleConnections();
+  };
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, drain);
 
   server.listen(port, () => {
     console.error(

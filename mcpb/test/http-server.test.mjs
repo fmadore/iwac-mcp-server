@@ -9,6 +9,7 @@
 // `npm run build`.
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { spawn } from "node:child_process";
+import http from "node:http";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -234,8 +235,45 @@ try {
 
   await modern.close();
   await modernTransport.close();
+
+  // --- 7. SIGTERM drains in-flight requests instead of cutting them ------------
+  // Hold a request open by sending its body in two halves, signal between
+  // them, then finish it. A server that exits on the signal resets the socket;
+  // one that drains answers the request and then exits cleanly.
+  const rpc = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
+  const drained = new Promise((resolve) => {
+    const req = http.request(
+      `${BASE}/mcp`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "Content-Length": Buffer.byteLength(rpc),
+        },
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode));
+      },
+    );
+    req.on("error", (err) => resolve(`error: ${err.code ?? err.message}`));
+    req.write(rpc.slice(0, 10));
+    setTimeout(() => {
+      server.kill("SIGTERM");
+      setTimeout(() => req.end(rpc.slice(10)), 300);
+    }, 200);
+  });
+  const status = await drained;
+  if (status !== 200) fail(`a request in flight at SIGTERM should still be answered, got ${status}`);
+  const exitCode = await new Promise((resolve) => {
+    if (server.exitCode !== null) resolve(server.exitCode);
+    else server.on("exit", (code) => resolve(code));
+  });
+  if (exitCode !== 0) fail(`server should exit 0 after draining, got ${exitCode}`);
 } finally {
-  server.kill("SIGTERM");
+  if (server.exitCode === null) server.kill("SIGTERM");
 }
 
 console.log(`\n${failures === 0 ? "ALL HTTP CHECKS PASSED" : `${failures} HTTP CHECK(S) FAILED`}`);
