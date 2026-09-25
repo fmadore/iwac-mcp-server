@@ -105,3 +105,27 @@ which now declares `listChanged: false`.
   +0. Each new test was confirmed to fail on the old code. The live smoke test
   could not run, because the review sandbox's network policy blocks
   huggingface.co.
+
+### Follow-up (same review): refresh, overlap, determinism
+
+- Refresh: a loaded subset is re-checked every `IWAC_REFRESH_HOURS` (default
+  24) in the background, stale-while-revalidate. Downloads are named after a
+  digest of their content identity, so a new revision never overwrites a file
+  a live view reads. Views read an explicit file list, and one
+  `CREATE OR REPLACE VIEW` swaps them. Pruning is a separate step after the
+  swap. The embedding index is keyed by view generation. Verified on DuckDB
+  that an in-flight query finishes on the old files even when the view is
+  replaced and the old file deleted mid-query. Legacy caches keep their Hub
+  names and are verified as before.
+- Overlap: the stats tools run their independent queries together, and
+  semantic search awaits the Gemini call, the index load and the SQL
+  prefilter at once.
+- Determinism, found while diffing outputs: the pre-review build returned 5
+  different outputs in 5 identical runs, because tied or unordered GROUP BY
+  results follow DuckDB's parallel aggregation. Every ranking now ends in a
+  stable tie-break, and six runs over thirteen tool calls are byte-identical.
+- Checks: the full `npm test` passed on Node 24 and Node 20 (120 unit tests).
+  New tests cover content naming, legacy reuse, an end-to-end refresh with
+  real parquet bytes (served stale first, then swapped, pruned, and a failed
+  check tolerated), `IWAC_REFRESH_HOURS` parsing, and the tie-break order.
+  Released as v3.7.0 (`docs/releases/v3.7.0.md`).
