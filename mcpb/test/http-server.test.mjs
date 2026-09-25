@@ -163,6 +163,13 @@ try {
     fail("the skills capability is not declared over HTTP");
   }
   if (!httpCaps?.tools || !httpCaps?.resources) fail("declaring extensions dropped capabilities over HTTP");
+  // The lists are fixed at build time. Advertising listChanged would invite a
+  // modern client to hold a subscriptions/listen stream open for nothing.
+  for (const kind of ["tools", "resources", "prompts"]) {
+    if (httpCaps?.[kind]?.listChanged !== false) {
+      fail(`${kind}.listChanged should be false over HTTP, got ${httpCaps?.[kind]?.listChanged}`);
+    }
+  }
   const httpSkills = await client.request({ method: "skills/list", params: {} }, z.looseObject({}));
   if (httpSkills.skills?.[0]?.uri !== "skill://iwac-mcp/SKILL.md") {
     fail(`skills/list over HTTP returned '${httpSkills.skills?.[0]?.uri}'`);

@@ -159,10 +159,20 @@ export function createServer(): McpServer {
     {
       instructions: RESOLVED_INSTRUCTIONS,
       cacheHints: CACHE_HINTS,
-      // Draft SEP-2640, declared only when this build actually carries a skill,
-      // so a host never negotiates the extension against an empty catalogue.
-      // Merges with the tools/resources capabilities McpServer derives.
-      ...(servesSkills() ? { capabilities: { extensions: SKILLS_CAPABILITY } } : {}),
+      capabilities: {
+        // McpServer defaults every list to `listChanged: true`, but these lists
+        // are fixed at build time (see CACHE_HINTS) and never change on a live
+        // connection. A 2026-07-28 client reads these bits to choose what to
+        // request on a `subscriptions/listen` stream, so advertising `true`
+        // invited it to hold a stream open, through the proxy, for
+        // notifications this server can never send.
+        tools: { listChanged: false },
+        resources: { listChanged: false },
+        prompts: { listChanged: false },
+        // Draft SEP-2640, declared only when this build actually carries a skill,
+        // so a host never negotiates the extension against an empty catalogue.
+        ...(servesSkills() ? { extensions: SKILLS_CAPABILITY } : {}),
+      },
     },
   );
   registerTools(server);
