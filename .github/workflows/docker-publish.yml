@@ -163,7 +163,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Release $TAG"
+          # Publish the notes committed for this tag (docs/releases/<tag>.md)
+          # when there are any; the one-line body is only a fallback. An
+          # existing release is left as it is, so hand edits survive a re-run.
+          notes="docs/releases/${TAG}.md"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [ -f "$notes" ]; then
+              gh release create "$TAG" --title "$TAG" --notes-file "$notes"
+            else
+              gh release create "$TAG" --title "$TAG" --notes "Release $TAG"
+            fi
+          fi
           gh release upload "$TAG" \
             mcpb/iwac-mcp-server-windows.mcpb \
             mcpb/iwac-mcp-server-macos.mcpb \

@@ -154,3 +154,35 @@ which now declares `listChanged: false`.
 - Checks: every new test fails without its fix; the surrogate test was
   checked against a standalone reproduction instead, since it imports the new
   helper. The full `npm test` passed on Node 24 and Node 20.
+
+### Release packaging (found while preparing the v3.7.0 tag)
+
+- A local dry run of `npm run release` showed the bundles shipped the whole
+  development toolchain. `mcpb clean`'s dependency walker stops at the first
+  module `.mcpbignore` has already removed, then prunes nothing, and says so
+  in its log. Biome's and TypeScript 7's Linux binaries were 33 MB of the
+  112 MB macOS bundle, in macOS and Windows bundles alike.
+- Worse, `.mcpbignore`'s unanchored `src/` also matched `build/src/` in
+  `google-auth-library` and `gaxios`, so `@google/genai` could not be imported
+  from a bundle. Confirmed on the published v3.6.0 Windows asset: importing
+  it fails with "Cannot find package …/google-auth-library/build/src/index.js".
+  Semantic search in Claude Desktop has been broken since the pattern landed
+  (2026-07-30). The hosted endpoint builds from `npm ci`, not the bundle, and
+  was unaffected.
+- `pack-platforms.mjs` now stages each bundle in a temporary directory with
+  the manifest, package.json, README, icon, `server/`, and only the runtime
+  closure of the esbuild externals (`@duckdb/node-api`, `@google/genai`),
+  resolved the way Node resolves them and following dependencies and
+  optionalDependencies but not peers. Only the target OS's DuckDB bindings
+  are included, and the working tree is never modified. `verifyBundle()`
+  unpacks the archive, imports `@google/genai` from it, and checks the DuckDB
+  entry and binaries. `.mcpbignore` now anchors root-only paths and serves
+  only `npm run pack-mcpb`.
+- Result: macOS 112.4 → 70.5 MB, Windows 69.3 → 29.4 MB, 2,961 → 650 files.
+  Verified end to end: the unpacked macOS bundle, with this host's Linux
+  binding swapped in, answers stats, search, get_article and temporal calls
+  over MCP, and semantic search reaches Gemini (HTTP 400 for a dummy key).
+  The v3.6.0 bundle fails the same import.
+- The release workflow now publishes `docs/releases/<tag>.md` as the GitHub
+  release body when that file exists, with the old one-liner as fallback.
+  Checked with a stubbed `gh` for all three paths.
