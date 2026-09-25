@@ -129,3 +129,28 @@ which now declares `listChanged: false`.
   real parquet bytes (served stale first, then swapped, pruned, and a failed
   check tolerated), `IWAC_REFRESH_HOURS` parsing, and the tie-break order.
   Released as v3.7.0 (`docs/releases/v3.7.0.md`).
+
+### Second pass (same review, before tagging v3.7.0)
+
+- Downloads are hashed as they stream and checked against the Hub's size
+  and LFS SHA-256 before the rename. A mismatch deletes the partial file and
+  writes no manifest. `stream.pipeline` replaces the hand-written pump.
+- Concurrency: the connection pool gained a FIFO cap of 16 queries in
+  flight. Before the cap, going from one shared connection to the pool had
+  also meant going from one query at a time to unbounded.
+- Text cuts (`capText`, keyword excerpts, chart-title clipping) no longer
+  split surrogate pairs. A reproduction had shown lone surrogates from both
+  capText and an excerpt window over emoji-dense text.
+- HTTP SIGTERM drains in-flight requests, for up to 8 s, before exiting.
+  The old handler reset a request held open across the signal.
+- The sentiment tallies within each model block, and the three scans of
+  `get_lexical_metrics`, now run together. Output is byte-identical over
+  seven calls.
+- Considered and not changed: the Parquet metadata cache (no measurable gain
+  on local files), UI escaping (audited: data reaches `innerHTML` only
+  through `esc()` or as numbers), and rewrites of the `get_similar_items`
+  SQL (timings within noise, and one variant still hit DuckDB's NULL-list
+  error).
+- Checks: every new test fails without its fix; the surrogate test was
+  checked against a standalone reproduction instead, since it imports the new
+  helper. The full `npm test` passed on Node 24 and Node 20.
