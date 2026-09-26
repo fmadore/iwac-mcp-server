@@ -593,7 +593,14 @@ await withFixtureScope(async (fixtures) => {
         : "a misspelt lunar month must error with valid_values, not return an empty result",
   });
   await call("search_publications", { hijri_month: "Mouharram" }, {
-    check: (p) => (p.total_matches === 1 ? null : `French month name on publications, got ${p.total_matches}`),
+    check: (p) => {
+      if (p.total_matches !== 1) return `French month name on publications, got ${p.total_matches}`;
+      // The articles fixture stores Hijri as BIGINT (the canonical int64) and
+      // publications as the legacy DOUBLE, so this is the read that proves the
+      // older revisions still render: unguarded, DOUBLE comes out '1416.0-1.-3.'.
+      const date = p.results?.[0]?.hijri_date;
+      return date === "1416-01-03" ? null : `a DOUBLE-typed lunar date should render as 1416-01-03, got ${date}`;
+    },
   });
 
   // --- corpus aggregates -----------------------------------------------------------

@@ -479,8 +479,9 @@ export function registerStatsTools(server: Server): void {
       // precomputed columns (post-processing/calculate_hijri_dates.py), which
       // are NULL for any date too imprecise to carry a lunar day.
       //
-      // Both parts go through `hijriPart`, which carries the DOUBLE->INTEGER
-      // cast these columns need before they can be read as text (see there).
+      // Both parts go through `hijriPart`, which carries the INTEGER cast
+      // these columns need before they can be read as text: they are BIGINT
+      // on current revisions but DOUBLE on older ones (see there).
       const hijriYear = hijriPart("hijri_year", 0);
       const hijriMonth = hijriPart("hijri_month");
       let bucketExpr: string;

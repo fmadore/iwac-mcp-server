@@ -88,14 +88,17 @@ export const HIJRI_COLS = ["hijri_year", "hijri_month", "hijri_day"];
 /**
  * Render one Hijri column as a bucket/date part.
  *
- * The three columns are stored as DOUBLE in the parquet, so the INTEGER cast is
- * load-bearing, not defensive: `CAST(3.0 AS VARCHAR)` is `'3.0'`, and DuckDB's
- * `lpad` TRUNCATES a string that is already longer than the target width rather
- * than leaving it alone — so padding it to 2 yielded `'3.'`, and an unpadded
- * year yielded `'1440.0'`. Both read as plausible until you compare them with
- * something: a month bucket matched no `month_labels` key, and every single
- * `hijri_date` was malformed. Anything reading these columns as text must go
- * through here.
+ * The pipeline now declares the three columns nullable int64 (BIGINT here) and
+ * conforms every push to it, but revisions published before that stored them
+ * as DOUBLE on most subsets, and a subset keeps DOUBLE until its next push. So
+ * the INTEGER cast is load-bearing, not defensive: on DOUBLE, `CAST(3.0 AS
+ * VARCHAR)` is `'3.0'`, and DuckDB's `lpad` TRUNCATES a string that is already
+ * longer than the target width rather than leaving it alone — so padding it to
+ * 2 yielded `'3.'`, and an unpadded year yielded `'1440.0'`. Both read as
+ * plausible until you compare them with something: a month bucket matched no
+ * `month_labels` key, and every single `hijri_date` was malformed. On BIGINT
+ * the cast is a no-op. Anything reading these columns as text must go through
+ * here, whichever type the loaded revision carries.
  */
 export const hijriPart = (column: string, pad = 2): string => {
   const int = `CAST(CAST(${q(column)} AS INTEGER) AS VARCHAR)`;

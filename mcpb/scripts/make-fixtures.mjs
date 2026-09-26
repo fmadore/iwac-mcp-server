@@ -55,6 +55,13 @@ const DESC_AI_EN = {
 const HIJRI_SUBSETS = ["articles", "publications", "documents", "audiovisual", "images"];
 
 /**
+ * Subsets whose Hijri columns stay DOUBLE, the type revisions published before
+ * the pipeline's canonical int64 carried (see the ALTER TABLE below). Every
+ * other Hijri subset is BIGINT, so one fixture set exercises both.
+ */
+const HIJRI_LEGACY_DOUBLE = ["publications"];
+
+/**
  * Gregorian → Umm al-Qura for every date the fixtures use, computed with
  * `hijridate` (the pipeline's converter of record) rather than with Node's
  * `Intl`. Hard-coded on purpose: baking a second converter into this repo is
@@ -107,8 +114,11 @@ const SUBSET_SQL = {
       gpt_5_6_luna_subjectivite_score VARCHAR, nb_mots BIGINT, nb_pages BIGINT,
       "Richesse_Lexicale_OCR" DOUBLE, "Lisibilite_OCR" DOUBLE, iwac_url VARCHAR,
       -- LDA topics and the three further sentiment models, so the aggregate
-      -- tools have something to aggregate.
-      lda_topic_id DOUBLE, lda_topic_prob DOUBLE, lda_topic_label VARCHAR,
+      -- tools have something to aggregate. lda_topic_id is BIGINT: the
+      -- pipeline declares it nullable int64 and conforms every push to that.
+      -- Revisions published before the canonical types carried it as DOUBLE,
+      -- which the topic tool's INTEGER cast reads the same way.
+      lda_topic_id BIGINT, lda_topic_prob DOUBLE, lda_topic_label VARCHAR,
       mistral_small_2603_polarite VARCHAR, mistral_small_2603_centralite_islam_musulmans VARCHAR,
       mistral_small_2603_subjectivite_score VARCHAR,
       deepseek_v4_flash_0731_polarite VARCHAR, deepseek_v4_flash_0731_centralite_islam_musulmans VARCHAR,
@@ -153,7 +163,12 @@ const SUBSET_SQL = {
       -- about dimensionality, and these are laid out as two separable clusters
       -- (the hadj/pilgrimage rows against the rest) so the projection has a
       -- real structure to find rather than noise.
-      embedding_OCR DOUBLE[]
+      --
+      -- FLOAT[], because the pipeline stores every embedding as list<float32>
+      -- (it was list<float64> before the canonical types, at twice the bytes).
+      -- DuckDB hands either to JS as a plain number[], so nothing downstream
+      -- branches on it; typing the fixture as the parquet is keeps it that way.
+      embedding_OCR FLOAT[]
     );
     INSERT INTO articles VALUES
       ('101', 'iwac-101', 'Le pèlerinage à La Mecque vu de Cotonou', 'A. Dossou',
@@ -425,14 +440,20 @@ async function main() {
     // range) are left NULL — an imprecise date has no lunar day, and that
     // absence is a case the tools have to report rather than plot.
     if (HIJRI_SUBSETS.includes(subset)) {
-      // DOUBLE, not BIGINT, because that is what the real parquet stores — and
-      // the difference is not cosmetic. `CAST(3 AS VARCHAR)` is '3' but
-      // `CAST(3.0 AS VARCHAR)` is '3.0', so a fixture typed BIGINT renders
+      // Both storage types on purpose, because the real parquet has carried
+      // both. The pipeline now declares the three columns nullable int64
+      // (BIGINT here) and conforms every push to it, but revisions published
+      // before that stored DOUBLE on most subsets — a pandas round trip turns
+      // a nullable int into float — and a subset keeps DOUBLE until its next
+      // push. The difference is not cosmetic: `CAST(3 AS VARCHAR)` is '3' but
+      // `CAST(3.0 AS VARCHAR)` is '3.0', so a fixture typed only BIGINT renders
       // every Hijri bucket and date correctly no matter how the SQL is written,
-      // and cannot reproduce a whole class of formatting bug that production
-      // hits on every row. It hid exactly that once already.
+      // and cannot reproduce the formatting bug DOUBLE caused on every row. It
+      // hid exactly that once already. `publications` (whose one fully-dated
+      // issue the tests read back as a date string) keeps the legacy DOUBLE.
+      const hijriType = HIJRI_LEGACY_DOUBLE.includes(subset) ? "DOUBLE" : "BIGINT";
       for (const col of ["hijri_year", "hijri_month", "hijri_day"]) {
-        await conn.run(`ALTER TABLE ${table} ADD COLUMN "${col}" DOUBLE`);
+        await conn.run(`ALTER TABLE ${table} ADD COLUMN "${col}" ${hijriType}`);
       }
       for (const [greg, [hy, hm, hd]] of Object.entries(HIJRI)) {
         await conn.run(

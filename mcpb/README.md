@@ -231,6 +231,21 @@ Environment variables (all transports unless noted):
   `searchable` for the keyword-search surface. `colsFor(subset, schema, view)`
   builds the SELECT list; `TEXT_COLS` and `TITLE_COL` are derived from the same
   table, so a dataset column rename is a one-line change.
+- Column types: the IWAC pipeline conforms every push to declared types.
+  Counts, ids, pages and dates (`nb_pages`, `nb_mots`, `hijri_*`, `pub_year`,
+  `lda_topic_id`, `frequency`, `duration_seconds`) are nullable `int64`, which
+  DuckDB reads as `BIGINT` and hands to JS as a **`bigint`**, not a `number`.
+  Embeddings are `list<float32>` (`FLOAT[]`), which arrive as a plain
+  `number[]`. Revisions published before the canonical types stored several of
+  those integers as `float64` (`DOUBLE`) and the embeddings as `list<float64>`,
+  and a subset keeps the old types until its next push, so a revision can mix
+  both. Code must therefore work with either: `Number()` a value before any JS
+  arithmetic (mixing a `bigint` with a `number` throws), cast in SQL where a
+  value becomes text (`hijriPart`: on `DOUBLE`, `CAST(3.0 AS VARCHAR)` is
+  `'3.0'`), and let `compactValue` turn a `bigint` into a number on output. The
+  fixtures carry both types on purpose (`HIJRI_LEGACY_DOUBLE` in
+  `scripts/make-fixtures.mjs`). `consensus_subjectivite_score` stays a float:
+  it is a median rank, and `.5` values are real.
 - Two-phase `search`: full-text columns carry a `heavy` tag in the descriptor,
   because one accent-folded `LIKE` over `publications.OCR` costs ~1.8 s and over
   `articles.OCR` ~0.46 s, against ~30 ms for every curated column combined. The
