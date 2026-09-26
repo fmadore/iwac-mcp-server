@@ -62,7 +62,7 @@
     "@google/genai": "^2.22.0",
     "@modelcontextprotocol/node": "^2.1.0",
     "@modelcontextprotocol/server": "^2.1.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "optionalDependencies": {
     "@duckdb/node-bindings-darwin-arm64": "^1.5.4-r.1",
