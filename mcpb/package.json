@@ -59,7 +59,7 @@
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
-    "@google/genai": "^2.22.0",
+    "@google/genai": "^2.24.0",
     "@modelcontextprotocol/node": "^2.1.0",
     "@modelcontextprotocol/server": "^2.1.0",
     "zod": "^4.4.3"
