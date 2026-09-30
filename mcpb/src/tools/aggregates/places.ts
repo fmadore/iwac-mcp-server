@@ -1,17 +1,12 @@
 import { chartResult } from "../shared/chartResults.js";
 import { z } from "zod";
-import { ensureView, q, query, queryOne, viewName } from "../../db.js";
+import { ensureView, q, query, queryOne, viewName, viewGeneration } from "../../db.js";
 import type { Subset } from "../../config.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
-import {
-  COUNTRIES,
-  errorResult,
-  rowsToMap,
-  toolMeta,
-  validateEnum,
-  type Server,
-} from "../_shared.js";
+import { COUNTRIES, errorResult, rowsToMap, toolMeta, validateEnum, type Server } from "../_shared.js";
 import { AGG_SUBSETS, aggregateFilters, filterInputs } from "./shared.js";
+
+const geoCache = new Map<number, { total: number; geocoded: number }>();
 
 const PLACES_OUTPUT = z.object({
   view: z.string(),
@@ -23,6 +18,7 @@ const PLACES_OUTPUT = z.object({
   places: z.array(z.looseObject({})),
   ungeocoded: z.array(z.looseObject({})).optional(),
   ungeocoded_mentions: z.number().optional(),
+  geocode_coverage: z.object({ total: z.number(), geocoded: z.number() }).optional(),
   note: z.string().optional(),
 });
 
@@ -33,12 +29,7 @@ export function registerPlacesTools(server: Server): void {
     {
       ...toolMeta("Places on a map"),
       description:
-        "Places named by a filtered set of items, joined to the index's authority records so each carries " +
-        "coordinates where the index has them. Use this rather than get_field_distribution when the question is " +
-        "geographic — where coverage clusters — and the plain ranking when it is not. " +
-        "Only `Lieux` index entries are geocoded (555 of 683); persons, organisations and events carry no " +
-        "coordinates and never will, and any named place with no index entry comes back under `ungeocoded` " +
-        "rather than being dropped.",
+        "Place tags joined to authority coordinates. Separates publication countries from mentioned places; missing geocodes are counted explicitly.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         subset: z.string().optional().describe("articles (default) | publications | references"),
@@ -59,7 +50,17 @@ export function registerPlacesTools(server: Server): void {
         return errorResult({ error: `Subset '${subset}' has no spatial column in this dataset revision` });
       }
       const indexSchema = await ensureView("index");
-      const geocoded = indexSchema.has("Coordonnées") && indexSchema.has("Titre");
+      const geocoded = indexSchema.has("Coordonnées") && indexSchema.has("Titre") && indexSchema.has("Type");
+      const generation = viewGeneration("index");
+      let geoCoverage = geoCache.get(generation);
+      if (!geoCoverage && geocoded) {
+        const counts = await queryOne(
+          `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE TRY_CAST(trim(str_split(${q("Coordonnées")}, ',')[1]) AS DOUBLE) BETWEEN -90 AND 90 AND TRY_CAST(trim(str_split(${q("Coordonnées")}, ',')[2]) AS DOUBLE) BETWEEN -180 AND 180) AS geocoded FROM ${viewName("index")} WHERE ${q("Type")} = 'Lieux'`,
+        );
+        geoCoverage = { total: Number(counts?.total ?? 0), geocoded: Number(counts?.geocoded ?? 0) };
+        if (geoCache.size > 2) geoCache.clear();
+        geoCache.set(generation, geoCoverage);
+      }
       const topN = Math.max(1, Math.min(200, args.top_n ?? 60));
 
       const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
@@ -83,16 +84,19 @@ export function registerPlacesTools(server: Server): void {
              FROM ${viewName("index")}
              WHERE NULLIF(trim(${q("Coordonnées")}), '') IS NOT NULL
                AND ${q("Type")} = 'Lieux'
+               AND TRY_CAST(trim(str_split(${q("Coordonnées")}, ',')[1]) AS DOUBLE) BETWEEN -90 AND 90
+               AND TRY_CAST(trim(str_split(${q("Coordonnées")}, ',')[2]) AS DOUBLE) BETWEEN -180 AND 180
+             QUALIFY ROW_NUMBER() OVER (PARTITION BY strip_accents(lower(trim(${q("Titre")}))) ORDER BY "o:id") = 1
            ) g ON g.key = v.key`
         : "";
 
       const rows = await query(
         `WITH v AS (
-           SELECT trim(raw) AS place, strip_accents(lower(trim(raw))) AS key
-           FROM (SELECT unnest(str_split(coalesce(spatial, ''), '|')) AS raw FROM ${viewName(subset)} ${whereSql})
+           SELECT "o:id" AS id, trim(raw) AS place, strip_accents(lower(trim(raw))) AS key
+           FROM (SELECT "o:id", unnest(str_split(coalesce(spatial, ''), '|')) AS raw FROM ${viewName(subset)} ${whereSql})
            WHERE NULLIF(trim(raw), '') IS NOT NULL
          )
-         SELECT v.place, COUNT(*) AS count${geocoded ? ", any_value(g.lat) AS lat, any_value(g.lng) AS lng" : ""}
+         SELECT v.place, COUNT(DISTINCT v.id) AS count${geocoded ? ", any_value(g.lat) AS lat, any_value(g.lng) AS lng" : ""}
          FROM v ${coordJoin}
          GROUP BY v.place ORDER BY count DESC, v.place`,
         params,
@@ -105,7 +109,14 @@ export function registerPlacesTools(server: Server): void {
         const lat = r.lat == null ? null : Number(r.lat);
         const lng = r.lng == null ? null : Number(r.lng);
         const count = Number(r.count);
-        if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {
+        if (
+          lat !== null &&
+          lng !== null &&
+          Number.isFinite(lat) &&
+          Number.isFinite(lng) &&
+          Math.abs(lat) <= 90 &&
+          Math.abs(lng) <= 180
+        ) {
           if (places.length < topN) places.push({ place: String(r.place), count, lat, lng });
         } else {
           ungeocodedMentions += count;
@@ -118,16 +129,17 @@ export function registerPlacesTools(server: Server): void {
       // shades the first and bubbles the second, which is the comparison worth
       // drawing — a press that covers itself reads very differently from one
       // that covers elsewhere.
-      const byCountry = schema.has("country")
-        ? rowsToMap(
-            await query(
-              `SELECT trim(raw) AS k, COUNT(*) AS c
-               FROM (SELECT unnest(str_split(coalesce(country, ''), '|')) AS raw FROM ${viewName(subset)} ${whereSql})
+      const byCountry =
+        subset !== "references" && schema.has("country")
+          ? rowsToMap(
+              await query(
+                `SELECT trim(raw) AS k, COUNT(DISTINCT "o:id") AS c
+               FROM (SELECT "o:id", unnest(str_split(coalesce(country, ''), '|')) AS raw FROM ${viewName(subset)} ${whereSql})
                WHERE NULLIF(trim(raw), '') IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1`,
-              params,
-            ),
-          )
-        : {};
+                params,
+              ),
+            )
+          : {};
 
       return chartResult({
         view: VIEW.places,
@@ -138,12 +150,12 @@ export function registerPlacesTools(server: Server): void {
         ...(Object.keys(byCountry).length ? { items_by_country: byCountry } : {}),
         places,
         ...(ungeocoded.length ? { ungeocoded, ungeocoded_mentions: ungeocodedMentions } : {}),
+        geocode_coverage: geoCoverage,
         note:
-          `Coordinates come from the index's 'Lieux' authority records, which cover 555 of 683 places; a named ` +
+          `The loaded authority index has ${geoCoverage?.geocoded ?? 0} geocoded places of ${geoCoverage?.total ?? 0}. A named ` +
           `place with no geocoded index entry is listed under 'ungeocoded' with its count, not dropped. ` +
           `'spatial' is multi-valued, so counts sum to more than the item count.`,
       });
     },
   );
-
 }

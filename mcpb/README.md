@@ -78,7 +78,7 @@ Two things are measured, in `o200k_base` tokens — not Claude's tokenizer, sinc
 none is published, but the one the public MCP benchmarks use and close enough on
 French prose for a gate about *movement*:
 
-* **Always-on footprint** — the 34 tool definitions plus the instructions block,
+* **Always-on footprint** — the 35 default tool definitions plus the instructions block,
   which every client loads before the user has typed anything: **~14.1k tokens**
   today (`inputSchema` 5.5k, `outputSchema` 2.4k, descriptions 2.7k). Compared
   against `test/token-baseline.json` on every PR; more than 5% growth fails, and
@@ -172,6 +172,11 @@ Environment variables (all transports unless noted):
 | -------- | ------- | ------- |
 | `IWAC_CACHE_DIR` | `~/.iwac-mcp/cache` (`/cache` in Docker) | Where parquet data is cached (~250 MB) |
 | `IWAC_OFFLINE` | `false` | Trust the cache as-is; never touch the network |
+| `IWAC_DATASET_REVISION` | `main` | Dataset revision; use an immutable Hub commit SHA for reproducible studies |
+| `IWAC_EMBEDDING_PROVIDER` | `gemini` | `local` uses an explicitly configured matching corpus contract |
+| `IWAC_EMBEDDING_CONTRACT_FILE` | — | JSON model/revision/dimension/field declaration; required for local embeddings |
+| `IWAC_LOCAL_EMBEDDING_URL` | `http://127.0.0.1:8080/v1/embeddings` | Local OpenAI-compatible embeddings endpoint |
+| `IWAC_LOCAL_EMBEDDING_API_KEY` | — | Optional credential for the explicitly configured local endpoint |
 | `IWAC_REFRESH_HOURS` | `24` | Hours before a loaded subset is re-checked against Hugging Face. The check runs in the background on the next call that touches the subset, and a newer revision is swapped in without a restart. `0` disables it |
 | `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Register the three `semantic_search_*` tools |
 | `IWAC_GOOGLE_API_KEY` (or `GOOGLE_API_KEY` / `GEMINI_API_KEY`) | — | Gemini key for semantic search |
@@ -377,3 +382,20 @@ without authentication; removing a token does not erase private files.
 
 Keep the shared hosted endpoint public. This setting applies to the whole instance:
 everyone who can query a private instance can access its full text.
+
+## Research workbench and operational changes
+
+See [the workbench guide](../docs/research-workbench.md) for selection semantics,
+normalized denominators, provenance exports, local embeddings and offline scripts.
+Successful responses include a separate provenance content block and `_meta` entry;
+the first content block and existing structured payload remain compatible.
+
+Requests pin their loaded files across subqueries. Old immutable generations are
+retained for other processes and older snapshots. Disk use can grow after refresh;
+stop all users of the cache before archival/cleanup. Incomplete manifests recover
+only from a complete backup, never from a glob of mixed generations. Writers hold
+`.iwac-write-lock`; confirm its owner has stopped before clearing a crash leftover.
+
+Authenticated `GET /metrics` exposes active/queued database work and a bounded
+p50/p95 tool-latency window. `/health` remains unauthenticated. Query and projection
+queues have limits, deadlines and cancellation; PCA executes in worker threads.

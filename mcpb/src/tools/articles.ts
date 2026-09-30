@@ -1,5 +1,6 @@
+import { aggregateFilters, exactInput } from "./aggregates/shared.js";
 import { z } from "zod";
-import { ensureView, getById, type Bindable } from "../db.js";
+import { ensureView, getById } from "../db.js";
 import { config } from "../config.js";
 import { runSemanticSearchTool } from "./_semantic.js";
 import {
@@ -10,8 +11,6 @@ import {
   countryParam,
   dateRangeFilter,
   errorResult,
-  hijriFilter,
-  keywordFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
@@ -19,7 +18,6 @@ import {
   resolveHijriMonth,
   resolveLimit,
   runListQuery,
-  TEXT_COLS,
   textResult,
   toolMeta,
   validateDateBounds,
@@ -37,7 +35,13 @@ export function registerArticleTools(server: Server): void {
         "Search IWAC newspaper articles by keyword (title + OCR + AI abstracts, French and English), country, newspaper, subject, " +
         "and date range. Use French concept keywords regardless of the user's report language. Matching is accent- and case-insensitive.",
       inputSchema: z.object({
-        keyword: z.string().optional().describe("Concept keyword; substring match on title, OCR text, and the French and English AI abstracts. Prefer French for the OCR; an English term still matches via the English abstract"),
+        ...exactInput(),
+        keyword: z
+          .string()
+          .optional()
+          .describe(
+            "Concept keyword; substring match on title, OCR text, and the French and English AI abstracts. Prefer French for the OCR; an English term still matches via the English abstract",
+          ),
         country: countryParam(),
         newspaper: z.string().optional(),
         subject: z.string().optional(),
@@ -54,7 +58,9 @@ export function registerArticleTools(server: Server): void {
         with_description: z
           .boolean()
           .optional()
-          .describe("Include each article's ~500-char AI abstract (description_ai) for triage without get_article. Adds ~125 tokens/row, so `limit` defaults to 10 and caps at 25 while this is on."),
+          .describe(
+            "Include each article's ~500-char AI abstract (description_ai) for triage without get_article. Adds ~125 tokens/row, so `limit` defaults to 10 and caps at 25 while this is on.",
+          ),
         limit: z.number().int().optional().describe("Default 20, max 100 (10 and 25 with with_description)"),
         offset: z.number().int().optional(),
       }),
@@ -81,18 +87,17 @@ export function registerArticleTools(server: Server): void {
       // (≤10)"; this makes the advice binding, and the clamp is reported through
       // the usual limit_warning rather than applied silently.
       const limit = args.with_description
-        ? resolveLimit(args.limit, 10, 25, "`with_description` adds a ~500-char abstract per row; drop it to page 100 at a time.")
+        ? resolveLimit(
+            args.limit,
+            10,
+            25,
+            "`with_description` adds a ~500-char abstract per row; drop it to page 100 at a time.",
+          )
         : resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
-      const where: string[] = [];
-      const params: Bindable[] = [];
-
-      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
-      likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
-      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
-      keywordFilter(schema, where, params, TEXT_COLS.articles, args.keyword);
-      dateRangeFilter(schema, where, params, args.date_from, args.date_to);
-      hijriFilter(where, params, hijriMonth.n, args.hijri_year);
+      const selection = aggregateFilters("articles", schema, { ...args, country: country.canonical });
+      if (selection.err) return errorResult(selection.err);
+      const { where, params } = selection;
 
       return textResult(
         await runListQuery({

@@ -1241,7 +1241,7 @@ describe("lunarView", () => {
     assert.match(peak.label, /Ramadan/);
   });
 
-  it("routes the peak action to the subset's own search tool", () => {
+  it("routes the peak action to the shared reader with its original subset", () => {
     const calls: { tool: string; args: Record<string, unknown> }[] = [];
     const ctx = {
       run: (tool: string, args: Record<string, unknown>) => void calls.push({ tool, args }),
@@ -1249,8 +1249,9 @@ describe("lunarView", () => {
     } as never;
     const actions = lunarView({ ...payload, subset: "publications" }).actions ?? [];
     actions.find((a) => a.id === "peak")?.run(ctx);
-    assert.equal(calls[0].tool, "search_publications");
-    assert.equal(calls[0].args.hijri_month, "09");
+    assert.equal(calls[0].tool, "explore_corpus");
+    assert.equal(calls[0].args.subset, "publications");
+    assert.equal((calls[0].args.selection as {hijri_month:string}).hijri_month, "09");
   });
 
   it("survives an empty distribution", () => {

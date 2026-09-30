@@ -1,3 +1,4 @@
+import { narrowSelection, selectionFrom } from "../../selection.js";
 import type { TopicsPayload } from "../../viewContract.js";
 // get_topic_distribution → the shape of what a corpus is about.
 //
@@ -30,6 +31,7 @@ export function topicsView(payload: BasePayload): ViewResult {
 
   const map = treemap({
     items: topics.map((t) => ({
+      key: String(t.topic_id),
       label: shortLabel(t.label ?? ""),
       value: t.count ?? 0,
       // Full label plus how dominant the topic is where it is assigned.
@@ -101,17 +103,14 @@ export function topicsView(payload: BasePayload): ViewResult {
       },
     ],
     wire(root, ctx) {
-      // The treemap cell carries the SHORT label, so match it back to the full
-      // one before handing it to a keyword search.
-      const byShort = new Map(topics.map((t) => [shortLabel(t.label ?? ""), t]));
       root.querySelectorAll<SVGElement>(".hit[data-key]").forEach((el) => {
         el.addEventListener("click", () => {
-          const topic = byShort.get(el.getAttribute("data-key") ?? "");
-          if (!topic?.label) return;
-          // The topic's own leading term is the closest thing to a query the
-          // aggregate tools accept; searching it keeps the user in charts.
-          const term = topic.label.split(/\s+-\s+/)[0]?.replaceAll("_", " ");
-          if (term) void ctx.run("get_temporal_distribution", { subset: p.subset ?? "articles", keyword: term });
+          const id = el.getAttribute("data-key");
+          if (id !== null)
+            void ctx.run("get_temporal_distribution", {
+              subset: p.subset ?? "articles",
+              ...narrowSelection(selectionFrom(p.filters), "topic_id", id),
+            });
         });
       });
     },

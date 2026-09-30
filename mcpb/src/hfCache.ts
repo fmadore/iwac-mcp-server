@@ -90,10 +90,10 @@ export function parseCacheManifest(
   const files: Record<string, CachedFileMetadata> = {};
   for (const [fileName, raw] of Object.entries(value.files)) {
     if (!isRecord(raw) || typeof raw.remotePath !== "string") return undefined;
-    if (
-      raw.size !== undefined &&
-      (typeof raw.size !== "number" || !Number.isSafeInteger(raw.size) || raw.size < 0)
-    ) {
+    if (path.basename(fileName) !== fileName || !fileName.endsWith(".parquet") || fileName.includes("\\"))
+      return undefined;
+    if (raw.remotePath.startsWith("/") || raw.remotePath.split("/").includes("..")) return undefined;
+    if (raw.size !== undefined && (typeof raw.size !== "number" || !Number.isSafeInteger(raw.size) || raw.size < 0)) {
       return undefined;
     }
     if (raw.identity !== undefined && typeof raw.identity !== "string") {

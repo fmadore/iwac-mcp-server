@@ -228,6 +228,7 @@ export function stackedBar(o: ColumnOptions): string {
 }
 
 export interface RankItem {
+  key?: string;
   label: string;
   value: number;
   /** Optional right-hand annotation (e.g. a date range). */
@@ -266,7 +267,7 @@ export function horizontalBar(o: HorizontalBarOptions): string {
         `<text x="${gutter - 8}" y="${n(y + rowH / 2 + 4)}" class="tick lbl" text-anchor="end">${esc(clip(it.label, 30))}</text>` +
         `<rect x="${gutter}" y="${n(y + 3)}" width="${n(w)}" height="${n(rowH - 8)}" rx="1" ` +
         `fill="${it.color ?? colors[i % colors.length]}"${
-          o.clickable ? ` class="hit" data-key="${esc(it.label)}"` : ""
+          o.clickable ? ` class="hit" data-key="${esc(it.key ?? it.label)}"` : ""
         }><title>${esc(it.label)}: ${esc(fmt(it.value))}${it.note ? ` (${esc(it.note)})` : ""}</title></rect>` +
         `<text x="${n(gutter + w + 6)}" y="${n(y + rowH / 2 + 4)}" class="tick">${esc(fmt(it.value))}</text>`
       );
@@ -282,6 +283,7 @@ export function horizontalBar(o: HorizontalBarOptions): string {
 }
 
 export interface GanttRow {
+  key?: string;
   label: string;
   start: number;
   end: number;
@@ -341,7 +343,7 @@ export function gantt(o: GanttOptions): string {
         `<text x="${gutter - 8}" y="${n(y + rowH / 2 + 4)}" class="tick lbl" text-anchor="end">${esc(clip(r.label, 30))}</text>` +
         `<rect x="${n(x1)}" y="${n(y + (rowH - thick) / 2)}" width="${n(span1)}" height="${n(thick)}" rx="${n(Math.min(3, thick / 2))}" ` +
         `fill="${colors[i % colors.length]}"${
-          o.clickable ? ` class="hit" data-key="${esc(r.label)}"` : ""
+          o.clickable ? ` class="hit" data-key="${esc(r.key ?? r.label)}"` : ""
         }><title>${esc(label)}${r.note ? ` — ${esc(r.note)}` : ""}</title></rect>`
       );
     })
@@ -500,7 +502,7 @@ export function treemap(o: TreemapOptions): string {
       const showLabel = b.w > 58 && b.h > 26;
       const showValue = b.w > 58 && b.h > 40;
       return (
-        `<g${o.clickable ? ` class="hit" data-key="${esc(it.label)}"` : ""}>` +
+        `<g${o.clickable ? ` class="hit" data-key="${esc(it.key ?? it.label)}"` : ""}>` +
         `<rect x="${n(b.x)}" y="${n(b.y)}" width="${n(b.w - 1)}" height="${n(b.h - 1)}" rx="2" fill="${it.color ?? colors[i % colors.length]}">` +
         // `note` carries the untruncated name: treemap cells show a short
         // label, so the tooltip is the only place the full one survives.
@@ -578,6 +580,7 @@ export function heatmapMatrix(o: MatrixOptions): string {
 }
 
 export interface MapPoint {
+  key?: string;
   label: string;
   lat: number;
   lng: number;
@@ -622,18 +625,12 @@ export function bubbleMap(o: BubbleMapOptions): string {
   const peakCountry = Math.max(1, ...Object.values(o.choropleth ?? {}));
   const shapes = o.countries
     .map((c) => {
-      const d = c.rings
-        .map((ring) => `M${ring.map(([lng, lat]) => `${n(x(lng))} ${n(y(lat))}`).join("L")}Z`)
-        .join("");
+      const d = c.rings.map((ring) => `M${ring.map(([lng, lat]) => `${n(x(lng))} ${n(y(lat))}`).join("L")}Z`).join("");
       const total = o.choropleth?.[c.name];
-      const fill = c.iwac
-        ? total === undefined
-          ? "var(--land)"
-          : ramp(0.15 + 0.85 * (total / peakCountry))
-        : "none";
+      const fill = c.iwac ? (total === undefined ? "var(--land)" : ramp(0.15 + 0.85 * (total / peakCountry))) : "none";
       return (
         `<path d="${d}" fill="${fill}" class="${c.iwac ? "land" : "neighbour"}"` +
-        `${o.clickable && c.iwac ? ` data-key="${esc(c.name)}"` : ""}>` +
+        `${o.clickable && c.iwac ? ` data-key="${esc(`country:${c.name}`)}"` : ""}>` +
         `<title>${esc(c.name)}${total === undefined ? "" : `: ${esc(fmt(total))}`}</title></path>`
       );
     })
@@ -651,7 +648,7 @@ export function bubbleMap(o: BubbleMapOptions): string {
       const r = 3 + 19 * Math.sqrt(p.value / peak);
       return (
         `<circle cx="${n(x(p.lng))}" cy="${n(y(p.lat))}" r="${n(r)}" class="bubble"` +
-        `${o.clickable ? ` data-key="${esc(p.label)}"` : ""}>` +
+        `${o.clickable ? ` data-key="${esc(p.key ?? p.label)}"` : ""}>` +
         `<title>${esc(p.label)}: ${esc(fmt(p.value))}</title></circle>`
       );
     })
@@ -776,8 +773,8 @@ export function forceGraph(o: NetworkOptions): string {
   const maxX = Math.max(...px);
   const minY = Math.min(...py);
   const maxY = Math.max(...py);
-  const sx = (maxX - minX) < 1 ? 1 : (width - 2 * pad) / (maxX - minX);
-  const sy = (maxY - minY) < 1 ? 1 : (height - 2 * pad) / (maxY - minY);
+  const sx = maxX - minX < 1 ? 1 : (width - 2 * pad) / (maxX - minX);
+  const sy = maxY - minY < 1 ? 1 : (height - 2 * pad) / (maxY - minY);
   const X = (i: number): number => pad + (px[i] - minX) * sx;
   const Y = (i: number): number => pad + (py[i] - minY) * sy;
 
@@ -814,6 +811,7 @@ export function forceGraph(o: NetworkOptions): string {
 }
 
 export interface ScatterPoint {
+  key?: string;
   x: number;
   y: number;
   label: string;
@@ -857,7 +855,7 @@ export function scatter(o: ScatterOptions): string {
       const fill = gi >= 0 ? colors[gi % colors.length] : colors[0];
       return (
         `<circle cx="${n(X(p.x))}" cy="${n(Y(p.y))}" r="${r}" fill="${fill}" class="dot"` +
-        `${o.clickable ? ` data-key="${esc(p.label)}"` : ""}>` +
+        `${o.clickable ? ` data-key="${esc(p.key ?? p.label)}"` : ""}>` +
         `<title>${esc(clip(p.label, 90))}${p.group ? ` — ${esc(p.group)}` : ""}</title></circle>`
       );
     })
@@ -897,9 +895,6 @@ export function legend(labels: string[], colors?: string[]): string {
   if (labels.length < 2) return "";
   const c = colors ?? palette();
   return `<ul class="legend">${labels
-    .map(
-      (l, i) =>
-        `<li><span class="swatch" style="background:${c[i % c.length]}"></span>${esc(l)}</li>`,
-    )
+    .map((l, i) => `<li><span class="swatch" style="background:${c[i % c.length]}"></span>${esc(l)}</li>`)
     .join("")}</ul>`;
 }

@@ -1,3 +1,4 @@
+import { aggregateFilters, exactInput } from "./aggregates/shared.js";
 import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, getById, query, selectList, viewName, type Bindable } from "../db.js";
@@ -12,22 +13,17 @@ import {
   countryParam,
   errorResult,
   extractMatchingTocEntries,
-  hijriFilter,
   keywordExcerpts,
-  keywordFilter,
-  likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
   requireHijriColumns,
   resolveHijriMonth,
   resolveLimit,
   runListQuery,
-  TEXT_COLS,
   textResult,
   toolMeta,
   validateDateBounds,
   validateEnum,
-  yearRangeFilter,
   type Server,
 } from "./_shared.js";
 
@@ -52,7 +48,13 @@ export function registerPublicationTools(server: Server): void {
         "Filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
         "get_publication_fulltext for keyword excerpts from a single issue.",
       inputSchema: z.object({
-        keyword: z.string().optional().describe("French concept keyword; substring match on title + subject + table of contents + OCR (accent-insensitive)"),
+        ...exactInput(),
+        keyword: z
+          .string()
+          .optional()
+          .describe(
+            "French concept keyword; substring match on title + subject + table of contents + OCR (accent-insensitive)",
+          ),
         newspaper: z.string().optional().describe("Periodical/series title (see list_periodicals)"),
         subject: z.string().optional().describe("Subject tag (~87% of issues are tagged)"),
         country: countryParam(),
@@ -85,14 +87,9 @@ export function registerPublicationTools(server: Server): void {
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
 
-      const where: string[] = [];
-      const params: Bindable[] = [];
-      keywordFilter(schema, where, params, TEXT_COLS.publications, args.keyword);
-      likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
-      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
-      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
-      yearRangeFilter(schema, where, params, args.date_from, args.date_to);
-      hijriFilter(where, params, hijriMonth.n, args.hijri_year);
+      const selection = aggregateFilters("publications", schema, { ...args, country: country.canonical });
+      if (selection.err) return errorResult(selection.err);
+      const { where, params } = selection;
 
       // With a keyword, pull the TOC too so matching entries can be extracted
       // below; without one it is dead weight on every row.

@@ -1,3 +1,4 @@
+import { narrowSelection, selectionFrom } from "../../selection.js";
 import type { CooccurrencePayload } from "../../viewContract.js";
 // get_cooccurrence → which values of a field are discussed together.
 //
@@ -42,7 +43,9 @@ export function cooccurrenceView(payload: BasePayload, options: ViewOptions = {}
 
   // Upper triangle only; the matrix is symmetric so both halves are one edge.
   const allEdges = values
-    .flatMap((_, i) => values.slice(i + 1).map((__, k) => ({ source: i, target: i + 1 + k, weight: matrix[i][i + 1 + k] })))
+    .flatMap((_, i) =>
+      values.slice(i + 1).map((__, k) => ({ source: i, target: i + 1 + k, weight: matrix[i][i + 1 + k] })),
+    )
     .filter((e) => e.weight > 0);
   const strongest = Math.max(1, ...allEdges.map((e) => e.weight));
   const edges = allEdges.filter((e) => e.weight >= strongest * EDGE_THRESHOLD);
@@ -115,10 +118,7 @@ export function cooccurrenceView(payload: BasePayload, options: ViewOptions = {}
           ctx.download(
             `iwac-${field}-cooccurrence.csv`,
             "text/csv",
-            csv([
-              ["", ...values],
-              ...values.map((v, i) => [v, ...matrix[i]]),
-            ]),
+            csv([["", ...values], ...values.map((v, i) => [v, ...matrix[i]])]),
           ),
       },
     ],
@@ -126,12 +126,11 @@ export function cooccurrenceView(payload: BasePayload, options: ViewOptions = {}
       root.querySelectorAll<SVGElement>(".hit[data-key]").forEach((el) => {
         el.addEventListener("click", () => {
           const value = el.getAttribute("data-key");
-          if (!value) return;
-          const args: Record<string, unknown> =
-            field === "subject"
-              ? { subset: p.subset ?? "articles", subject: value }
-              : { subset: p.subset ?? "articles", keyword: value };
-          void ctx.run("get_temporal_distribution", args);
+          if (!value || !p.field) return;
+          let selection = narrowSelection(selectionFrom(p.filters), p.field, value);
+          const second = el.getAttribute("data-key2");
+          if (second) selection = narrowSelection(selection, p.field, second);
+          void ctx.run("get_temporal_distribution", { subset: p.subset ?? "articles", ...selection });
         });
       });
     },

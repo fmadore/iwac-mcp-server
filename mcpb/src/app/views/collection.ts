@@ -85,7 +85,8 @@ export function collectionView(payload: BasePayload): ViewResult {
           const subset = el.getAttribute("data-key");
           // `index` has no pub_date — its first/last_occurrence mean something
           // else entirely — so it is deliberately not a temporal drill-down.
-          if (subset && subset !== "index") void ctx.run("get_temporal_distribution", { subset });
+          if (subset === "index") void ctx.run("explore_corpus", { subset, mode: "items" });
+          else if (subset) void ctx.run("get_temporal_distribution", { subset });
         });
       });
     },

@@ -79,7 +79,15 @@ export function chips(values: Record<string, unknown> | undefined): string {
     ([, v]) => v !== null && v !== undefined && v !== "" && v !== false,
   );
   if (!entries.length) return '<span class="chip muted">no filters</span>';
-  return entries.map(([k, v]) => `<span class="chip">${esc(k)}: ${esc(v)}</span>`).join("");
+  const display = entries.flatMap(([key, value]) =>
+    key === "exact" && value && typeof value === "object"
+      ? Object.entries(value).map(([field, terms]) => [
+          `exact.${field}`,
+          Array.isArray(terms) ? terms.join(" AND ") : String(terms),
+        ])
+      : [[key, Array.isArray(value) ? value.join(" OR ") : typeof value === "object" ? JSON.stringify(value) : value]],
+  );
+  return display.map(([k, v]) => `<span class="chip">${esc(k)}: ${esc(v)}</span>`).join("");
 }
 
 /** The empty state — a real sentence, not a blank panel. */

@@ -1,3 +1,4 @@
+import { narrowSelection, selectionFrom } from "../../selection.js";
 import type { Place, PlacesPayload } from "../../viewContract.js";
 // get_place_distribution → where the coverage points, on a map.
 //
@@ -28,12 +29,7 @@ const inFrame = (p: Place): boolean =>
   (p.lat as number) >= BASEMAP_BOUNDS.south &&
   (p.lat as number) <= BASEMAP_BOUNDS.north;
 
-const fold = (s: string): string =>
-  s
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .trim();
+const fold = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
 /**
  * Country names carry coordinates too — the index geocodes "Côte d'Ivoire" to
@@ -99,6 +95,7 @@ export function placesView(payload: BasePayload): ViewResult {
         countries: BASEMAP,
         bounds: BASEMAP_BOUNDS,
         points: plotted.map((x) => ({
+          key: `spatial:${x.place}`,
           label: x.place ?? "",
           lat: x.lat as number,
           lng: x.lng as number,
@@ -126,7 +123,9 @@ export function placesView(payload: BasePayload): ViewResult {
 
   const countryChart = countryLevel.length
     ? horizontalBar({
-        items: countryLevel.slice(0, 12).map((x) => ({ label: x.place ?? "", value: x.count ?? 0 })),
+        items: countryLevel
+          .slice(0, 12)
+          .map((x) => ({ key: `spatial:${x.place}`, label: x.place ?? "", value: x.count ?? 0 })),
         clickable: true,
         gutter: 180,
         width: 520,
@@ -161,7 +160,7 @@ export function placesView(payload: BasePayload): ViewResult {
           `ranking beside the map.`,
       ungeoMentions > 0 &&
         `A further ${fmtInt(ungeoMentions)} mentions name places with no geocoded index entry. Only 'Lieux' ` +
-          `authority records carry coordinates (555 of 683); persons, organisations and events never will.`,
+          `authority records with usable coordinates can appear on the map.`,
       "Bubble AREA is proportional to the mention count, not its radius — a radius encoding would square the " +
         "difference and overstate the largest places.",
       p.items_by_country
@@ -189,16 +188,17 @@ export function placesView(payload: BasePayload): ViewResult {
       },
     ],
     wire(root, ctx) {
-      // Countries filter; individual places have to go through the keyword path
-      // because `spatial` is not a filter the temporal tool accepts.
-      const countries = new Set(BASEMAP.filter((c) => c.iwac).map((c) => c.name));
       root.querySelectorAll<SVGElement>("[data-key]").forEach((el) => {
         el.addEventListener("click", () => {
           const key = el.getAttribute("data-key");
           if (!key) return;
           void ctx.run("get_temporal_distribution", {
             subset: p.subset ?? "articles",
-            ...(countries.has(key) ? { country: key } : { keyword: key }),
+            ...narrowSelection(
+              selectionFrom(p.filters),
+              key.startsWith("country:") ? "country" : "spatial",
+              key.slice(key.indexOf(":") + 1),
+            ),
           });
         });
       });

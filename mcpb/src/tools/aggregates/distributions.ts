@@ -4,13 +4,7 @@ import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
-import {
-  COUNTRIES,
-  errorResult,
-  toolMeta,
-  validateEnum,
-  type Server,
-} from "../_shared.js";
+import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
 import { AGG_SUBSETS, aggregateFilters, filterInputs } from "./shared.js";
 
 /**
@@ -25,9 +19,7 @@ const PIPE_FIELDS = new Set(["subject", "spatial", "author", "language", "countr
 
 /** `unnest`-based explode of a pipe column into one trimmed, non-empty row per value. */
 function explode(field: string): string {
-  return PIPE_FIELDS.has(field)
-    ? `unnest(str_split(coalesce(${q(field)}, ''), '|')) AS raw`
-    : `${q(field)} AS raw`;
+  return PIPE_FIELDS.has(field) ? `unnest(str_split(coalesce(${q(field)}, ''), '|')) AS raw` : `${q(field)} AS raw`;
 }
 
 const FIELD_OUTPUT = z.object({
@@ -63,11 +55,7 @@ export function registerDistributionsTools(server: Server): void {
     {
       ...toolMeta("Rank a field's values"),
       description:
-        "Rank the values of one multi-valued field across a filtered set — the direct way to answer 'which places " +
-        "does this coverage name most', 'who signs these articles', 'what subjects dominate'. Pipe-joined fields " +
-        "(subject, spatial, author, language, country) are split, so an article tagged 'Prière|Ramadan' counts " +
-        "once for each. Optional over_time adds the per-year share of items that carry ANY value for the field, " +
-        "which is how you see e.g. bylines appearing as the press professionalises.",
+        "Rank exact metadata values, splitting pipe-separated tags. Reports missing metadata and optional coverage over time. Choose spatial for mentioned places, country for stored country tags, or subject/author/language.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         field: z.string().describe(RANKABLE_FIELDS.join(" | ")),
@@ -113,8 +101,8 @@ export function registerDistributionsTools(server: Server): void {
       // differ only for a field that repeats a value within one item, which the
       // parquet does not do — but counting DISTINCT items keeps it true anyway.
       const exploded = `
-        SELECT trim(raw) AS value, COUNT(*) AS count
-        FROM (SELECT ${explode(field)} FROM ${viewName(subset)} ${whereSql})
+        SELECT trim(raw) AS value, COUNT(DISTINCT "o:id") AS count
+        FROM (SELECT "o:id", ${explode(field)} FROM ${viewName(subset)} ${whereSql})
         WHERE NULLIF(trim(raw), '') IS NOT NULL
         GROUP BY 1`;
       const rows = await query(`${exploded} ORDER BY count DESC, value LIMIT ${topN}`, params);
@@ -165,10 +153,7 @@ export function registerDistributionsTools(server: Server): void {
     {
       ...toolMeta("Co-occurrence matrix"),
       description:
-        "How often the top values of a multi-valued field appear on the SAME item — a subject/place co-mention " +
-        "matrix. Answers 'what is X discussed alongside' without reading anything: the pair counts are the " +
-        "structure of the tagging. Returns the top values, the full symmetric matrix (diagonal = each value's own " +
-        "count) and the strongest pairs.",
+        "Count pairs of metadata values co-tagged on the same items. Matrix/network views show descriptive associations, not causal links. Filters apply before pair counting; top_n caps the vocabulary.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         field: z.string().optional().describe("subject (default) | spatial | author | language"),
@@ -201,10 +186,7 @@ export function registerDistributionsTools(server: Server): void {
       const { where, params, echo } = filters;
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const total = Number(
-        (await queryScalarSingle<number | bigint>(
-          `SELECT COUNT(*) FROM ${viewName(subset)} ${whereSql}`,
-          params,
-        )) ?? 0,
+        (await queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName(subset)} ${whereSql}`, params)) ?? 0,
       );
 
       // Explode once into (item, value), then self-join on the item. Restricting
@@ -264,5 +246,4 @@ export function registerDistributionsTools(server: Server): void {
       });
     },
   );
-
 }

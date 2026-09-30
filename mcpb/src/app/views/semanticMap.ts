@@ -56,13 +56,14 @@ export function semanticMapView(payload: BasePayload): ViewResult {
   const body =
     scatter({
       points: points.map((x) => ({
+        key: x.id,
         x: x.x as number,
         y: x.y as number,
         label: x.title || (x.id ?? ""),
         group: x.group && grouped.has(x.group) ? x.group : undefined,
       })),
       groups,
-      clickable: false,
+      clickable: true,
       ariaLabel: "Items projected onto their first two principal components",
     }) + (groups.length > 1 ? legend(groups) : "");
 
@@ -87,6 +88,13 @@ export function semanticMapView(payload: BasePayload): ViewResult {
           `filter to compare them.`
         : null,
     ],
+    wire(root, ctx) {
+      root.querySelectorAll<SVGElement>("[data-key]").forEach((el) => {
+        el.addEventListener("click", () => {
+          void ctx.run("fetch", { id: `${p.subset ?? "articles"}:${el.getAttribute("data-key")}` });
+        });
+      });
+    },
     actions: [
       {
         id: "csv",

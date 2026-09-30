@@ -17,98 +17,27 @@ const VERSION = typeof __IWAC_VERSION__ === "string" ? __IWAC_VERSION__ : "0.0.0
  * receives, so it carries the essential research workflow, language strategy,
  * citation rule, and caveats. Claude Desktop layers the richer `iwac-mcp` skill
  * on top of this floor — this block and .agents/skills/iwac-mcp/SKILL.md
- * deliberately mirror each other, so update both together.
+ * share the same research principles; detailed methods live in the skill.
  * Built per-server because the semantic-search guidance
  * must match whether those tools are actually registered (they are dropped
  * entirely when IWAC_SEMANTIC_SEARCH_ENABLED is off, e.g. on the public HTTP
  * endpoint — instructions must not advertise tools that do not exist).
  */
-const INSTRUCTIONS =
-  "The Islam West Africa Collection (IWAC) archives francophone West African newspaper " +
-  "articles, Islamic publications, archival documents, audiovisual records, fieldwork " +
-  "photographs, and academic references on Islam and Muslim societies in Benin, Burkina Faso, " +
-  "Côte d'Ivoire, Niger, Nigeria, and Togo.\n\n" +
-  "WORKFLOW: start with `search` (a concept or name), then `fetch` an id from the results to read " +
-  "the full text. The unified `search` matches each word of a multi-word query independently — " +
-  "every word must appear somewhere in the item — so 'pèlerinage Mecque' narrows results rather " +
-  "than failing; prefer a single concept per call. The finer search_* tools' `keyword` filter " +
-  "instead does ONE literal substring match, so for those search one term at a time ('pèlerinage', " +
-  "then 'Mecque'). When many items match, weigh result counts and AI abstracts before fetching full " +
-  "texts. Beyond search/fetch, finer tools exist (search_articles, search_publications, " +
-  "search_references, search_index, search_documents, plus get_* and list_*) with country, " +
-  "newspaper, subject, and date filters — prefer the `subject` filter over keywords for curated " +
-  "themes. For trends over time, call get_temporal_distribution (counts per year or month under " +
-  "the same filters) instead of paging through search results. To characterise a whole set rather " +
-  "than read it, the aggregate tools answer in one call what paging never will: " +
-  "get_topic_distribution (how it spreads over 30 precomputed LDA topics), get_field_distribution " +
-  "(rank its subjects, places, authors or languages), get_cooccurrence (what is discussed " +
-  "alongside what), and get_lexical_metrics (readability, lexical richness, length). All matching is accent- and " +
-  "case-insensitive; country filters take exact names (Benin, " +
-  "Burkina Faso, Côte d'Ivoire, Niger, Nigeria, Togo).\n\n" +
-  "ISLAMIC CALENDAR: coverage driven by observances is invisible on a Gregorian axis — the lunar year " +
-  "drifts ~11 days a year, so over 1961-2025 each observance smears across all twelve Gregorian months. " +
-  "For that question call get_temporal_distribution with granularity=lunar_month, which pools every year " +
-  "into the twelve lunar months (Ramadan, Dhu al-Hijja/hajj and Shawwal/Korité all run well above the " +
-  "even split). calendar=hijri with granularity=year|month gives a Hijri time series instead. To read the " +
-  "items behind a peak, search_articles / search_publications take hijri_month (1-12, or a name in either " +
-  "transliteration — Ramadan, Chaabane, Dhou al-hijja) and hijri_year. Lunar dates are precomputed with " +
-  "the Umm al-Qura tables and need a full YYYY-MM-DD, so items dated only to a year or month are reported " +
-  "in imprecise_date_count and are ABSENT from lunar counts, not zero. They do not exist for references " +
-  "(an academic imprint date has no meaningful lunar reading).\n\n" +
-  "FULL-TEXT COVERAGE: this is the public dataset, and OCR full text ships only for items whose " +
-  "content is public on islam.zmo.de — about 56% of articles (7,546/13,397) and 86% of " +
-  "publications (1,298/1,501). Titles and subjects are searchable for ALL items, and AI abstracts " +
-  "(French AND English) for all but the newest arrivals: ingestion runs ahead of enrichment, so the " +
-  "most recent ~1,050 articles carry metadata only — no OCR, abstract, sentiment or topic — and, since " +
-  "rows come back newest-first, they sit on page 1. Nothing is invisible to discovery, but the " +
-  "full-text half of a keyword match covers only those shares, and a triage pass on description_ai " +
-  "should bound its dates rather than assume every row carries one. Call " +
-  "get_collection_stats for the live `fulltext_coverage` figures, treat keyword totals as a floor " +
-  "rather than a corpus-wide census, and disclose this whenever a count carries an argument.\n\n" +
-  "CALL ECONOMY: hosts stop a turn after roughly 20 tool calls, and the cap counts turns of the tool " +
-  "loop rather than the calls within one, so issue independent calls together in a single message rather " +
-  "than one at a time. Pick the aggregate tool whose numbers answer the question instead of running the " +
-  "family over the same filter. The stats and distribution tools render their own chart where the host " +
-  "supports it, at no extra call: never rebuild those numbers as a separate chart or artifact, and quote " +
-  "the figures in prose so the answer stands where nothing renders.\n\n" +
-  "RESULTS & ERRORS: list/search tools return a pagination envelope — read `total_matches` to gauge " +
-  "scale without paging, and request a sane `limit` (an over-large one is capped visibly via " +
-  "`requested_limit` + `limit_warning`, never silently dropped). Enumerated filters (`country`, " +
-  "`polarity`, `centrality`, `index_type`) are validated: an invalid value returns {error, " +
-  "valid_values} to self-correct — an error to fix, not a finding — whereas a VALID value with 0 " +
-  "rows is a real absence (there is no Nigerian press, so country='Nigeria' on search_articles is " +
-  "genuinely empty). Free-text filters (newspaper, subject, author, reference_type, language) are " +
-  "NOT validated, so a typo there returns 0 silently — sanity-check them. On list_locations / " +
-  "list_persons, `country` means 'mentioned in records from that country' (not 'located there') and " +
-  "`frequency` is a collection-wide total; the response restates this in a `note`. If `search` cannot " +
-  "load a subset it still returns the rest and names the missing ones in `unavailable_categories` + " +
-  "`coverage_warning` — those categories are ABSENT from the results, not empty, so retry or use their " +
-  "own search_* tool before concluding a term is unattested there.\n\n" +
-  "REPORT LANGUAGE: write the final report, synthesis, and follow-up questions in the language " +
-  "of the user's question. If the question is mixed, use its dominant language.\n\n" +
-  "QUERY LANGUAGE: formulate keyword/substr search strings and concept keywords in FRENCH for " +
-  "press articles, publications, documents, and index searches, even when the " +
-  "user asks in another language (laïcité, confrérie, pèlerinage, enseignement islamique). " +
-  "Academic references are multilingual: search title/abstract keywords in French and English when " +
-  "relevant, while keeping metadata/filter values such as reference_type and language in French. " +
-  "{{SEMANTIC_QUERY_LANGUAGE}}Keep proper names and canonical filter values exact.\n\n" +
-  "TRANSLITERATION: Arabic-Islamic terms appear in FRENCH transliteration — search the French " +
-  "form and try variants: Tabaski or Aïd el-Kébir (not 'Eid al-Adha'); Korité or Aïd el-Fitr; " +
-  "Maouloud/Mouloud (not 'Mawlid'); charia (not 'sharia'); confrérie; Wahhabisme.\n\n" +
-  "RESEARCH WORKFLOW: this server also serves its own operating manual as a resource. If you do not " +
-  "already have the `iwac-mcp` skill loaded, read `skill://iwac-mcp/SKILL.md` before a substantial " +
-  "research task. It carries the five-phase method, French search strategy and reporting " +
-  "conventions these tools assume. Its reference files (`skill://iwac-mcp/references/…`, listed in " +
-  "`skill://iwac-mcp`) are meant to be read on demand, not upfront.\n\n" +
-  "CITATIONS: every result has a `url` field such as " +
-  "https://islam.zmo.de/s/afrique_ouest/item/28576 — always cite IWAC items using this full " +
-  'URL (rendered as a markdown link), never a short form like "art. #28576" or "item 28576".\n\n' +
-  "CAVEATS: coverage is uneven — Niger is thin (one newspaper, 2018 on) and Nigeria has NO press " +
-  "articles (audiovisual only), so disclose this in any cross-country claim. The press is ~96% " +
-  "francophone, reflecting Western-educated Muslim voices more than Arabic-trained (arabisant) " +
-  "leaders. Never present results as exhaustive — absence of evidence is not evidence of absence. " +
-  "Polarity/sentiment fields are AI-derived, not editorial ground truth; press coverage reflects " +
-  "what was published, not necessarily what happened.{{SEMANTIC_CAVEAT}}";
+const INSTRUCTIONS = `IWAC archives newspaper articles, Islamic publications, documents, audiovisual records, photographs and academic references on Islam in Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria and Togo.
+
+WORKFLOW: start with search, then fetch a namespaced id to read its source. Unified search requires every query word; keyword filters default to one literal substring. Tools exposing keyword_mode also support all_terms; keyword_aliases are explicit OR alternatives, never automatic. Exact filters intersect existing selections. Prefer curated subject tags for themes. Matching is accent/case-insensitive. Use aggregates for counts instead of paging through search results; report figures in prose even when a chart renders.
+
+RESEARCH WORKBENCH: explore_corpus provides items, concordance, source×year coverage, two-selection comparison, publication-country/mentioned-place attention and authority aliases. Preserve selections during drill-down; counts describe archived material, not historical prevalence. get_temporal_distribution supports normalize_by=scope|searchable with explicit denominators. get_topic_distribution, get_field_distribution, get_cooccurrence and get_lexical_metrics summarize topics, tags, relationships and text metrics. Each successful result includes dataset file identities and applied arguments in provenance; exports preserve them. A pinned IWAC_DATASET_REVISION helps reproduce research.
+
+ISLAMIC CALENDAR: granularity=lunar_month pools all years into twelve Hijri months; calendar=hijri with year|month gives a time series. Lunar dates use precomputed Umm al-Qura dates and require precise source dates. imprecise_date_count is excluded, not zero. Reference imprint dates have no lunar reading. Use hijri_month/year in a workbench selection to read peak items.
+
+COVERAGE AND ERRORS: consult get_collection_stats and scoped coverage rather than fixed corpus totals. The public dataset omits restricted OCR; metadata and available AI summaries remain searchable. New arrivals can lack enrichment. Keyword counts are a floor. Read pagination, caps, unavailable_categories, search_coverage and coverage_warning; a failed or skipped pass is not a negative finding. Correct validation errors; sanity-check free-text filters for typos. Country on authority lists means mentioned by records from that country; frequency is collection-wide. Partial article dates use interval overlap; other search tools document year-level bounds.
+
+LANGUAGE: answer in the user's language. Use French keywords for press, publications, documents and index; search academic references in French and English as appropriate. Keep names and canonical metadata values exact. Try French transliteration variants: Tabaski/Aïd el-Kébir, Korité/Aïd el-Fitr, Maouloud/Mouloud, charia, confrérie, Wahhabisme. {{SEMANTIC_QUERY_LANGUAGE}}
+
+METHOD: read skill://iwac-mcp/SKILL.md before substantial research if it is not already loaded; read its listed references on demand. Batch independent calls and use the aggregate that answers the question. Cite each IWAC source with its full canonical url as a Markdown link, never just an item number.
+
+INTERPRETATION: national, temporal, linguistic and full-text coverage are uneven; verify current coverage before comparing. Francophone press overrepresents some voices, especially Western-educated speakers. Never claim exhaustiveness or infer absence from missing evidence. AI sentiment is an annotation, not editorial ground truth. Similarity retrieves candidates; no score proves copying. Press coverage describes what was published, not necessarily what happened.{{SEMANTIC_CAVEAT}}`;
 
 /** Resolve the semantic-search placeholders against the actual tool registration.
  * Config is fixed for the process, so this runs once, not once per server. */
@@ -123,7 +52,7 @@ function buildInstructions(): string {
   ).replace(
     "{{SEMANTIC_CAVEAT}}",
     config.semanticSearchEnabled
-      ? " The semantic_search_* tools call the Gemini embedding API at query time."
+      ? ` The semantic_search_* tools send queries to the configured ${config.embeddingProvider} embedding provider.`
       : "",
   );
 }

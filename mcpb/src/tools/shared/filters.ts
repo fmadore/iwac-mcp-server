@@ -145,16 +145,35 @@ export function yearRangeFilter(
  * unparseable, string = usable. The null case exists so callers can REJECT a
  * bad bound — see `validateDateBounds`.
  */
-function normalizeDateBound(v: string | undefined, kind: "from" | "to"): string | undefined | null {
+export function normalizeDateBound(v: string | undefined, kind: "from" | "to"): string | undefined | null {
   if (!v?.trim()) return undefined;
-  const m = v.trim().match(/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?/);
+  const m = v
+    .trim()
+    .match(/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?$/);
   if (!m) return null;
+  if (/[T ]/.test(v.trim()) && (!m[3] || !Number.isFinite(Date.parse(v.trim())))) return null;
   const pad = (s: string) => s.padStart(2, "0");
   const mo = m[2] ? pad(m[2]) : kind === "from" ? "01" : "12";
-  const d = m[3] ? pad(m[3]) : kind === "from" ? "01" : "31";
+  const year = Number(m[1]);
+  const days = [
+    31,
+    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  const last = days[Number(mo) - 1];
+  const d = m[3] ? pad(m[3]) : kind === "from" ? "01" : String(last);
   // An out-of-range month or day would compare lexicographically against real
   // dates and quietly select the wrong rows, so it is a bad bound, not a bound.
-  if (Number(mo) < 1 || Number(mo) > 12 || Number(d) < 1 || Number(d) > 31) return null;
+  if (year < 1 || !last || Number(d) < 1 || Number(d) > last) return null;
   return `${m[1]}-${mo}-${d}`;
 }
 
@@ -189,16 +208,32 @@ export function validateDateBounds(dateFrom?: string, dateTo?: string): DateVali
       };
     }
   }
+  const from = normalizeDateBound(dateFrom, "from");
+  const to = normalizeDateBound(dateTo, "to");
+  if (from && to && from > to)
+    return { err: { error: "date_from is after date_to", valid_format: "An inclusive chronological interval" } };
   return {};
+}
+
+/** Partial source dates denote intervals. Filtering uses interval overlap,
+ * never invents a day for a year-only record, and ignores invalid dates. */
+export function dateInterval(column = "pub_date"): { start: string; end: string } {
+  const raw = `trim(CAST(${q(column)} AS VARCHAR))`;
+  const start = `CASE WHEN regexp_full_match(${raw}, '[0-9]{4}') THEN TRY_CAST(${raw} || '-01-01' AS DATE)
+    WHEN regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}') THEN TRY_CAST(${raw} || '-01' AS DATE)
+    WHEN regexp_matches(${raw}, '^[0-9]{4}-[0-9]{2}-[0-9]{2}($|[T ])') THEN TRY_CAST(substr(${raw}, 1, 10) AS DATE) END`;
+  const end = `CASE WHEN regexp_full_match(${raw}, '[0-9]{4}') THEN TRY_CAST(${raw} || '-12-31' AS DATE)
+    WHEN regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}') THEN last_day(TRY_CAST(${raw} || '-01' AS DATE))
+    ELSE (${start}) END`;
+  return { start, end };
 }
 
 /**
  * Day-granularity date range for `articles.pub_date`. The column's *type* has
  * changed across dataset revisions (TIMESTAMPTZ → VARCHAR), and a bare
  * `pub_date >= CAST(? AS TIMESTAMPTZ)` throws a Binder Error on the VARCHAR
- * revision. Casting the column to VARCHAR and comparing the ISO YYYY-MM-DD
- * prefix lexicographically works for both revisions and tolerates partial
- * ("1995-06") and empty values.
+ * revision. Parse each value into a calendar interval and test overlap; this
+ * includes year/month-only records without pretending their precision is a day.
  */
 export function dateRangeFilter(
   schema: Set<string>,
@@ -209,15 +244,15 @@ export function dateRangeFilter(
   column = "pub_date",
 ): void {
   if (!schema.has(column)) return;
-  const dayExpr = `NULLIF(substr(CAST(${q(column)} AS VARCHAR), 1, 10), '')`;
+  const interval = dateInterval(column);
   const from = normalizeDateBound(dateFrom, "from");
   const to = normalizeDateBound(dateTo, "to");
   if (from) {
-    where.push(`${dayExpr} >= ?`);
+    where.push(`(${interval.end}) >= CAST(? AS DATE)`);
     params.push(from);
   }
   if (to) {
-    where.push(`${dayExpr} <= ?`);
+    where.push(`(${interval.start}) <= CAST(? AS DATE)`);
     params.push(to);
   }
 }
@@ -233,8 +268,5 @@ export function pubDateOrder(schema: Set<string>): string {
 
 /** Frequency-first ordering used by the index list/search tools. */
 export function indexFreqOrder(schema: Set<string>): string {
-  return schema.has("frequency")
-    ? `ORDER BY frequency DESC NULLS LAST, ${q("Titre")}`
-    : `ORDER BY ${q("Titre")}`;
+  return schema.has("frequency") ? `ORDER BY frequency DESC NULLS LAST, ${q("Titre")}` : `ORDER BY ${q("Titre")}`;
 }
-

@@ -1,3 +1,5 @@
+import { aggregateFilters, exactInput } from "./aggregates/shared.js";
+import { bodyColumn } from "./shared/research.js";
 import type { ChartPayload, Coverage } from "../viewContract.js";
 import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
@@ -7,22 +9,16 @@ import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   COUNTRIES,
   countryParam,
-  dateRangeFilter,
   DEFAULT_SENTIMENT_MODEL,
   errorResult,
   HIJRI_MONTHS,
   hijriPart,
-  keywordFilter,
-  likeFilterIfExists,
   pipeValueFilterIfExists,
   requireHijriColumns,
   rowsToMap,
   sentimentCols,
-  TEXT_COLS,
   toolMeta,
-  validateDateBounds,
   validateEnum,
-  yearRangeFilter,
   type Server,
 } from "./_shared.js";
 
@@ -91,6 +87,9 @@ const TEMPORAL_OUTPUT = z.object({
   // separately so a lunar total is never mistaken for the subset total.
   imprecise_date_count: z.number().optional(),
   month_labels: z.record(z.string(), z.string()).optional(),
+  normalize_by: z.string().optional(),
+  denominators: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+  denominator_filters: z.looseObject({}).optional(),
   distribution: z.record(z.string(), z.number()).optional(),
   distribution_by_group: z.record(z.string(), z.record(z.string(), z.number())).optional(),
   note: z.string().optional(),
@@ -170,11 +169,10 @@ export function registerStatsTools(server: Server): void {
               fulltext_coverage: coverage,
               fulltext_note: config.privateDataset
                 ? "PRIVATE full mirror: coverage counts non-empty OCR, including restricted source content. Missing OCR may still limit keyword results."
-                :
-                "This is the PUBLIC dataset: full text (OCR) ships only for items whose content is public on " +
-                "islam.zmo.de, per item. Keyword search still reaches every item's title, subjects and AI " +
-                "abstract, but the full-text half of a keyword match only covers the counts above — so report " +
-                "keyword totals as a floor, not a corpus-wide census, and say so when the ratio matters.",
+                : "This is the PUBLIC dataset: full text (OCR) ships only for items whose content is public on " +
+                  "islam.zmo.de, per item. Keyword search still reaches every item's title, subjects and AI " +
+                  "abstract, but the full-text half of a keyword match only covers the counts above — so report " +
+                  "keyword totals as a floor, not a corpus-wide census, and say so when the ratio matters.",
             }
           : {}),
       };
@@ -243,9 +241,7 @@ export function registerStatsTools(server: Server): void {
       // non-empty names; the two tools must agree).
       const groupWhereSql = `WHERE ${[...where, `NULLIF(trim(newspaper), '') IS NOT NULL`].join(" AND ")}`;
       const hasDate = schema.has("pub_date");
-      const dateCols = hasDate
-        ? `, MIN(${DATE_EXPR}) AS earliest_date, MAX(${DATE_EXPR}) AS latest_date`
-        : "";
+      const dateCols = hasDate ? `, MIN(${DATE_EXPR}) AS earliest_date, MAX(${DATE_EXPR}) AS latest_date` : "";
       const [rows, rawTotal] = await Promise.all([
         query(
           `SELECT newspaper, country, COUNT(*) AS article_count${dateCols}
@@ -283,12 +279,8 @@ export function registerStatsTools(server: Server): void {
       const schema = await ensureView("articles");
       if (!schema.has("country")) return chartResult({ view: VIEW.countries, total_countries: 0, countries: [] });
 
-      const dateSel = schema.has("pub_date")
-        ? `, MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest`
-        : "";
-      const newsSel = schema.has("newspaper")
-        ? ", COUNT(DISTINCT NULLIF(trim(newspaper), '')) AS newspaper_count"
-        : "";
+      const dateSel = schema.has("pub_date") ? `, MIN(${DATE_EXPR}) AS earliest, MAX(${DATE_EXPR}) AS latest` : "";
+      const newsSel = schema.has("newspaper") ? ", COUNT(DISTINCT NULLIF(trim(newspaper), '')) AS newspaper_count" : "";
       const polarityCol = sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity;
       // The per-country summary and the polarity breakdown are independent
       // scans, so they run side by side.
@@ -357,22 +349,18 @@ export function registerStatsTools(server: Server): void {
     {
       ...toolMeta("Coverage over time"),
       description:
-        "Counts of matching items per year (or month) — the direct way to chart coverage trends over time " +
-        "instead of paging through search results. Defaults to articles; also works on publications, references, " +
-        "documents, audiovisual, and images. Accepts the same filters as the corresponding search_* tool " +
-        "(keyword = ONE substring over the subset's text fields, country, newspaper/series, subject, date range). " +
-        "Optional group_by=country|newspaper returns one distribution per group. Items dated only to a year keep " +
-        "a bare-year key even at month granularity; undated items are counted in undated_count, never dropped silently. " +
-        "Set calendar=hijri to bucket by the Islamic (Umm al-Qura) calendar instead — with granularity=lunar_month " +
-        "this collapses every year into the twelve lunar months, which is the ONLY way to see observance-driven " +
-        "coverage (Ramadan, Dhu al-Hijja/hajj, Shawwal/Korité): the lunar year drifts ~11 days against the Gregorian, " +
-        "so a Gregorian axis smears each observance across all twelve months. Hijri buckets need a full YYYY-MM-DD, " +
-        "so items dated only to a year or month are reported in imprecise_date_count.",
-      // MCP Apps: hosts that support the extension render the counts as an
-      // interactive chart (see tools/appUi.ts); everyone else ignores `_meta`
-      // and gets the identical JSON.
+        "Counts by Gregorian or Hijri year/month, or pooled lunar month. Group by country/newspaper. Partial dates and missing lunar dates are disclosed. normalize_by returns numerator counts and per-bucket denominators in the same country/outlet/date scope, removing thematic filters. Shares describe IWAC holdings.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
+        ...exactInput(),
+        hijri_month: z.string().optional(),
+        hijri_year: z.number().int().optional(),
+        normalize_by: z
+          .enum(["scope", "searchable"])
+          .optional()
+          .describe(
+            "Share per bucket in the same country/outlet/date scope; searchable restricts both counts to full text. Thematic filters are removed from the denominator.",
+          ),
         subset: z
           .string()
           .optional()
@@ -380,7 +368,9 @@ export function registerStatsTools(server: Server): void {
         granularity: z
           .string()
           .optional()
-          .describe("year (default) | month | lunar_month (all years collapsed into 12 lunar months; needs calendar=hijri)"),
+          .describe(
+            "year (default) | month | lunar_month (all years collapsed into 12 lunar months; needs calendar=hijri)",
+          ),
         calendar: z
           .string()
           .optional()
@@ -388,7 +378,9 @@ export function registerStatsTools(server: Server): void {
         keyword: z
           .string()
           .optional()
-          .describe("ONE French concept keyword (French/English for references); substring over the subset's text fields"),
+          .describe(
+            "ONE French concept keyword (French/English for references); substring over the subset's text fields",
+          ),
         country: countryParam({ nigeria: true }),
         newspaper: z.string().optional().describe("Newspaper (articles) or periodical/series title (publications)"),
         subject: z.string().optional().describe("Exact subject tag (pipe-aware)"),
@@ -438,40 +430,13 @@ export function registerStatsTools(server: Server): void {
         });
       }
 
-      // This is the one tool where the subset varies, so a supplied filter whose
-      // column the subset lacks must be an error, not a silent no-op: the
-      // *IfExists helpers would drop it and the distribution would cover the
-      // WHOLE subset while the echoed `filters` claimed it was filtered — an
-      // unfiltered aggregate presented as filtered, the inverse of the
-      // silent-zero trap validateEnum exists to prevent.
-      const inapplicable: string[] = [];
-      if (args.keyword && !TEXT_COLS[subset].some((c) => schema.has(c))) inapplicable.push("keyword");
-      if (country.canonical && !schema.has("country")) inapplicable.push("country");
-      if (args.newspaper && !schema.has("newspaper")) inapplicable.push("newspaper");
-      if (args.subject && !schema.has("subject")) inapplicable.push("subject");
-      if (inapplicable.length) {
-        return errorResult({
-          error:
-            `Filter${inapplicable.length > 1 ? "s" : ""} not available for subset '${subset}': ` +
-            `${inapplicable.join(", ")}. Drop ${inapplicable.length > 1 ? "them" : "it"} or pick a subset that has ` +
-            `the column${inapplicable.length > 1 ? "s" : ""}.`,
-        });
-      }
-
-      const dates = validateDateBounds(args.date_from, args.date_to);
-      if (dates.err) return errorResult(dates.err);
-      const where: string[] = [];
-      const params: Bindable[] = [];
-      keywordFilter(schema, where, params, TEXT_COLS[subset], args.keyword);
-      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
-      likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
-      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
-      // Articles carry day-precision ISO dates; the other subsets store year-ish
-      // VARCHARs ("1912"), where a lexicographic day compare would exclude them.
-      if (subset === "articles") {
-        dateRangeFilter(schema, where, params, args.date_from, args.date_to);
-      } else {
-        yearRangeFilter(schema, where, params, args.date_from, args.date_to);
+      const selected = aggregateFilters(subset, schema, { ...args, country: country.canonical });
+      if (selected.err) return errorResult(selected.err);
+      const { where, params, echo } = selected;
+      if (args.normalize_by === "searchable") {
+        const body = bodyColumn(subset, schema);
+        if (!body) return errorResult({ error: `No full-text column on ${subset}` });
+        where.push(`NULLIF(trim(CAST(${q(body)} AS VARCHAR)), '') IS NOT NULL`);
       }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
@@ -543,14 +508,7 @@ export function registerStatsTools(server: Server): void {
         granularity,
         ...(hijri ? { calendar: "hijri" } : {}),
         ...(groupBy ? { group_by: groupBy } : {}),
-        filters: {
-          keyword: args.keyword ?? null,
-          country: country.canonical ?? null,
-          newspaper: args.newspaper ?? null,
-          subject: args.subject ?? null,
-          date_from: args.date_from ?? null,
-          date_to: args.date_to ?? null,
-        },
+        filters: echo,
         total_matches: dated + undated + imprecise,
         dated_count: dated,
         undated_count: undated,
@@ -560,14 +518,50 @@ export function registerStatsTools(server: Server): void {
         // hard-code a transliteration that would drift from the archive's.
         ...(granularity === "lunar_month"
           ? {
-              month_labels: Object.fromEntries(
-                HIJRI_MONTHS.map((m, i) => [String(i + 1).padStart(2, "0"), m]),
-              ),
+              month_labels: Object.fromEntries(HIJRI_MONTHS.map((m, i) => [String(i + 1).padStart(2, "0"), m])),
             }
           : {}),
         ...(groupBy ? { distribution_by_group: grouped } : { distribution: flat }),
       };
       const notes: string[] = [];
+      if (args.normalize_by) {
+        const baselineExact = Object.fromEntries(
+          Object.entries(args.exact ?? {}).filter(([k]) => k === "country" || k === "newspaper"),
+        );
+        const baseline = aggregateFilters(subset, schema, {
+          country: country.canonical,
+          newspaper: args.newspaper,
+          date_from: args.date_from,
+          date_to: args.date_to,
+          exact: baselineExact,
+          hijri_month: args.hijri_month,
+          hijri_year: args.hijri_year,
+        });
+        if (baseline.err) return errorResult(baseline.err);
+        if (args.normalize_by === "searchable") {
+          const body = bodyColumn(subset, schema);
+          if (!body) return errorResult({ error: `No full-text column on ${subset}` });
+          baseline.where.push(`NULLIF(trim(CAST(${q(body)} AS VARCHAR)), '') IS NOT NULL`);
+        }
+        const baseRows = await query(
+          `SELECT ${bucketExpr} AS bucket${groupSel}, COUNT(*) AS c FROM ${viewName(subset)}
+          ${baseline.where.length ? `WHERE ${baseline.where.join(" AND ")}` : ""} GROUP BY ALL ORDER BY bucket`,
+          baseline.params,
+        );
+        const denominators: Record<string, Record<string, number>> = {};
+        for (const r of baseRows) {
+          if (r.bucket == null) continue;
+          const g = groupBy ? String(r.grp || "(none)") : "all";
+          denominators[g] ??= {};
+          denominators[g][String(r.bucket)] = Number(r.c);
+        }
+        payload.normalize_by = args.normalize_by;
+        payload.denominators = denominators;
+        payload.denominator_filters = baseline.echo;
+        notes.push(
+          "Shares describe IWAC holdings, not population prevalence. The denominator retains country, outlet, dates and lunar filters, but removes thematic filters.",
+        );
+      }
       if (pipeGroups) {
         notes.push(
           `Some ${groupBy} values are multi-valued (pipe-joined, e.g. 'Niger|Nigeria') and are grouped by the stored string.`,

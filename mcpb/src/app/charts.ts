@@ -20,6 +20,7 @@ import { chips, empty, type BasePayload, type ViewContext, type ViewOptions, typ
 import { esc } from "./theme.js";
 import { setTheme } from "./theme.js";
 import { VIEWS } from "./views/index.js";
+import { selectionFrom } from "../selection.js";
 import { VIEW_DATA_META_KEY, isViewName } from "../viewContract.js";
 
 const app = new App({ name: "IWAC charts", version: "3.0.0" });
@@ -32,6 +33,15 @@ let transientError: string | null = null;
 /** View-local UI state (see shell.ts), discarded whenever the view changes. */
 let options: ViewOptions = {};
 let optionsView: string | undefined;
+let generation = 0;
+const history: { payload: BasePayload; options: ViewOptions }[] = [];
+function navigate(next: BasePayload): void {
+  if (current.view) {
+    history.push({ payload: current, options });
+    if (history.length > 30) history.shift();
+  }
+  render(next);
+}
 
 // -----------------------------------------------------------------------------
 // Payload plumbing
@@ -57,7 +67,11 @@ function readPayload(result: unknown): BasePayload {
     isError?: boolean;
   };
   const viewData = r?._meta?.[VIEW_DATA_META_KEY] as BasePayload | undefined;
-  const merge = (base: BasePayload): BasePayload => (viewData ? { ...base, ...viewData } : base);
+  const merge = (base: BasePayload): BasePayload => {
+    const merged: BasePayload = { ...base, ...viewData, provenance: r?._meta?.["islam.zmo.de/provenance"] };
+    if (!merged.view && typeof merged.text === "string" && merged.id) merged.view = "reader";
+    return merged;
+  };
 
   if (r?.structuredContent) return merge(r.structuredContent);
   const text = r?.content?.find((c) => c.type === "text")?.text;
@@ -71,17 +85,32 @@ function readPayload(result: unknown): BasePayload {
 
 const ctx: ViewContext = {
   async run(name, args) {
-    const result = await app.callServerTool({ name, arguments: args });
-    const next = readPayload(result);
-    if (next.error) {
-      // Keep the chart the user is looking at rather than replacing it with an
-      // error page; a rejected group_by should not cost them their place.
-      transientError = String(next.error);
-      render(current);
-      return;
+    const ticket = ++generation;
+    root.setAttribute("aria-busy", "true");
+    if (!root.querySelector(".loading")) {
+      const status = document.createElement("p");
+      status.className = "loading";
+      status.setAttribute("role", "status");
+      status.textContent = "Loading…";
+      root.append(status);
     }
-    transientError = null;
-    render(next);
+    try {
+      const result = await app.callServerTool({ name, arguments: args });
+      if (ticket !== generation) return;
+      const next = readPayload(result);
+      if (next.error) throw new Error(String(next.error));
+      transientError = null;
+      navigate(next);
+    } catch (error) {
+      if (ticket !== generation) return;
+      transientError = (error as Error).message;
+      render(current);
+    } finally {
+      if (ticket === generation) {
+        root.removeAttribute("aria-busy");
+        root.querySelector(".loading")?.remove();
+      }
+    }
   },
   setOption(key, value) {
     options = { ...options, [key]: value };
@@ -90,9 +119,28 @@ const ctx: ViewContext = {
   canDownload: false,
   canOpenLink: false,
   async download(filename, mimeType, text) {
-    await app.downloadFile({
-      contents: [{ type: "resource", resource: { uri: `file:///${filename}`, mimeType, text } }],
-    });
+    const contents = [{ type: "resource" as const, resource: { uri: `file:///${filename}`, mimeType, text } }];
+    if (mimeType !== "application/json" && current.provenance)
+      contents.push({
+        type: "resource",
+        resource: {
+          uri: `file:///${filename}.provenance.json`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              exported_at: new Date().toISOString(),
+              provenance: current.provenance,
+              filters: current.filters,
+              note: current.note,
+              offset: current.offset,
+              has_more: current.has_more,
+            },
+            null,
+            2,
+          ),
+        },
+      });
+    await app.downloadFile({ contents });
   },
   async openLink(url) {
     await app.openLink({ url });
@@ -143,6 +191,68 @@ function render(payload: BasePayload): void {
     .join("");
 
   const actions = (result.actions ?? []).filter((a) => a.id !== "csv" || ctx.canDownload);
+  if (
+    payload.subset &&
+    payload.filters &&
+    !["records", "reader", "aliases", "comparison"].includes(payload.view ?? "")
+  ) {
+    actions.unshift({
+      id: "read-items",
+      label: "Read source items",
+      run: (c) =>
+        c.run("explore_corpus", {
+          mode: "items",
+          subset: payload.subset,
+          selection: selectionFrom(payload.filters as Record<string, unknown>),
+        }),
+    });
+  }
+  if (ctx.canDownload) {
+    actions.push({
+      id: "json",
+      label: "Download data + provenance",
+      run: (c) =>
+        c.download(
+          "iwac-research.json",
+          "application/json",
+          JSON.stringify({ exported_at: new Date().toISOString(), ...payload }, null, 2),
+        ),
+    });
+    if (result.body.includes("<svg"))
+      actions.push({
+        id: "svg",
+        label: "Download chart SVG",
+        run: (c) => {
+          const theme = document.documentElement.getAttribute("data-theme") ?? "light";
+          const styles = document.querySelector("style")?.textContent ?? "";
+          let y = 40,
+            width = 900;
+          const parts = Array.from(root.querySelectorAll("svg")).map((svg) => {
+            const [, , w, h] = (svg.getAttribute("viewBox") ?? "0 0 900 300").split(/\s+/).map(Number);
+            width = Math.max(width, w);
+            const top = y;
+            y += h + 40;
+            return `<text x="10" y="${top}" fill="var(--fg)" font-size="14">${esc(svg.getAttribute("aria-label") ?? "")}</text><svg x="0" y="${top + 10}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${svg.innerHTML}</svg>`;
+          });
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" data-theme="${theme}" viewBox="0 0 ${width} ${y}" width="${width}" height="${y}" style="font-family:system-ui,sans-serif"><style>${styles}</style><rect width="100%" height="100%" fill="${theme === "dark" ? "#17130f" : "#ffffff"}"/><title>${esc(result.title)}</title>${parts.join("")}</svg>`;
+          return c.download("iwac-chart.svg", "image/svg+xml", svg);
+        },
+      });
+  }
+  if (history.length)
+    actions.unshift({
+      id: "back",
+      label: "Back",
+      run: () => {
+        generation++;
+        const previous = history.pop();
+        if (!previous) return;
+        options = previous.options;
+        optionsView = previous.payload.view;
+        transientError = null;
+        render(previous.payload);
+      },
+    });
 
   root.innerHTML = `
     <header>
@@ -180,6 +290,20 @@ function render(payload: BasePayload): void {
   }
 
   result.wire?.(root, ctx);
+  root.querySelectorAll<SVGElement>("[data-key]").forEach((el) => {
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("role", "button");
+    el.setAttribute(
+      "aria-label",
+      el.querySelector("title")?.textContent ?? el.getAttribute("data-key") ?? "Inspect sources",
+    );
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      }
+    });
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -187,6 +311,8 @@ function render(payload: BasePayload): void {
 // -----------------------------------------------------------------------------
 
 app.ontoolresult = (result) => {
+  generation++;
+  history.length = 0;
   transientError = null;
   render(readPayload(result));
 };

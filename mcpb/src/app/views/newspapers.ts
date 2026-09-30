@@ -1,3 +1,4 @@
+import { narrowSelection } from "../../selection.js";
 import type { NewspapersPayload } from "../../viewContract.js";
 // get_newspaper_stats → ranked bars of the titles that carry the corpus.
 //
@@ -29,12 +30,10 @@ export function newspapersView(payload: BasePayload): ViewResult {
     chips: { country: p.country_filter },
     body: horizontalBar({
       items: shown.map((r) => ({
+        key: JSON.stringify([r.newspaper, r.country]),
         label: r.newspaper ?? "(untitled)",
         value: r.article_count ?? 0,
-        note: [
-          r.country,
-          r.earliest_date ? `${r.earliest_date.slice(0, 4)}–${r.latest_date?.slice(0, 4)}` : null,
-        ]
+        note: [r.country, r.earliest_date ? `${r.earliest_date.slice(0, 4)}–${r.latest_date?.slice(0, 4)}` : null]
           .filter(Boolean)
           .join(", "),
       })),
@@ -65,10 +64,15 @@ export function newspapersView(payload: BasePayload): ViewResult {
       },
     ],
     wire(root, ctx) {
+      const byKey = new Map(shown.map((r) => [JSON.stringify([r.newspaper, r.country]), r]));
       root.querySelectorAll<SVGElement>(".hit[data-key]").forEach((el) => {
         el.addEventListener("click", () => {
-          const newspaper = el.getAttribute("data-key");
-          if (newspaper) void ctx.run("get_temporal_distribution", { newspaper });
+          const row = byKey.get(el.getAttribute("data-key") ?? "");
+          if (!row?.newspaper) return;
+          let selection = narrowSelection({ country: p.country_filter }, "newspaper", row.newspaper);
+          for (const country of row.country?.split("|").filter(Boolean) ?? [])
+            selection = narrowSelection(selection, "country", country);
+          void ctx.run("get_temporal_distribution", { subset: "articles", ...selection });
         });
       });
     },

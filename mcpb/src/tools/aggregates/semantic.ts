@@ -4,7 +4,10 @@ import { isFiniteVector } from "../../vectors.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
-import { project2d } from "../../pca.js";
+import { projectAsync } from "../../projection.js";
+import { createHash } from "node:crypto";
+import { limitWarning, resolveLimit } from "../shared/limits.js";
+import { viewGeneration } from "../../db.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import {
   codePointBoundary,
@@ -67,6 +70,14 @@ const SEMANTIC_MAP_OUTPUT = z.object({
   filters: z.looseObject({}),
   total_matches: z.number(),
   projected: z.number(),
+  eligible_embeddings: z.number().optional(),
+  invalid_embeddings: z.number().optional(),
+  omitted_by_limit: z.number().optional(),
+  missing_embeddings: z.number().optional(),
+  sampling: z.string().optional(),
+  seed: z.string().optional(),
+  requested_limit: z.number().optional(),
+  limit_warning: z.string().optional(),
   color_by: z.string().optional(),
   explained_variance: z.array(z.number()),
   // Per-group counts, when color_by is set: the part of a scatter plot a model
@@ -92,16 +103,7 @@ export function registerSemanticTools(server: Server): void {
     {
       ...toolMeta("Semantic scatter"),
       description:
-        "A 2-D scatter of a filtered set, projected from the stored 768-dimension embeddings by PCA. Shows which " +
-        "items sit near each other in meaning — where a set splits into distinct strands and where it is one " +
-        "cloud. Read `explained_variance` before drawing any conclusion: with 768 dimensions the first two " +
-        "components usually carry a modest share, and a scatter explaining 6% of the variance is a much weaker " +
-        "claim than one explaining 40%. This is PCA, not UMAP: it spreads the broadest axes of variation and " +
-        "flattens fine cluster structure, so it is not comparable to the semantic landscapes on islam.zmo.de. " +
-        "Needs no API key — the vectors are a column in the dataset — but only items whose full text ships are " +
-        "embedded at all. NOTE the payload scales with `limit`: a point cloud is a chart, not something a " +
-        "text-only client can read, so for those the useful part is the explained-variance summary rather than " +
-        "the coordinates. Keep `limit` low unless a chart is going to be drawn.",
+        "Stable-hash sample of matching stored embeddings, projected with PCA. Reports eligible, invalid, missing and capped counts, seed and explained variance. Group counts describe the sample. Coordinates are chart-only; this is not the published UMAP landscape. Needs no API key.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         subset: z.string().optional().describe("articles (default) | publications | references"),
@@ -145,7 +147,8 @@ export function registerSemanticTools(server: Server): void {
       // 2,000 x 768 doubles is ~12 MB and ~1 s of power iteration; past that the
       // scatter is an unreadable smear anyway. The default is deliberately low:
       // every point costs payload, and 300 already fills a 760px frame.
-      const limit = Math.max(10, Math.min(2000, args.limit ?? 300));
+      const cap = resolveLimit(args.limit, 300, 2000);
+      const limit = cap.value;
 
       const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
       if (filters.err) return errorResult(filters.err);
@@ -165,17 +168,29 @@ export function registerSemanticTools(server: Server): void {
         `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title,
                 ${colorBy ? `${q(colorCol as string)} AS grp,` : ""} ${q(embeddingCol)} AS emb
          FROM ${viewName(subset)} WHERE ${whereSql}
-         ORDER BY "o:id" LIMIT ${limit}`,
+         ORDER BY md5(CAST("o:id" AS VARCHAR) || 'iwac-pca-v1'), "o:id"`,
         params,
       );
 
       const kept: Record<string, unknown>[] = [];
       const vectors: number[][] = [];
       let dim = 0;
+      let eligible = 0;
+      let invalid = 0;
+      // Modal dimension is stable even if the first stored vector is corrupt.
+      const dimensions = new Map<number, number>();
+      for (const r of rows)
+        if (isFiniteVector(r.emb) && r.emb.some((v) => v !== 0))
+          dimensions.set(r.emb.length, (dimensions.get(r.emb.length) ?? 0) + 1);
+      dim = [...dimensions].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? 0;
       for (const r of rows) {
         const emb = r.emb;
-        if (!isFiniteVector(emb, dim || undefined)) continue;
-        if (dim === 0) dim = emb.length;
+        if (!isFiniteVector(emb, dim || undefined) || !emb.some((v) => v !== 0)) {
+          invalid++;
+          continue;
+        }
+        eligible++;
+        if (kept.length >= limit) continue;
         vectors.push(emb);
         kept.push({
           id: String(r.id),
@@ -185,6 +200,15 @@ export function registerSemanticTools(server: Server): void {
           ...(colorBy ? { group: r.grp == null ? "" : String(r.grp) } : {}),
         });
       }
+      const sampling = {
+        eligible_embeddings: eligible,
+        invalid_embeddings: invalid,
+        missing_embeddings: total - rows.length,
+        omitted_by_limit: eligible - kept.length,
+        sampling: "stable_hash",
+        seed: "iwac-pca-v1",
+        ...limitWarning(cap),
+      };
       if (!vectors.length) {
         return chartResult({
           view: VIEW.semanticMap,
@@ -192,13 +216,17 @@ export function registerSemanticTools(server: Server): void {
           filters: echo,
           total_matches: total,
           projected: 0,
+          ...sampling,
           explained_variance: [0, 0],
           points: [],
-          note: "No item in this selection carries an embedding.",
+          note: "No usable embedding remains after validation in this selection.",
         });
       }
 
-      const { points, explained } = project2d(vectors);
+      const key = createHash("sha256")
+        .update(JSON.stringify([subset, viewGeneration(subset), dim, kept.map((k) => k.id)]))
+        .digest("hex");
+      const { points, explained } = await projectAsync(vectors, key);
       // 4 decimals is ~0.01% of a typical axis span: below what any scatter can
       // show, and it keeps a 500-point payload from tripling in size.
       const round = (v: number): number => Math.round(v * 1e4) / 1e4;
@@ -227,6 +255,7 @@ export function registerSemanticTools(server: Server): void {
           filters: echo,
           total_matches: total,
           projected: kept.length,
+          ...sampling,
           ...(colorBy ? { color_by: colorBy, groups } : {}),
           explained_variance: [round(explained[0]), round(explained[1])],
           note:
@@ -236,10 +265,8 @@ export function registerSemanticTools(server: Server): void {
             `published on islam.zmo.de and will not look like it. ` +
             `The ${kept.length} plotted points are rendered in the chart; their coordinates are not repeated here, ` +
             `so cite items from search results rather than from this map. ` +
-            (total > kept.length
-              ? `${total - kept.length} of ${total} matching items are not plotted — an item is embedded only if ` +
-                `its full text ships in this public dataset.`
-              : ""),
+            `${eligible - kept.length} eligible items omitted by the display limit; ${total - rows.length} lack embeddings; ` +
+            `${invalid} have invalid embeddings. Group counts describe the stable-hash sample, not the entire selection.`,
         },
         { points: plotted },
       );
@@ -252,13 +279,7 @@ export function registerSemanticTools(server: Server): void {
     {
       ...toolMeta("Find similar items"),
       description:
-        "The items nearest to a given one in meaning, by cosine similarity over the stored embeddings. " +
-        "Answers 'what else is like this' without a keyword — it finds pieces on the same event or theme that " +
-        "share no vocabulary. A neighbour above ~0.85 is usually the same story reprinted or lightly rewritten, " +
-        "which is how to spot syndication in this corpus; 0.6-0.8 is 'same subject, different piece'. " +
-        "Needs no API key: the item's own vector is a column, so nothing has to be embedded at request time. " +
-        "This is per-item, NOT the corpus-wide near-duplicate sweep — that is an all-pairs job and belongs " +
-        "offline.",
+        "Nearest stored embeddings by cosine similarity, without an API key. Scores rank reading candidates; no threshold proves a reprint. Returns source IDs and dates for comparison. Corpus-wide candidate generation belongs offline.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         id: z
@@ -266,7 +287,7 @@ export function registerSemanticTools(server: Server): void {
           .describe("Item id — either a bare o:id ('3064') or the namespaced form search returns ('articles:3064')"),
         subset: z.string().optional().describe("articles (default) | publications | references"),
         limit: z.number().int().optional().describe("Neighbours returned (default 12, max 50)"),
-        min_score: z.number().optional().describe("Drop neighbours below this cosine similarity (0-1)"),
+        min_score: z.number().min(-1).max(1).optional().describe("Minimum cosine similarity (-1 to 1)"),
       }),
       outputSchema: SIMILAR_OUTPUT,
     },
@@ -315,7 +336,7 @@ export function registerSemanticTools(server: Server): void {
       // missing vector is a coverage limit of the public dataset.
       const source = await queryOne(
         `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title,
-                ${q(embeddingCol)} IS NOT NULL AS has_vector
+                ${q(embeddingCol)} IS NOT NULL AS has_vector, ${q(embeddingCol)} AS source_vector${extraSel}
          FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ?`,
         [id],
       );
@@ -323,10 +344,12 @@ export function registerSemanticTools(server: Server): void {
       if (!source.has_vector) {
         return errorResult({
           error:
-            `Item ${id} carries no embedding, so it has no neighbours to find. Only items whose full text ships ` +
-            `in this public dataset are embedded.`,
+            `Item ${id} carries no embedding, so stored-vector retrieval cannot find its neighbours.`,
         });
       }
+
+      if (!isFiniteVector(source.source_vector) || !source.source_vector.some((v) => v !== 0))
+        return errorResult({ error: `Item ${id} has an invalid or zero embedding` });
 
       // MATERIALIZED is load-bearing, not a hint. DuckDB otherwise evaluates
       // list_inner_product before the IS NOT NULL filter, and the row with no
@@ -338,16 +361,22 @@ export function registerSemanticTools(server: Server): void {
            SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title${extraSel},
                   ${q(embeddingCol)} AS v
            FROM ${viewName(subset)} WHERE ${q(embeddingCol)} IS NOT NULL
+             AND len(${q(embeddingCol)}) = (SELECT len(${q(embeddingCol)}) FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ? LIMIT 1)
+             AND list_count(${q(embeddingCol)}) = len(${q(embeddingCol)})
+             AND len(${q(embeddingCol)}) > 0
+             AND list_sum(list_transform(${q(embeddingCol)}, x -> CASE WHEN isfinite(x) THEN 0 ELSE 1 END)) = 0
+             AND list_sum(list_transform(${q(embeddingCol)}, x -> x::DOUBLE * x::DOUBLE)) > 0
          ),
          target AS MATERIALIZED (SELECT v FROM src WHERE id = ? LIMIT 1)
-         SELECT id, title${extraSel}, list_inner_product(v, (SELECT v FROM target)) AS score
+         SELECT id, title${extraSel}, list_cosine_similarity(v, (SELECT v FROM target)) AS score
          FROM src WHERE id <> ?
          ORDER BY score DESC, id LIMIT ${limit}`,
-        [id, id],
+        [id, id, id],
       );
 
       const min = typeof args.min_score === "number" ? args.min_score : undefined;
       const neighbours = rows
+        .filter((r) => Number.isFinite(Number(r.score)))
         .map((r) => {
           const rec: Record<string, unknown> = {
             id: String(r.id),
@@ -364,18 +393,21 @@ export function registerSemanticTools(server: Server): void {
       return chartResult({
         view: VIEW.similar,
         subset,
-        source: { id: String(source.id), title: clipTitle(source.title), url: itemUrl(String(source.id)) },
+        source: {
+          id: String(source.id),
+          title: clipTitle(source.title),
+          url: itemUrl(String(source.id)),
+          ...Object.fromEntries(extra.map((c) => [c, source[c]])),
+        },
         neighbours,
         note:
           `Cosine similarity over the stored embeddings; 1.0 is identical. ` +
           (reprints
             ? `${reprints} neighbour${reprints === 1 ? " scores" : "s score"} at or above 0.85, which in this ` +
-              `corpus usually means the same story reprinted or lightly rewritten. `
+              `corpus marks candidates for close reading; it is not evidence of copying. `
             : "") +
-          `Only items whose full text ships in this public dataset are embedded, so unembedded items can never ` +
-          `appear here however similar they are.`,
+          `Only items with valid stored vectors of the source dimension can appear; missing vectors restrict recall.`,
       });
     },
   );
-
 }

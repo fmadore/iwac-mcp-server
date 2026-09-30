@@ -1,62 +1,53 @@
 import type { SimilarPayload } from "../../viewContract.js";
-// get_similar_items → the nearest neighbours of one item, by cosine similarity.
-//
-// The chart is the scores, not the list: a ranked list of titles is something
-// text already does well, whereas the SHAPE of the scores is the finding. A
-// neighbour at 0.9 with a cliff down to 0.6 means a reprint plus unrelated
-// material; a flat run at 0.75 means a genuine cluster of coverage. The 0.85
-// reprint line is drawn so that reading is available at a glance.
-import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, type BasePayload, type ViewResult, type ViewOptions } from "../shell.js";
 import { horizontalBar } from "../svg.js";
-import { clip, fmtNum } from "../theme.js";
+import { clip, esc, fmtNum } from "../theme.js";
 
-/** At or above this, a neighbour is usually the same story reprinted. */
-const REPRINT = 0.85;
-
-export function similarView(payload: BasePayload): ViewResult {
-  const p = payload as SimilarPayload;
-  const neighbours = (p.neighbours ?? []).filter((n) => Number.isFinite(n.score));
-  if (!neighbours.length) {
+export function similarView(payload: BasePayload, options: ViewOptions = {}): ViewResult {
+  const p = payload as SimilarPayload,
+    neighbours = (p.neighbours ?? []).filter((n) => Number.isFinite(n.score));
+  if (!neighbours.length)
     return {
       title: "Similar items",
-      body: empty("Nothing in this subset is close enough to compare."),
+      body: empty("No valid neighbours meet this threshold; missing embeddings and the display limit restrict recall."),
     };
-  }
-
-  const reprints = neighbours.filter((n) => (n.score as number) >= REPRINT);
-  const top = neighbours[0].score as number;
-  const tail = neighbours[neighbours.length - 1].score as number;
-
+  const candidates = [...(p.source ? [{ ...p.source, score: 1 }] : []), ...neighbours].sort(
+    (a, b) => (a.pub_date || "9999").localeCompare(b.pub_date || "9999") || String(a.id).localeCompare(String(b.id)),
+  );
   return {
     title: `Nearest to “${clip(p.source?.title ?? p.source?.id ?? "this item", 60)}”`,
-    subtitle:
-      `${neighbours.length} neighbours · ${fmtNum(top, 2)} down to ${fmtNum(tail, 2)}` +
-      (reprints.length ? ` · ${reprints.length} at or above ${REPRINT}` : ""),
-    body: horizontalBar({
-      items: neighbours.map((n) => ({
-        label: n.title ?? n.id ?? "",
-        value: n.score as number,
-        note: [n.newspaper, n.pub_date?.slice(0, 10), n.country].filter(Boolean).join(", "),
-        // The reprint band gets one colour so the cliff is visible without
-        // reading a single number.
-        color: (n.score as number) >= REPRINT ? "#c5504d" : undefined,
-      })),
-      format: (v) => fmtNum(v, 3),
-      clickable: true,
-      gutter: 300,
-      rowHeight: 24,
-      ariaLabel: "Cosine similarity to the source item",
-    }),
+    subtitle: `${neighbours.length} neighbours · ${fmtNum(Number(neighbours[0].score), 2)} down to ${fmtNum(Number(neighbours.at(-1)?.score), 2)}`,
+    body: options.timeline
+      ? `<ol class="timeline">${candidates.map((n) => `<li><time>${esc(n.pub_date || "Undated")}</time> · ${esc(n.newspaper)} <button data-source="${esc(n.id)}">${esc(n.title || n.id)}</button> · ${fmtNum(Number(n.score), 3)}</li>`).join("")}</ol>`
+      : horizontalBar({
+          items: neighbours.map((n) => ({
+            key: n.id,
+            label: n.title ?? n.id ?? "",
+            value: Number(n.score),
+            note: [n.newspaper, n.pub_date, n.country].filter(Boolean).join(", "),
+          })),
+          format: (v) => fmtNum(v, 3),
+          clickable: true,
+          gutter: 300,
+          rowHeight: 24,
+          ariaLabel: "Cosine similarity to source",
+        }),
     notes: [
       p.note,
-      reprints.length
-        ? `The ${reprints.length} red bar${reprints.length === 1 ? "" : "s"} at or above ${REPRINT} are the ` +
-          `likely reprints. Verify before calling them that: a shared agency dispatch and a rewrite of it score ` +
-          `about the same.`
-        : `Nothing here reaches ${REPRINT}, so no obvious reprint of this item is in the corpus.`,
-      "Click a neighbour to walk on to ITS neighbours.",
+      "Similarity is a retrieval heuristic, not evidence of copying. The chronology includes the source and its neighbours, not a verified reprint chain. Missing or partial dates limit ordering.",
+      "Click a bar to explore its neighbours; use the chronology to read sources.",
     ],
     actions: [
+      {
+        id: "timeline",
+        label: options.timeline ? "Show similarity bars" : "Show candidate chronology",
+        run: (ctx) => ctx.setOption("timeline", !options.timeline),
+      },
+      {
+        id: "source",
+        label: "Read original source",
+        run: (ctx) => ctx.run("fetch", { id: `${p.subset ?? "articles"}:${p.source?.id}` }),
+      },
       {
         id: "csv",
         label: "Download CSV",
@@ -66,21 +57,23 @@ export function similarView(payload: BasePayload): ViewResult {
             "text/csv",
             csv([
               ["id", "title", "score", "newspaper", "date", "url"],
-              ...neighbours.map((n) => [n.id, n.title, n.score, n.newspaper, n.pub_date, n.url]),
+              ...candidates.map((n) => [n.id, n.title, n.score, n.newspaper, n.pub_date, n.url]),
             ]),
           ),
       },
     ],
     wire(root, ctx) {
-      const byTitle = new Map(neighbours.map((n) => [n.title ?? n.id ?? "", n]));
       root.querySelectorAll<SVGElement>(".hit[data-key]").forEach((el) => {
         el.addEventListener("click", () => {
-          const next = byTitle.get(el.getAttribute("data-key") ?? "");
-          if (next?.id) void ctx.run("get_similar_items", { id: next.id, subset: p.subset ?? "articles" });
+          void ctx.run("get_similar_items", { id: el.getAttribute("data-key"), subset: p.subset ?? "articles" });
+        });
+      });
+      root.querySelectorAll<HTMLElement>("[data-source]").forEach((el) => {
+        el.addEventListener("click", () => {
+          void ctx.run("fetch", { id: `${p.subset ?? "articles"}:${el.dataset.source}` });
         });
       });
     },
   };
 }
-
 export type { SimilarPayload } from "../../viewContract.js";

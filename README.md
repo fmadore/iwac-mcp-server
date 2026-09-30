@@ -158,9 +158,8 @@ If the SEP changes shape or is rejected, all of this moves with it.
 
 ## What it gives Claude
 
-37 possible read-only tools across seven IWAC subsets. **34 work out of the
-box**; the 3 `semantic_search_*` tools are optional and require a free
-Google/Gemini API key (disabled by default). All keyword and filter matching is
+38 possible read-only tools across seven IWAC subsets. **35 work out of the
+box**; the 3 `semantic_search_*` tools are optional and use Gemini or an explicitly configured local provider (disabled by default). All keyword and filter matching is
 accent- and case-insensitive. The unified `search`/`fetch` pair, the stats
 tools, the aggregates, `list_periodicals`, and `get_sentiment_distribution` also
 return MCP structured content (`outputSchema` + `structuredContent`), which the
@@ -168,7 +167,7 @@ ChatGPT connector contract requires.
 
 | Group        | Tools                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------- |
-| Cross-subset | `search`, `fetch`                                                                           |
+| Cross-subset | `search`, `fetch`, `explore_corpus`                                                                           |
 | Articles     | `search_articles`, `get_article`, `semantic_search_articles`                                |
 | Sentiment    | `search_by_sentiment`, `get_sentiment_distribution`                                         |
 | Index        | `search_index`, `get_index_entry`, `list_subjects`, `list_locations`, `list_persons`        |
@@ -232,14 +231,24 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
   channel and reachable through a watch URL), plus 47 deposited Nigerian
   Hausa/Arabic recordings with files — and archival documents
 
+## Research workbench
+
+`explore_corpus` connects selections to sources, keyword contexts, coverage
+heatmaps, comparisons, and publication-country/mentioned-place matrices.
+Temporal charts support normalized shares with explicit denominators. Exact
+chart selections, source reading, Back navigation and provenance exports are
+shared across the app. See [the workbench guide](docs/research-workbench.md) for
+examples, interpretation limits, cache behavior and local embedding migration.
+
 ## Architecture
 
 - **Data**: parquet files from the
   [IWAC Hugging Face dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection)
   are lazily downloaded per subset (articles, publications, documents,
-  audiovisual, index, references) into a local cache and queried through DuckDB
+  audiovisual, images, index, references) into a local cache and queried through DuckDB
   views. A long-running server re-checks each subset daily (`IWAC_REFRESH_HOURS`)
-  and swaps in a newer revision without a restart. All SQL is parameterised;
+  and swaps in a newer revision without a restart. Each request pins its files;
+  old generations are retained for other readers and reproducibility. All SQL is parameterised;
   matching is accent/case-insensitive.
 - **Transports**: stdio (the default — what the Claude Desktop `.mcpb` uses),
   and a stateless Streamable-HTTP mode (`node server/index.js --http`) behind a
@@ -285,7 +294,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 3.7.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 3.8.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -293,7 +302,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {3.7.0},
+  version   = {3.8.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

@@ -1,6 +1,6 @@
 {
   "name": "iwac-mcp-server-bundle",
-  "version": "3.7.0",
+  "version": "3.8.0",
   "description": "Node MCP server for the Islam West Africa Collection, packaged as a Claude Desktop extension (.mcpb).",
   "private": true,
   "type": "module",
@@ -41,8 +41,8 @@
     "start:http": "node server/index.js --http",
     "clean": "rimraf server",
     "test": "npm run test:unit && npm run test:fixture && npm run test:app && npm run test:skills && npm run test:http && npm run test:tokens",
-    "test:unit": "tsx --test test/unit.test.ts test/hf-cache.test.ts test/vectors.test.ts test/view-contract.test.ts",
-    "test:fixture": "node scripts/make-fixtures.mjs && node --test test/fixture-client.test.mjs && node test/fixture-server.test.mjs",
+    "test:unit": "node --import tsx --test test/unit.test.ts test/hf-cache.test.ts test/vectors.test.ts test/view-contract.test.ts test/research.test.ts",
+    "test:fixture": "node scripts/make-fixtures.mjs && node --test test/fixture-client.test.mjs test/research-fixture.test.mjs && node test/fixture-server.test.mjs",
     "test:http": "node scripts/make-fixtures.mjs && node test/http-server.test.mjs",
     "test:live": "node smoke-test.mjs",
     "prepack-mcpb": "npm run clean && npm run typecheck && npm run build",
@@ -82,6 +82,7 @@
     "@types/node": "^26.4.1",
     "esbuild": "^0.28.2",
     "gpt-tokenizer": "^4.0.0",
+    "linkedom": "^0.18.13",
     "rimraf": "^6.1.3",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"

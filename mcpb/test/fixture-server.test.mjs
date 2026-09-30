@@ -84,7 +84,7 @@ await withFixtureScope(async (fixtures) => {
     if (t?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
       fail(`${n} should declare the chart UI in _meta, got ${JSON.stringify(t?._meta)}`);
   }
-  if (tools.tools.length !== 34) fail(`expected 34 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
+  if (tools.tools.length !== 35) fail(`expected 35 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
   if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");
   for (const t of tools.tools) {
     if (!t.title && !t.annotations?.title) fail(`tool ${t.name} has no title`);

@@ -21,7 +21,15 @@ import { similarView } from "./similar.js";
 import { temporalView } from "./temporal.js";
 import { topicsView } from "./topics.js";
 
+import { recordsView, readerView, coverageView, comparisonView, attentionView } from "./research.js";
+
 export const VIEWS: Record<ViewName, View> = {
+  [VIEW.records]: recordsView,
+  [VIEW.reader]: readerView,
+  [VIEW.coverage]: coverageView,
+  [VIEW.comparison]: comparisonView,
+  [VIEW.attention]: attentionView,
+  [VIEW.aliases]: recordsView,
   [VIEW.temporal]: temporalView,
   [VIEW.lunar]: lunarView,
   [VIEW.periodicals]: periodicalsView,

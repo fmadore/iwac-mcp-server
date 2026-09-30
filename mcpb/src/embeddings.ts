@@ -1,3 +1,5 @@
+import { embeddingContract, validateEmbeddingContract } from "./embeddingContract.js";
+import { requestSignal, WorkQueue } from "./request.js";
 import { isFiniteVector, normalizeVector } from "./vectors.js";
 import { config, type Subset } from "./config.js";
 import { ensureView, q, query, viewGeneration, viewName } from "./db.js";
@@ -20,12 +22,12 @@ let _genaiClient: import("@google/genai").GoogleGenAI | null = null;
 /** Cap on a single Gemini embedContent call — the one network dependency at
  * query time; without it a hung API call blocks the semantic tool forever. */
 const EMBED_TIMEOUT_MS = 30_000;
+const embeddingQueue = new WorkQueue(4, 16);
+const queryCache = new Map<string, Float32Array>();
 
 function requireApiKey(): string {
   if (!config.googleApiKey) {
-    throw new Error(
-      "Google API key not found. Set IWAC_GOOGLE_API_KEY, GOOGLE_API_KEY, or GEMINI_API_KEY.",
-    );
+    throw new Error("Google API key not found. Set IWAC_GOOGLE_API_KEY, GOOGLE_API_KEY, or GEMINI_API_KEY.");
   }
   return config.googleApiKey;
 }
@@ -71,15 +73,14 @@ async function buildIndex(subset: Subset, embeddingColumn: string): Promise<Embe
   // slice with NaN and make every sort against it unspecified.
   const ids: string[] = [];
   const vectors: number[][] = [];
-  let dim = 0;
+  const dim = embeddingContract().dimension;
   let skipped = 0;
   for (const r of rows) {
     const arr = r.emb;
-    if (!isFiniteVector(arr, dim || undefined)) {
+    if (!isFiniteVector(arr, dim) || !arr.some((v) => v !== 0)) {
       skipped++;
       continue;
     }
-    if (dim === 0) dim = arr.length;
     ids.push(String(r.id));
     vectors.push(arr);
   }
@@ -100,20 +101,49 @@ async function buildIndex(subset: Subset, embeddingColumn: string): Promise<Embe
 }
 
 async function embedQuery(text: string): Promise<Float32Array> {
-  const client = await getClient();
-  const res = await client.models.embedContent({
-    model: config.embeddingModel,
-    contents: [text],
-    config: {
-      taskType: "RETRIEVAL_QUERY",
-      outputDimensionality: config.embeddingDimensionality,
-    },
-  });
-  const values = res.embeddings?.[0]?.values;
-  if (!isFiniteVector(values)) {
-    throw new Error("Gemini returned an empty or non-finite embedding");
+  const contract = embeddingContract();
+  const cacheKey = JSON.stringify([contract.model, contract.revision, contract.dimension, text]);
+  const cached = queryCache.get(cacheKey);
+  if (cached) return cached;
+  const release = await embeddingQueue.acquire(requestSignal());
+  try {
+    const deadline = AbortSignal.timeout(EMBED_TIMEOUT_MS),
+      parent = requestSignal();
+    const signal = parent ? AbortSignal.any([deadline, parent]) : deadline;
+    let values: unknown;
+    if (config.embeddingProvider === "local") {
+      const url = new URL(config.localEmbeddingUrl);
+      if (!["http:", "https:"].includes(url.protocol)) throw new Error("Local embedding endpoint must use HTTP(S)");
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(config.localEmbeddingApiKey ? { Authorization: `Bearer ${config.localEmbeddingApiKey}` } : {}),
+        },
+        body: JSON.stringify({ model: contract.model, input: [contract.query_prefix + text] }),
+        signal,
+      });
+      if (!response.ok) throw new Error(`Local embedding provider returned HTTP ${response.status}`);
+      const data = (await response.json()) as { data?: { embedding?: unknown }[] };
+      values = data.data?.[0]?.embedding;
+    } else {
+      const client = await getClient();
+      const response = await client.models.embedContent({
+        model: contract.model,
+        contents: [contract.query_prefix + text],
+        config: { taskType: "RETRIEVAL_QUERY", outputDimensionality: contract.dimension, abortSignal: signal },
+      });
+      values = response.embeddings?.[0]?.values;
+    }
+    if (!isFiniteVector(values, contract.dimension) || !values.some((v) => v !== 0))
+      throw new Error("Provider returned an invalid, zero or incompatible embedding");
+    const vector = normalizeVector(values);
+    queryCache.set(cacheKey, vector);
+    if (queryCache.size > 128) queryCache.delete(queryCache.keys().next().value as string);
+    return vector;
+  } finally {
+    release();
   }
-  return normalizeVector(values);
 }
 
 export interface SemanticHit {
@@ -131,6 +161,7 @@ export async function semanticSearch(opts: {
   candidateIds?: Iterable<string | number> | Promise<Iterable<string | number> | undefined>;
 }): Promise<SemanticHit[]> {
   requireSemanticEnabled();
+  validateEmbeddingContract(embeddingContract(), opts.subset, opts.embeddingColumn);
   // Three independent waits: the Gemini round-trip, the index (a full column
   // read on first use) and the caller's prefilter. Awaiting them in turn made
   // every search pay the embedding call on top of the other two.

@@ -1,3 +1,5 @@
+import { activeQueries, queuedQueries } from "./db.js";
+import { requestMetrics } from "./request.js";
 // Remote Streamable HTTP transport for the IWAC MCP server.
 //
 // Activated by `node server/index.js --http`; the stdio transport in index.ts
@@ -75,18 +77,18 @@ function rpcError(code: number, message: string) {
   return { jsonrpc: "2.0" as const, error: { code, message }, id: null };
 }
 
-function sendJson(res: http.ServerResponse, status: number, payload: unknown, headers: Record<string, string> = {}): void {
+function sendJson(
+  res: http.ServerResponse,
+  status: number,
+  payload: unknown,
+  headers: Record<string, string> = {},
+): void {
   res.writeHead(status, { "Content-Type": "application/json", ...headers });
   res.end(JSON.stringify(payload));
 }
 
 export function startHttpServer(createServer: () => McpServer): void {
-  const {
-    httpPort: port,
-    bearerToken: token,
-    httpAllowedOrigins: allowedOrigins,
-    invalidHttpOrigins,
-  } = config;
+  const { httpPort: port, bearerToken: token, httpAllowedOrigins: allowedOrigins, invalidHttpOrigins } = config;
   if (invalidHttpOrigins.length > 0) {
     console.error(
       `[iwac] FATAL: IWAC_MCP_ALLOWED_ORIGINS contains invalid origins: ${invalidHttpOrigins.join(", ")}. ` +
@@ -106,8 +108,7 @@ export function startHttpServer(createServer: () => McpServer): void {
   // much of the token an attacker guessed (timingSafeEqual needs equal lengths).
   const expectedDigest = createHash("sha256").update(`Bearer ${token}`).digest();
   const authorized = (header: string | undefined): boolean =>
-    typeof header === "string" &&
-    timingSafeEqual(createHash("sha256").update(header).digest(), expectedDigest);
+    typeof header === "string" && timingSafeEqual(createHash("sha256").update(header).digest(), expectedDigest);
 
   // One handler for the process; it builds a server per request from the factory.
   const mcpHandler = createMcpHandler(createServer, {
@@ -128,7 +129,7 @@ export function startHttpServer(createServer: () => McpServer): void {
       return;
     }
 
-    if (path !== "/mcp" && path !== "/mcp/") {
+    if (path !== "/mcp" && path !== "/mcp/" && path !== "/metrics") {
       sendJson(res, 404, rpcError(-32601, "Not found — POST JSON-RPC to /mcp"));
       return;
     }
@@ -147,6 +148,19 @@ export function startHttpServer(createServer: () => McpServer): void {
 
     if (!authorized(req.headers.authorization)) {
       sendJson(res, 401, rpcError(-32001, "Unauthorized"), { "WWW-Authenticate": "Bearer" });
+      return;
+    }
+
+    if (path === "/metrics") {
+      if (req.method !== "GET") {
+        sendJson(res, 405, { error: "Use GET" });
+        return;
+      }
+      sendJson(res, 200, {
+        active_queries: activeQueries(),
+        queued_queries: queuedQueries(),
+        requests: requestMetrics(),
+      });
       return;
     }
 
