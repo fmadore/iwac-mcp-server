@@ -153,7 +153,7 @@ try {
   await client.connect(transport);
 
   const tools = await client.listTools();
-  if (tools.tools.length !== 34) fail(`expected 34 tools over HTTP with semantic off, got ${tools.tools.length}`);
+  if (tools.tools.length !== 35) fail(`expected 35 tools over HTTP with semantic off, got ${tools.tools.length}`);
 
   // Skills over MCP on the remote leg. This transport is the whole reason the
   // skill is served from the server at all — there is no release artifact to
@@ -216,8 +216,8 @@ try {
   }
 
   const modernTools = await modern.listTools();
-  if (modernTools.tools.length !== 34) {
-    fail(`expected 34 tools on the modern era, got ${modernTools.tools.length}`);
+  if (modernTools.tools.length !== 35) {
+    fail(`expected 35 tools on the modern era, got ${modernTools.tools.length}`);
   }
   // CacheableResult (SEP-2549): required on list results from 2026-07-28. The
   // SDK defaults to ttlMs 0 / private, so a 0 here means our cacheHints were
@@ -235,6 +235,11 @@ try {
 
   await modern.close();
   await modernTransport.close();
+
+  const anonymousMetrics = await fetch(`${BASE}/metrics`);
+  if (anonymousMetrics.status !== 401) fail("metrics must require the bearer token");
+  const metrics = await fetch(`${BASE}/metrics`,{headers:{Authorization:`Bearer ${TOKEN}`}}).then(r=>r.json());
+  if (!Number.isFinite(metrics.active_queries) || metrics.requests.completed < 1 || !Number.isFinite(metrics.requests.p95_ms)) fail("metrics are missing queue/latency measurements");
 
   // --- 7. SIGTERM drains in-flight requests instead of cutting them ------------
   // Hold a request open by sending its body in two halves, signal between

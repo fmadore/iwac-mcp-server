@@ -1,3 +1,4 @@
+import { narrowSelection } from "../../selection.js";
 import type { PeriodicalsPayload } from "../../viewContract.js";
 // list_periodicals → a runs gantt of the Islamic periodical series.
 //
@@ -16,7 +17,9 @@ export function periodicalsView(payload: BasePayload): ViewResult {
   const dated = all.filter((r) => Number.isFinite(r.earliest_year) && Number.isFinite(r.latest_year));
   // Longest run first reads as a timeline; the tool orders by issue count.
   const rows = [...dated].sort(
-    (a, b) => (a.earliest_year as number) - (b.earliest_year as number) || (a.newspaper ?? "").localeCompare(b.newspaper ?? "", "fr"),
+    (a, b) =>
+      (a.earliest_year as number) - (b.earliest_year as number) ||
+      (a.newspaper ?? "").localeCompare(b.newspaper ?? "", "fr"),
   );
   const undated = all.length - dated.length;
   const issues = all.reduce((a, r) => a + (r.issue_count ?? 0), 0);
@@ -24,6 +27,7 @@ export function periodicalsView(payload: BasePayload): ViewResult {
   const body = rows.length
     ? gantt({
         rows: rows.map((r) => ({
+          key: JSON.stringify([r.newspaper, r.country]),
           label: r.newspaper ?? "(untitled)",
           start: r.earliest_year as number,
           end: r.latest_year as number,
@@ -41,8 +45,7 @@ export function periodicalsView(payload: BasePayload): ViewResult {
     chips: { country: p.country_filter },
     body,
     notes: [
-      undated > 0 &&
-        `${fmtInt(undated)} series carry no usable year and are not plotted (still counted above).`,
+      undated > 0 && `${fmtInt(undated)} series carry no usable year and are not plotted (still counted above).`,
       rows.length > 0 && "Bar thickness is the issue count. Click a series to chart its coverage over time.",
     ],
     actions: [
@@ -61,10 +64,15 @@ export function periodicalsView(payload: BasePayload): ViewResult {
       },
     ],
     wire(root, ctx) {
+      const byKey = new Map(rows.map((r) => [JSON.stringify([r.newspaper, r.country]), r]));
       root.querySelectorAll<SVGElement>(".hit[data-key]").forEach((el) => {
         el.addEventListener("click", () => {
-          const series = el.getAttribute("data-key");
-          if (series) void ctx.run("get_temporal_distribution", { subset: "publications", newspaper: series });
+          const row = byKey.get(el.getAttribute("data-key") ?? "");
+          if (!row?.newspaper) return;
+          let selection = narrowSelection({ country: p.country_filter }, "newspaper", row.newspaper);
+          for (const country of row.country?.split("|").filter(Boolean) ?? [])
+            selection = narrowSelection(selection, "country", country);
+          void ctx.run("get_temporal_distribution", { subset: "publications", ...selection });
         });
       });
     },

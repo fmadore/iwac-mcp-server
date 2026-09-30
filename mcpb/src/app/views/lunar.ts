@@ -19,16 +19,25 @@ import type { LunarPayload } from "../../viewContract.js";
 // "good" and thin coverage is not "bad"; a diverging palette here would assert
 // a polarity the data does not carry. One series, one hue, and the line does
 // the work.
-import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { bar } from "../svg.js";
 import { esc, fmtInt } from "../theme.js";
 import { carryFilters } from "./temporal.js";
 
 /** Fallback if the server ever stops sending month_labels. */
 const FALLBACK_MONTHS = [
-  "Muharram", "Safar", "Rabi' I", "Rabi' II",
-  "Jumada I", "Jumada II", "Rajab", "Sha'ban",
-  "Ramadan", "Shawwal", "Dhu al-Qa'da", "Dhu al-Hijja",
+  "Muharram",
+  "Safar",
+  "Rabi' I",
+  "Rabi' II",
+  "Jumada I",
+  "Jumada II",
+  "Rajab",
+  "Sha'ban",
+  "Ramadan",
+  "Shawwal",
+  "Dhu al-Qa'da",
+  "Dhu al-Hijja",
 ];
 
 /**
@@ -64,7 +73,10 @@ function notable(values: number[], baseline: number): Set<number> {
 
 export function lunarView(payload: BasePayload): ViewResult {
   const p = payload as LunarPayload;
-  const dist = p.distribution ?? {};
+  const groups = p.distribution_by_group ?? { all: p.distribution ?? {} };
+  const dist: Record<string, number> = {};
+  for (const counts of Object.values(groups))
+    for (const [key, value] of Object.entries(counts)) dist[key] = (dist[key] ?? 0) + value;
   const labels = p.month_labels ?? {};
   const subset = p.subset ?? "articles";
 
@@ -79,18 +91,31 @@ export function lunarView(payload: BasePayload): ViewResult {
   const baseline = plotted / 12;
 
   const body = plotted
-    ? bar({
-        categories: months.map((m) => m.name),
-        axisLabels: months.map((m) => AXIS_SHORT[m.name] ?? m.name),
-        values,
-        label: "items",
-        reference: baseline
-          ? { value: baseline, label: `even split — ${fmtInt(Math.round(baseline))}/month` }
-          : undefined,
-        labelled: notable(values, baseline),
-        ariaLabel: `${subset} per Hijri month`,
-        maxTicks: 12,
-      })
+    ? panels(
+        Object.entries(groups).map(([group, counts]) => ({
+          title: group === "all" ? (p.normalize_by ? "Share of archived scope (%)" : "All selected items") : group,
+          body: bar({
+            categories: months.map((m) => m.name),
+            axisLabels: months.map((m) => AXIS_SHORT[m.name] ?? m.name),
+            values: months.map((m) =>
+              p.normalize_by
+                ? p.denominators?.[group]?.[m.key]
+                  ? (100 * (counts[m.key] ?? 0)) / p.denominators[group][m.key]
+                  : Number.NaN
+                : (counts[m.key] ?? 0),
+            ),
+            label: p.normalize_by ? "percent" : "items",
+            maxTicks: 12,
+            ariaLabel: `${subset} per Hijri month: ${group}`,
+            ...(!p.normalize_by
+              ? {
+                  reference: { value: Object.values(counts).reduce((a, b) => a + b, 0) / 12, label: "even split" },
+                  labelled: notable(values, baseline),
+                }
+              : {}),
+          }),
+        })),
+      )
     : empty("No items with a precise enough date match these filters.");
 
   // The peak, named — the sentence a reader wants before reading the bars.
@@ -110,18 +135,29 @@ export function lunarView(payload: BasePayload): ViewResult {
     subtitle: `${fmtInt(p.total_matches ?? 0)} matching · ${fmtInt(plotted)} placed in a lunar month`,
     chips: p.filters,
     body,
-    notes: [lead, imprecise, p.note],
+    notes: [
+      p.normalize_by
+        ? "Shares use the archived-scope denominator for each group and lunar month. Missing denominators are unavailable, not zero."
+        : lead,
+      imprecise,
+      p.note,
+    ],
     actions: [
-      {
-        // The chart raises the question; this answers it with the actual items.
-        id: "peak",
-        label: `Read the ${top.name} items`,
-        run: (ctx) =>
-          ctx.run(subset === "publications" ? "search_publications" : "search_articles", {
-            hijri_month: top.key,
-            ...carryFilters(p),
-          }),
-      },
+      ...(plotted
+        ? [
+            {
+              // The chart raises the question; this answers it with the actual items.
+              id: "peak",
+              label: `Read the ${top.name} items`,
+              run: (ctx: import("../shell.js").ViewContext) =>
+                ctx.run("explore_corpus", {
+                  mode: "items",
+                  subset,
+                  selection: { ...carryFilters(p), hijri_month: top.key },
+                }),
+            },
+          ]
+        : []),
       {
         id: "gregorian",
         label: "Switch to Gregorian years",
@@ -147,15 +183,19 @@ export function lunarView(payload: BasePayload): ViewResult {
         id: "csv",
         label: "Download CSV",
         run: (ctx) => {
-          const rows: unknown[][] = [["hijri_month", "month_name", "count", "vs_even_split_pct"]];
-          months.forEach((m) => {
-            rows.push([
-              Number(m.key),
-              m.name,
-              m.value,
-              baseline ? Math.round((m.value / baseline - 1) * 100) : "",
-            ]);
-          });
+          const rows: unknown[][] = [["hijri_month", "month_name", "group", "count", "denominator", "percent"]];
+          for (const [group, counts] of Object.entries(groups))
+            months.forEach((m) => {
+              const denominator = p.denominators?.[group]?.[m.key];
+              rows.push([
+                Number(m.key),
+                m.name,
+                group,
+                counts[m.key] ?? 0,
+                denominator ?? "",
+                denominator ? (100 * (counts[m.key] ?? 0)) / denominator : "",
+              ]);
+            });
           return ctx.download(`iwac-${subset}-per-hijri-month.csv`, "text/csv", csv(rows));
         },
       },

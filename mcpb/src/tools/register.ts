@@ -1,3 +1,5 @@
+import { requestProvenance, PROVENANCE_META_KEY } from "../provenance.js";
+import { withRequest } from "../request.js";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { registerArticleTools } from "./articles.js";
 import { registerSentimentTools } from "./sentiment.js";
@@ -9,6 +11,7 @@ import { registerDocumentTools } from "./documents.js";
 import { registerAudiovisualTools } from "./audiovisual.js";
 import { registerImageTools } from "./images.js";
 import { registerAggregateTools } from "./aggregates.js";
+import { registerResearchTools } from "./research.js";
 import { registerSearchTools } from "./search.js";
 import { registerAppResources } from "./appUi.js";
 import { registerSkillResources } from "./skills.js";
@@ -27,6 +30,7 @@ function registerAll(server: Server): void {
   // Unified search/fetch first: they satisfy the OpenAI Deep Research contract and
   // are the entry point for skill-less clients (see INSTRUCTIONS in index.ts).
   registerSearchTools(server);
+  registerResearchTools(server);
   registerArticleTools(server);
   registerSentimentTools(server);
   registerIndexTools(server);
@@ -101,7 +105,24 @@ function recordRegistrations(): Replay[] {
     registerTool(...args: Parameters<McpServer["registerTool"]>) {
       memoizeJsonSchema(args[1].inputSchema);
       memoizeJsonSchema(args[1].outputSchema);
-      recorded.push((s) => s.registerTool(...args));
+      const [name, definition, callback] = args;
+      recorded.push((s) =>
+        s.registerTool(name, definition, (input, extra) =>
+          withRequest(extra.mcpReq.signal, async () => {
+            const result = await callback(input, extra);
+            if (result.isError) return result;
+            const provenance = requestProvenance(name, input);
+            return {
+              ...result,
+              _meta: { ...result._meta, [PROVENANCE_META_KEY]: provenance },
+              content: [
+                ...(Array.isArray(result.content) ? result.content : []),
+                { type: "text" as const, text: JSON.stringify({ provenance }) },
+              ],
+            };
+          }),
+        ),
+      );
     },
     registerResource(...args: Parameters<McpServer["registerResource"]>) {
       recorded.push((s) => s.registerResource(...args));

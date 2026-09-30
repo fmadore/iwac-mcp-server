@@ -1,3 +1,4 @@
+import { narrowSelection, selectionFrom } from "../../selection.js";
 import type { ModelBlock, SentimentPayload } from "../../viewContract.js";
 // get_sentiment_distribution → the AI polarity and centrality mixes, and —
 // with model:"all" — how far the panel's models agree.
@@ -43,8 +44,7 @@ function ring(dist: Record<string, number> | undefined, scale: string[], centerL
   );
 }
 
-const sum = (d: Record<string, number> | undefined): number =>
-  Object.values(d ?? {}).reduce((a, b) => a + b, 0);
+const sum = (d: Record<string, number> | undefined): number => Object.values(d ?? {}).reduce((a, b) => a + b, 0);
 
 /** "polarite 429 · centralite 465 · subjectivite 3,184" from the disputed block,
  * skipping the `any` roll-up and the prose note it ships alongside. */
@@ -60,9 +60,7 @@ function singleModel(p: SentimentPayload, block: ModelBlock, model: string): Vie
   const polarity = ring(block.polarity_distribution, POLARITY_ORDER, "scored");
   const centrality = ring(block.centrality_distribution, CENTRALITY_ORDER, "scored");
   const subj = block.subjectivity;
-  const subjectivity = subj?.distribution
-    ? ring(subj.distribution, SUBJECTIVITY_ORDER, "scored")
-    : "";
+  const subjectivity = subj?.distribution ? ring(subj.distribution, SUBJECTIVITY_ORDER, "scored") : "";
 
   if (!polarity && !centrality && !subjectivity) {
     return {
@@ -220,9 +218,8 @@ function allModels(p: SentimentPayload): ViewResult {
         cols: colLabels,
         // Blank the agreeing diagonal: it holds most of the mass and would
         // flatten the ramp over exactly the disagreements this chart is for.
-        values: rowLabels.map((r) =>
-          colLabels.map((c) => (r === c ? Number.NaN : (cm?.counts?.[r]?.[c] ?? 0))),
-        ),
+        values: rowLabels.map((r) => colLabels.map((c) => (r === c ? Number.NaN : (cm?.counts?.[r]?.[c] ?? 0)))),
+        clickable: true,
         gutter: 120,
         ariaLabel: `${cm?.rows} vs ${cm?.cols} polarity`,
       })
@@ -269,6 +266,19 @@ function allModels(p: SentimentPayload): ViewResult {
         : `All ${models.length} scored the same articles, whether or not their full text ships — see ` +
           `scored_by_all above for how many carry all ${models.length} judgements.`,
     ],
+    wire(root, ctx) {
+      root.querySelectorAll<SVGElement>(".hit[data-key][data-key2]").forEach((el) => {
+        el.addEventListener("click", () => {
+          const row = el.getAttribute("data-key"),
+            col = el.getAttribute("data-key2");
+          if (!cm?.rows || !cm.cols || !row || !col) return;
+          let selection = narrowSelection(selectionFrom(p.filters), `polarity:${cm.rows}`, row);
+          selection = narrowSelection(selection, `polarity:${cm.cols}`, col);
+          selection.exact = { ...selection.exact, scored_by: models };
+          void ctx.run("explore_corpus", { mode: "items", subset: "articles", selection });
+        });
+      });
+    },
     actions: [
       {
         id: "one",

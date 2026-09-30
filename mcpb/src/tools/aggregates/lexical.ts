@@ -3,13 +3,7 @@ import { chartResult } from "../shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryScalarSingle, viewName } from "../../db.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
-import {
-  COUNTRIES,
-  errorResult,
-  toolMeta,
-  validateEnum,
-  type Server,
-} from "../_shared.js";
+import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
 import { aggregateFilters, filterInputs } from "./shared.js";
 
 const GROUP_FIELDS = ["year", "newspaper", "country"] as const;
@@ -32,13 +26,7 @@ export function registerLexicalTools(server: Server): void {
     {
       ...toolMeta("Press language metrics"),
       description:
-        "Readability, lexical richness and length of the press text, averaged by year, newspaper or country. " +
-        "`Lisibilite_OCR` is a French readability score (higher = easier); `Richesse_Lexicale_OCR` is MATTR, a " +
-        "moving-average type-token ratio that is ALREADY length-robust — do not normalise it by word count or " +
-        "bin it by length. Readability is computed against a French lexicon, so non-French items are excluded " +
-        "from that metric (and counted in readability_excluded) rather than reported as unreadable; MATTR and " +
-        "word count need no lexicon and cover everything. Only items whose full text ships in this public " +
-        "dataset carry these columns at all.",
+        "Text length, lexical richness and readability by country/newspaper/year. Metrics are precomputed; readability is French-specific and excludes other languages. Missing values are disclosed. Compare distributions as descriptive evidence.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         group_by: z.string().optional().describe("year (default) | newspaper | country"),
@@ -141,7 +129,9 @@ export function registerLexicalTools(server: Server): void {
           ...(present.some(([, n]) => n === "mattr")
             ? { mattr: { label: "Lexical richness (MATTR)", higher_is: "more varied", range: "0-1" } }
             : {}),
-          ...(present.some(([, n]) => n === "words") ? { words: { label: "Words per item", higher_is: "longer" } } : {}),
+          ...(present.some(([, n]) => n === "words")
+            ? { words: { label: "Words per item", higher_is: "longer" } }
+            : {}),
         },
       };
       if (excluded) payload.readability_excluded = excluded;
@@ -150,4 +140,5 @@ export function registerLexicalTools(server: Server): void {
       }
       return chartResult(payload);
     },
-  );}
+  );
+}

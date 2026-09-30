@@ -19,6 +19,10 @@ test("view dispatch rejects unknown and inherited object keys", () => {
 
 // Checked by tsc, never executed: ensure the shared contract constrains writers.
 function invalidPayloads() {
+  // @ts-expect-error Workbench views require a selection and counted rows.
+  chartResult({view:"coverage",rows:"not rows"});
+  // @ts-expect-error A source reader requires its canonical URL.
+  chartResult({view:"reader",id:"articles:1",title:"Source",text:"text"});
   // @ts-expect-error Counts must be numbers, even inside topic rows.
   chartResult({ view: "topics", topics: [{ count: "one" }] });
   // @ts-expect-error Dense coordinates belong in chart data, not model summaries.

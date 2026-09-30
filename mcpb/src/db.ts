@@ -1,5 +1,6 @@
+import { requestSignal, requestSnapshots, WorkQueue } from "./request.js";
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
-import { ensureSubset, parquetList, pruneSubset } from "./hf.js";
+import { ensureSubset, parquetList } from "./hf.js";
 import { config, type Subset } from "./config.js";
 
 let _instancePromise: Promise<DuckDBInstance> | null = null;
@@ -8,6 +9,7 @@ const _schemas: Map<Subset, Promise<Set<string>>> = new Map();
 /** What a loaded subset's view reads, and when that was last checked. */
 interface ViewState {
   files: string[];
+  provenance: Record<string, unknown>;
   checkedAt: number;
   /** Bumped each time the view is rebuilt over new files, so caches derived
    * from its rows (the embedding index) know to rebuild too. */
@@ -57,17 +59,22 @@ const _idle: DuckDBConnection[] = [];
  * and they carry no per-connection state here (no SET, no temp objects).
  */
 async function withConnection<T>(fn: (conn: DuckDBConnection) => Promise<T>): Promise<T> {
-  await acquireSlot();
+  const signal = requestSignal();
+  const release = await queryQueue.acquire(signal);
   try {
     const conn = _idle.pop() ?? (await (await getInstance()).connect());
+    const abort = () => conn.interrupt();
+    signal?.addEventListener("abort", abort, { once: true });
     try {
+      signal?.throwIfAborted();
       return await fn(conn);
     } finally {
+      signal?.removeEventListener("abort", abort);
       if (_idle.length < MAX_IDLE_CONNECTIONS) _idle.push(conn);
       else conn.closeSync();
     }
   } finally {
-    releaseSlot();
+    release();
   }
 }
 
@@ -80,29 +87,9 @@ async function withConnection<T>(fn: (conn: DuckDBConnection) => Promise<T>): Pr
  * long scan unless this many are already in flight.
  */
 export const MAX_ACTIVE_QUERIES = 16;
-let _active = 0;
-const _waiting: Array<() => void> = [];
-
-async function acquireSlot(): Promise<void> {
-  if (_active < MAX_ACTIVE_QUERIES) {
-    _active += 1;
-    return;
-  }
-  // releaseSlot hands its slot straight to the next waiter, so _active is
-  // not decremented and re-incremented in between.
-  await new Promise<void>((resolve) => _waiting.push(resolve));
-}
-
-function releaseSlot(): void {
-  const next = _waiting.shift();
-  if (next) next();
-  else _active -= 1;
-}
-
-/** Queries running now, for tests. */
-export function activeQueries(): number {
-  return _active;
-}
+const queryQueue = new WorkQueue(MAX_ACTIVE_QUERIES, 128);
+export const activeQueries = (): number => queryQueue.active;
+export const queuedQueries = (): number => queryQueue.queued;
 
 /**
  * Safe SQL name for a subset's view. `index` and `references` are reserved words
@@ -110,6 +97,8 @@ export function activeQueries(): number {
  * Single source of truth — used both when creating the view and when querying it.
  */
 export function viewName(subset: Subset): string {
+  const pinned = requestSnapshots()?.get(subset);
+  if (pinned) return `read_parquet(${parquetList(pinned.files)})`;
   return subset === "index" || subset === "references" ? `"${subset}"` : subset;
 }
 
@@ -124,7 +113,9 @@ export function viewName(subset: Subset): string {
  * the interval has passed is answered from the current view at once, and the
  * check runs in the background (see refreshView).
  */
-export function ensureView(subset: Subset): Promise<Set<string>> {
+export async function ensureView(subset: Subset): Promise<Set<string>> {
+  const pinned = requestSnapshots()?.get(subset);
+  if (pinned) return pinned.schema;
   let p = _schemas.get(subset);
   if (!p) {
     const build = buildView(subset);
@@ -136,13 +127,22 @@ export function ensureView(subset: Subset): Promise<Set<string>> {
   } else {
     maybeRefresh(subset);
   }
-  return p;
+  const schema = await p;
+  const state = _views.get(subset);
+  if (state && !requestSnapshots()?.has(subset))
+    requestSnapshots()?.set(subset, {
+      files: [...state.files],
+      generation: state.generation,
+      schema,
+      provenance: state.provenance,
+    });
+  return schema;
 }
 
 /** How many times this subset's view has been rebuilt over new files (0 before
  * it first loads). A cache built from the view's rows is stale once this moves. */
 export function viewGeneration(subset: Subset): number {
-  return _views.get(subset)?.generation ?? 0;
+  return requestSnapshots()?.get(subset)?.generation ?? _views.get(subset)?.generation ?? 0;
 }
 
 /** The background refresh in flight for a subset, if any. For tests. */
@@ -151,10 +151,9 @@ export function pendingRefresh(subset: Subset): Promise<void> | undefined {
 }
 
 async function buildView(subset: Subset): Promise<Set<string>> {
-  const { files } = await ensureSubset(subset);
+  const { files, provenance } = await ensureSubset(subset);
   const schema = await createView(subset, files);
-  _views.set(subset, { files, checkedAt: Date.now(), generation: 1 });
-  await pruneSubset(subset, files);
+  _views.set(subset, { files, provenance, checkedAt: Date.now(), generation: 1 });
   return schema;
 }
 
@@ -162,12 +161,10 @@ async function buildView(subset: Subset): Promise<Set<string>> {
  * CREATE OR REPLACE, so a query sees the old file list or the new one, never
  * a mix, and a query already running finishes on the files it started with. */
 async function createView(subset: Subset, files: string[]): Promise<Set<string>> {
-  const quoted = viewName(subset);
+  const quoted = q(subset);
   return withConnection(async (conn) => {
     await conn.run(`CREATE OR REPLACE VIEW ${quoted} AS SELECT * FROM read_parquet(${parquetList(files)})`);
-    const reader = await conn.runAndReadAll(
-      `SELECT column_name FROM (DESCRIBE SELECT * FROM ${quoted} LIMIT 0)`,
-    );
+    const reader = await conn.runAndReadAll(`SELECT column_name FROM (DESCRIBE SELECT * FROM ${quoted} LIMIT 0)`);
     return new Set<string>(reader.getRowsJS().map((r) => String(r[0])));
   });
 }
@@ -186,23 +183,22 @@ function maybeRefresh(subset: Subset): void {
 /**
  * Re-check a loaded subset against the Hub and, if a newer revision was
  * downloaded, swap the view over to it. ensureSubset gives new revisions new
- * file names, so the files the old view reads are untouched until pruneSubset
- * runs after the swap. Any failure keeps the data already loaded: a refresh
+ * file names, so the files the old view reads are untouched while any process or request might still use them. Any failure keeps the data already loaded: a refresh
  * must never cost the server a subset it was serving.
  */
 async function refreshView(subset: Subset, state: ViewState): Promise<void> {
   try {
-    const { files, downloaded } = await ensureSubset(subset);
+    const { files, downloaded, provenance } = await ensureSubset(subset);
     const changed =
       downloaded || files.length !== state.files.length || files.some((file, i) => file !== state.files[i]);
     if (changed) {
       const schema = await createView(subset, files);
       _schemas.set(subset, Promise.resolve(schema));
       state.files = files;
+      state.provenance = provenance;
       state.generation += 1;
       console.error(`[iwac] ${subset}: switched to the newer dataset revision`);
     }
-    await pruneSubset(subset, state.files);
   } catch (err) {
     console.error(
       `[iwac] warning: could not refresh ${subset}; still serving the data loaded earlier. ${(err as Error).message}`,
@@ -220,10 +216,7 @@ export function q(id: string): string {
  * Each entry is either a column name (in which case the identifier is quoted)
  * or a tuple [sqlExpression, alias].
  */
-export function selectList(
-  schema: Set<string>,
-  items: Array<string | [string, string, string[]?]>,
-): string {
+export function selectList(schema: Set<string>, items: Array<string | [string, string, string[]?]>): string {
   const parts: string[] = [];
   for (const item of items) {
     if (typeof item === "string") {
@@ -258,10 +251,7 @@ export async function query(sql: string, params: Bindable[] = []): Promise<Row[]
   );
 }
 
-export async function queryOne(
-  sql: string,
-  params: Bindable[] = [],
-): Promise<Row | null> {
+export async function queryOne(sql: string, params: Bindable[] = []): Promise<Row | null> {
   const rows = await query(sql, params);
   return rows[0] ?? null;
 }
@@ -269,20 +259,14 @@ export async function queryOne(
 /**
  * Run a query and return a single scalar column as a flat array.
  */
-export async function queryScalar<T = unknown>(
-  sql: string,
-  params: Bindable[] = [],
-): Promise<T[]> {
+export async function queryScalar<T = unknown>(sql: string, params: Bindable[] = []): Promise<T[]> {
   const rows = await withConnection(
     async (conn) => (await conn.runAndReadAll(sql, params as DuckDBValue[])).getRowsJS() as unknown[][],
   );
   return rows.map((r) => r[0] as T);
 }
 
-export async function queryScalarSingle<T = unknown>(
-  sql: string,
-  params: Bindable[] = [],
-): Promise<T | null> {
+export async function queryScalarSingle<T = unknown>(sql: string, params: Bindable[] = []): Promise<T | null> {
   const values = await queryScalar<T>(sql, params);
   return values[0] ?? null;
 }
@@ -292,15 +276,8 @@ export async function queryScalarSingle<T = unknown>(
  * whether the parquet stores `o:id` as an integer or a string. `cols` is a ready
  * SELECT list (e.g. from `selectList`, or `"*"`).
  */
-export async function getById(
-  subset: Subset,
-  cols: string,
-  id: string | number,
-): Promise<Row | null> {
-  return queryOne(
-    `SELECT ${cols} FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ?`,
-    [String(id)],
-  );
+export async function getById(subset: Subset, cols: string, id: string | number): Promise<Row | null> {
+  return queryOne(`SELECT ${cols} FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ?`, [String(id)]);
 }
 
 /**
@@ -319,8 +296,8 @@ export async function getManyByIds(
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => "?").join(", ");
   const where = [`CAST("o:id" AS VARCHAR) IN (${placeholders})`, ...extraWhere];
-  return query(
-    `SELECT ${cols} FROM ${viewName(subset)} WHERE ${where.join(" AND ")}`,
-    [...ids.map((v) => String(v)), ...extraParams],
-  );
+  return query(`SELECT ${cols} FROM ${viewName(subset)} WHERE ${where.join(" AND ")}`, [
+    ...ids.map((v) => String(v)),
+    ...extraParams,
+  ]);
 }

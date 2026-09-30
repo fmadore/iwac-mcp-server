@@ -1,3 +1,4 @@
+import { narrowSelection, selectionFrom } from "../../selection.js";
 import type { FieldPayload } from "../../viewContract.js";
 // get_field_distribution → ranked values of one field, plus how its coverage
 // moves over time.
@@ -82,9 +83,7 @@ export function fieldView(payload: BasePayload): ViewResult {
       p.other_values
         ? `Showing the top ${values.length}; ${fmtInt(p.other_values)} further values are not plotted.`
         : null,
-      share
-        ? null
-        : "Ask for over_time to see how the share of items carrying this field moves across the years.",
+      share ? null : "Ask for over_time to see how the share of items carrying this field moves across the years.",
       `Click a value to chart the coverage that carries it.`,
     ],
     actions: [
@@ -116,14 +115,11 @@ export function fieldView(payload: BasePayload): ViewResult {
       root.querySelectorAll<SVGElement>(".hit[data-key]").forEach((el) => {
         el.addEventListener("click", () => {
           const value = el.getAttribute("data-key");
-          if (!value) return;
-          // `subject`, `country` and `newspaper` are real filters on the
-          // temporal tool; anything else has to go through the keyword path.
-          const args: Record<string, unknown> =
-            field === "subject" || field === "country" || field === "newspaper"
-              ? { subset: p.subset ?? "articles", [field]: value }
-              : { subset: p.subset ?? "articles", keyword: value };
-          void ctx.run("get_temporal_distribution", args);
+          if (!value || !p.field) return;
+          let selection = narrowSelection(selectionFrom(p.filters), p.field, value);
+          const second = el.getAttribute("data-key2");
+          if (second) selection = narrowSelection(selection, p.field, second);
+          void ctx.run("get_temporal_distribution", { subset: p.subset ?? "articles", ...selection });
         });
       });
     },

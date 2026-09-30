@@ -9,7 +9,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 export async function withFixtureScope(run) {
   const sessions = new Set();
   const scope = {
-    async connect({ name, cacheDir = "fixtures", clientOptions, stderr = "inherit" }) {
+    async connect({ name, cacheDir = "fixtures", clientOptions, stderr = "inherit", env = {} }) {
       const transport = new StdioClientTransport({
         command: process.execPath,
         args: [path.join(root, "server", "index.js")],
@@ -19,6 +19,7 @@ export async function withFixtureScope(run) {
           IWAC_CACHE_DIR: path.isAbsolute(cacheDir) ? cacheDir : path.join(root, "test", cacheDir),
           IWAC_OFFLINE: "1",
           IWAC_SEMANTIC_SEARCH_ENABLED: "false",
+          ...env,
         },
       });
       const client = new Client({ name, version: "0.0.0" }, clientOptions);

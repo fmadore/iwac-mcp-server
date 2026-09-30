@@ -15,6 +15,7 @@
 // Run via `npm run test:app`. Requires a prior `npm run build`.
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps";
 import * as vm from "node:vm";
+import { parseHTML } from "linkedom";
 import { withFixtureScope } from "./_fixture-client.mjs";
 
 await withFixtureScope(async (fixtures) => {
@@ -45,7 +46,8 @@ await withFixtureScope(async (fixtures) => {
 
   const listed = await client.listResources();
   const entry = listed.resources.find((r) => r.uri === "ui://iwac/charts.html");
-  if (!entry) fail(`ui://iwac/charts.html not registered (got ${listed.resources.map((r) => r.uri).join(", ") || "none"})`);
+  if (!entry)
+    fail(`ui://iwac/charts.html not registered (got ${listed.resources.map((r) => r.uri).join(", ") || "none"})`);
 
   const read = await client.readResource({ uri: "ui://iwac/charts.html" });
   const html = read.contents[0]?.text ?? "";
@@ -77,61 +79,17 @@ await withFixtureScope(async (fixtures) => {
 
   // --- DOM shim -----------------------------------------------------------------
 
-  /** Elements the app looks up by id after writing innerHTML. */
-  function scanIds(markup, registry) {
-    registry.clear();
-    for (const m of markup.matchAll(/id="([^"]+)"/g)) {
-      const id = m[1];
-      const label = markup.slice(m.index).match(/>([^<]*)</);
-      registry.set(id, {
-        id,
-        disabled: false,
-        textContent: label ? label[1] : "",
-        listeners: {},
-        addEventListener(type, fn) {
-          this.listeners[type] ??= [];
-          this.listeners[type].push(fn);
-        },
-        // Deliberately NOT awaited: the app's click handler awaits a tools/call
-        // that only settles once this harness answers it, so awaiting here would
-        // deadlock. Callers flush, inspect the outbound request, then answer.
-        click() {
-          for (const fn of this.listeners.click ?? []) fn();
-        },
-      });
-    }
-  }
-
-  const elements = new Map();
-  const rootEl = {
-    _html: "",
-    get innerHTML() {
-      return this._html;
-    },
-    set innerHTML(v) {
-      this._html = v;
-      scanIds(v, elements);
-    },
-    querySelectorAll: () => [],
-    addEventListener() {},
-  };
-
+  // A real DOM is essential: selectors and SVG click/keyboard listeners must
+  // actually run, rather than silently wiring an empty element list.
+  const dom = parseHTML('<!doctype html><html><head></head><body><main id="root"></main></body></html>');
+  const rootEl = dom.document.getElementById("root");
+  const elements = { get: (id) => dom.document.getElementById(id) };
   const outbound = [];
   let messageListener = null;
 
-  const documentElement = {
-    _attrs: {},
-    style: {},
-    classList: { contains: () => false },
-    setAttribute(k, v) {
-      this._attrs[k] = v;
-    },
-    getAttribute(k) {
-      return this._attrs[k] ?? null;
-    },
-    // The SDK's auto-resize measures the document on every frame.
-    getBoundingClientRect: () => ({ height: 400, width: 900 }),
-  };
+  const documentElement = dom.document.documentElement;
+  documentElement.getBoundingClientRect = () => ({ height: 400, width: 900 });
+  dom.document.body.getBoundingClientRect = () => ({ height: 400, width: 900 });
 
   const parent = {
     postMessage(msg) {
@@ -151,13 +109,8 @@ await withFixtureScope(async (fixtures) => {
 
   const sandbox = {
     window: windowShim,
-    document: {
-      documentElement,
-      body: { style: {}, getBoundingClientRect: () => ({ height: 400 }) },
-      head: { appendChild() {} },
-      createElement: () => ({ style: {}, setAttribute() {} }),
-      getElementById: (id) => (id === "root" ? rootEl : (elements.get(id) ?? null)),
-    },
+    document: dom.document,
+    MouseEvent: dom.window.Event,
     // `debug` is noisy (the transport logs every frame); warnings and errors are
     // exactly the signal a broken app emits, so they must not be swallowed.
     console: {
@@ -303,7 +256,13 @@ await withFixtureScope(async (fixtures) => {
       total_periodicals: 3,
       periodicals: [
         { newspaper: "Islam Info", country: "Burkina Faso", issue_count: 695, earliest_year: 2005, latest_year: 2020 },
-        { newspaper: "An-Nasr Vendredi", country: "Burkina Faso", issue_count: 318, earliest_year: 1998, latest_year: 2012 },
+        {
+          newspaper: "An-Nasr Vendredi",
+          country: "Burkina Faso",
+          issue_count: 318,
+          earliest_year: 1998,
+          latest_year: 2012,
+        },
         // No year range: must be disclosed, not silently dropped.
         { newspaper: "Sans dates", country: "Togo", issue_count: 4 },
       ],
@@ -373,10 +332,17 @@ await withFixtureScope(async (fixtures) => {
       polarity_distribution: { Neutre: 60, "Très négatif": 20, Positif: 20 },
       centrality_distribution: { Central: 50, Marginal: 50 },
       subjectivity: {
-        scale: "Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif (ordinal, least to most subjective)",
+        scale:
+          "Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif (ordinal, least to most subjective)",
         scored: 100,
         unscored: 20,
-        distribution: { "Très objectif": 40, "Plutôt objectif": 30, Mixte: 10, "Plutôt subjectif": 15, "Très subjectif": 5 },
+        distribution: {
+          "Très objectif": 40,
+          "Plutôt objectif": 30,
+          Mixte: 10,
+          "Plutôt subjectif": 15,
+          "Très subjectif": 5,
+        },
         mean_rank: 2.15,
         median_rank: 2,
         rank_scale: "1 = Très objectif … 5 = Très subjectif; derived here, not stored",
@@ -427,8 +393,18 @@ await withFixtureScope(async (fixtures) => {
       total_matches: 12287,
       classified: 12234,
       topics: [
-        { topic_id: 12, label: "imam - mosquée - communauté_musulman - prière - fidèle - hadj", count: 1989, avg_prob: 0.347 },
-        { topic_id: 7, label: "religieux - politique - etat - question - communauté - religion", count: 1251, avg_prob: 0.318 },
+        {
+          topic_id: 12,
+          label: "imam - mosquée - communauté_musulman - prière - fidèle - hadj",
+          count: 1989,
+          avg_prob: 0.347,
+        },
+        {
+          topic_id: 7,
+          label: "religieux - politique - etat - question - communauté - religion",
+          count: 1251,
+          avg_prob: 0.318,
+        },
       ],
       periods: ["1999", "2000"],
       series_by_topic: {
@@ -440,7 +416,8 @@ await withFixtureScope(async (fixtures) => {
       // Six-term LDA labels must be shortened for the cells but kept in full in
       // the tooltip, which is the only place the whole label survives.
       if (!markup.includes("imam · mosquée · communauté musulman…")) return "LDA label was not shortened for display";
-      if (!markup.includes("communauté_musulman - prière - fidèle - hadj")) return "full label missing from the tooltip";
+      if (!markup.includes("communauté_musulman - prière - fidèle - hadj"))
+        return "full label missing from the tooltip";
       if (!markup.includes("(other topics)")) return "the residual band did not render";
       return null;
     },
@@ -513,8 +490,22 @@ await withFixtureScope(async (fixtures) => {
       filters: {},
       total_matches: 12287,
       groups: [
-        { group: "Côte d'Ivoire", items: 3994, readability_avg: 65.23, readability_n: 3993, mattr_avg: 0.815, words_avg: 621 },
-        { group: "Burkina Faso", items: 3659, readability_avg: 63.15, readability_n: 3659, mattr_avg: 0.811, words_avg: 758 },
+        {
+          group: "Côte d'Ivoire",
+          items: 3994,
+          readability_avg: 65.23,
+          readability_n: 3993,
+          mattr_avg: 0.815,
+          words_avg: 621,
+        },
+        {
+          group: "Burkina Faso",
+          items: 3659,
+          readability_avg: 63.15,
+          readability_n: 3659,
+          mattr_avg: 0.811,
+          words_avg: 758,
+        },
       ],
       metrics: { mattr: { label: "Lexical richness (MATTR)" } },
       readability_excluded: 9,
@@ -545,12 +536,26 @@ await withFixtureScope(async (fixtures) => {
       models: ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731", "gemma-4-31b-it", "qwen3-8-27b"],
       by_model: {
         "gpt-5-6-luna": {
-          polarity_distribution: { Positif: 6146, Neutre: 5017, "Très positif": 425, Négatif: 375, "Non applicable": 290, "Très négatif": 45 },
+          polarity_distribution: {
+            Positif: 6146,
+            Neutre: 5017,
+            "Très positif": 425,
+            Négatif: 375,
+            "Non applicable": 290,
+            "Très négatif": 45,
+          },
           subjectivity: {
-            scale: "Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif (ordinal, least to most subjective)",
+            scale:
+              "Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif (ordinal, least to most subjective)",
             scored: 12008,
             unscored: 341,
-            distribution: { "Très objectif": 1144, "Plutôt objectif": 7900, Mixte: 314, "Plutôt subjectif": 1914, "Très subjectif": 736 },
+            distribution: {
+              "Très objectif": 1144,
+              "Plutôt objectif": 7900,
+              Mixte: 314,
+              "Plutôt subjectif": 1914,
+              "Très subjectif": 736,
+            },
             mean_rank: 2.434,
             median_rank: 2,
             rank_scale: "1 = Très objectif … 5 = Très subjectif; derived here, not stored",
@@ -559,22 +564,50 @@ await withFixtureScope(async (fixtures) => {
           coverage: { polarity: 12298, centrality: 12298, subjectivity: 12008, matched_articles: 12349 },
         },
         "mistral-small-2603": {
-          polarity_distribution: { Positif: 4985, Neutre: 4093, "Très positif": 2087, "Non applicable": 587, Négatif: 362, "Très négatif": 184 },
+          polarity_distribution: {
+            Positif: 4985,
+            Neutre: 4093,
+            "Très positif": 2087,
+            "Non applicable": 587,
+            Négatif: 362,
+            "Très négatif": 184,
+          },
           coverage: { polarity: 12298, matched_articles: 12349 },
         },
         "deepseek-v4-flash-0731": {
-          polarity_distribution: { Neutre: 6649, Positif: 4001, "Très positif": 900, "Non applicable": 484, Négatif: 223, "Très négatif": 41 },
+          polarity_distribution: {
+            Neutre: 6649,
+            Positif: 4001,
+            "Très positif": 900,
+            "Non applicable": 484,
+            Négatif: 223,
+            "Très négatif": 41,
+          },
           coverage: { polarity: 12298, matched_articles: 12349 },
         },
         "gemma-4-31b-it": {
-          polarity_distribution: { Neutre: 7275, Positif: 3871, "Très positif": 627, "Non applicable": 243, Négatif: 233, "Très négatif": 49 },
+          polarity_distribution: {
+            Neutre: 7275,
+            Positif: 3871,
+            "Très positif": 627,
+            "Non applicable": 243,
+            Négatif: 233,
+            "Très négatif": 49,
+          },
           coverage: { polarity: 12298, matched_articles: 12349 },
         },
         // The short member. It also barely uses the extremes — 176 Très positif
         // against Luna's 425, and 5 Très négatif — so its ring is a real shape,
         // not a copy of its neighbour's.
         "qwen3-8-27b": {
-          polarity_distribution: { Neutre: 6298, Positif: 5107, "Non applicable": 288, Négatif: 224, "Très positif": 176, "Très négatif": 5 },
+          polarity_distribution: {
+            Neutre: 6298,
+            Positif: 5107,
+            "Non applicable": 288,
+            Négatif: 224,
+            "Très positif": 176,
+            "Très négatif": 5,
+          },
           coverage: { polarity: 12098, matched_articles: 12349 },
           model_caveat: "Scores 12,098 articles where the other four score 12,298.",
         },
@@ -604,8 +637,21 @@ await withFixtureScope(async (fixtures) => {
       // unanimous): the two count different things on different sets, which is
       // exactly what the chart has to keep apart.
       consensus: {
-        polarity_distribution: { Neutre: 5985, Positif: 4838, "Très positif": 483, "Non applicable": 323, Négatif: 211, "Très négatif": 29 },
-        centrality_distribution: { "Très central": 8247, Central: 1236, Marginal: 1166, Secondaire: 871, "Non abordé": 313 },
+        polarity_distribution: {
+          Neutre: 5985,
+          Positif: 4838,
+          "Très positif": 483,
+          "Non applicable": 323,
+          Négatif: 211,
+          "Très négatif": 29,
+        },
+        centrality_distribution: {
+          "Très central": 8247,
+          Central: 1236,
+          Marginal: 1166,
+          Secondaire: 871,
+          "Non abordé": 313,
+        },
         coverage: { polarity: 11869, centrality: 11833, subjectivity: 12195, matched_articles: 12349 },
         disputed: { polarite: 429, centralite: 465, subjectivite: 3184, any: 3778 },
       },
@@ -670,7 +716,7 @@ await withFixtureScope(async (fixtures) => {
     },
     (markup) => {
       if ((markup.match(/<circle/g) ?? []).length !== 2) return "expected exactly the two in-frame settlements";
-      if (markup.includes("<circle") && markup.includes(">Côte d'Ivoire: 2")) return "a country was drawn as a bubble";
+      if (/<circle[^>]*><title>Côte d'Ivoire:/.test(markup)) return "a country was drawn as a bubble";
       if (!markup.includes("Named at country level")) return "country-level panel missing";
       if (!markup.includes("La Mecque (off map)")) return "off-frame place not surfaced in the ranking";
       if (!markup.includes("Riviera Golf (not geocoded)")) return "ungeocoded place not surfaced";
@@ -717,7 +763,13 @@ await withFixtureScope(async (fixtures) => {
       subset: "articles",
       source: { id: "10076", title: "Tabaski 2018 : 800 bœufs abattus", url: "https://islam.zmo.de/x" },
       neighbours: [
-        { id: "2374", title: "Fête de la tabaski : 832 bœufs", score: 0.8747, newspaper: "Sidwaya", pub_date: "2018-08-23" },
+        {
+          id: "2374",
+          title: "Fête de la tabaski : 832 bœufs",
+          score: 0.8747,
+          newspaper: "Sidwaya",
+          pub_date: "2018-08-23",
+        },
         { id: "4018", title: "Tabaski 2018 : l'ONG FOSAPA solidaire", score: 0.8225, newspaper: "L'Observateur" },
         { id: "3428", title: "Tabaski 2017 : tolérance religieuse", score: 0.6979, newspaper: "Sidwaya" },
       ],
@@ -725,10 +777,10 @@ await withFixtureScope(async (fixtures) => {
     },
     (markup) => {
       if (!markup.includes("0.875")) return "scores should render at 3 decimals";
-      if (!markup.includes("1 at or above 0.85")) return "the reprint band was not counted in the headline";
-      if (!markup.includes("likely reprints")) return "missing the reprint caution";
+      if (!markup.includes("3 neighbours")) return "neighbour count missing";
+      if (!markup.includes("not evidence of copying")) return "missing the interpretation caution";
       // The above-threshold bar is coloured differently so the cliff is visible.
-      if (!markup.includes("#c5504d")) return "the reprint bar is not distinguished";
+      if (!markup.includes('data-key="2374"')) return "stable source ID missing";
       return null;
     },
   ]);
@@ -816,12 +868,22 @@ await withFixtureScope(async (fixtures) => {
       total_matches: 12287,
       classified: 12234,
       topics: [
-        { topic_id: 12, label: "imam - mosquée - communauté_musulman - prière - fidèle - hadj", count: 1989, avg_prob: 0.347 },
+        {
+          topic_id: 12,
+          label: "imam - mosquée - communauté_musulman - prière - fidèle - hadj",
+          count: 1989,
+          avg_prob: 0.347,
+        },
       ],
       span: ["1999", "2000"],
       trend_by_topic: {
         "imam - mosquée - communauté_musulman - prière - fidèle - hadj": {
-          total: 30, first: "1999", last: "2000", peak_year: "2000", peak_count: 20, median_year: "2000",
+          total: 30,
+          first: "1999",
+          last: "2000",
+          peak_year: "2000",
+          peak_count: 20,
+          median_year: "2000",
         },
       },
     };
@@ -897,7 +959,8 @@ await withFixtureScope(async (fixtures) => {
 
   {
     const call = await press("act-group");
-    if (call && call.params.arguments.group_by !== "country") fail("group_by toggle did not request a country grouping");
+    if (call && call.params.arguments.group_by !== "country")
+      fail("group_by toggle did not request a country grouping");
     // A rejected re-call must keep the chart on screen rather than blanking it:
     // a group_by the subset cannot serve should not cost the user their place.
     if (call) {
@@ -961,6 +1024,167 @@ await withFixtureScope(async (fixtures) => {
       deliver({ jsonrpc: "2.0", id: call.id, result: {} });
       await flush();
     }
+  }
+
+  // The regressions below drive real SVG marks through the bundled app and
+  // inspect the host protocol, including keyboard activation and stale calls.
+  {
+    const filters = {
+      country: "Benin",
+      date_from: "2000",
+      keyword: "imam",
+      exact: { language: ["Français"] },
+      min_prob: 0.6,
+    };
+    await renderPayload({
+      view: "topics",
+      subset: "articles",
+      filters,
+      total_matches: 4,
+      classified: 4,
+      topics: [
+        { topic_id: 7, label: "imam - mosquée - prière - a", count: 2 },
+        { topic_id: 8, label: "imam - mosquée - prière - b", count: 2 },
+      ],
+    });
+    const mark = rootEl.querySelector('[data-key="8"]');
+    if (mark?.getAttribute("tabindex") !== "0") fail("topic mark missing or inaccessible");
+    outbound.length = 0;
+    const key = new dom.window.Event("keydown", { bubbles: true, cancelable: true });
+    key.key = "Enter";
+    mark?.dispatchEvent(key);
+    await flush();
+    const call = take((m) => m.method === "tools/call");
+    if (
+      call?.params.arguments.exact?.topic_id?.[0] !== "8" ||
+      call.params.arguments.keyword !== "imam" ||
+      call.params.arguments.country !== "Benin" ||
+      call.params.arguments.date_from !== "2000" ||
+      call.params.arguments.exact?.min_prob?.[0] !== "0.6"
+    )
+      fail("topic activation lost its exact ID or parent scope");
+    if (call) await answer(call, BASE);
+    elements.get("act-back")?.click();
+    await flush();
+    if (!rootEl.querySelector('[data-key="8"]')) fail("Back lost the source chart");
+  }
+  {
+    await renderPayload({
+      view: "cooccurrence",
+      subset: "articles",
+      field: "spatial",
+      filters: { country: "Benin", date_from: "2000" },
+      values: [
+        { value: "Lomé", count: 2 },
+        { value: "Cotonou", count: 2 },
+      ],
+      matrix: [
+        [2, 1],
+        [1, 2],
+      ],
+    });
+    outbound.length = 0;
+    rootEl.querySelector('[data-key="Lomé"][data-key2="Cotonou"]')?.dispatchEvent(new dom.window.Event("click"));
+    await flush();
+    const call = take((m) => m.method === "tools/call");
+    if (
+      !call ||
+      JSON.stringify(call.params.arguments.exact?.spatial) !== JSON.stringify(["Lomé", "Cotonou"]) ||
+      call.params.arguments.country !== "Benin"
+    )
+      fail("co-occurrence did not intersect both exact values");
+    if (call) await answer(call, BASE);
+  }
+  {
+    await renderPayload({
+      view: "lunar",
+      subset: "images",
+      filters: { country: "Togo" },
+      total_matches: 6,
+      distribution_by_group: { Togo: { "09": 4 }, Benin: { "09": 2 } },
+      group_by: "country",
+    });
+    if (!rootEl.innerHTML.includes("6 placed") || rootEl.innerHTML.includes("No items"))
+      fail("grouped lunar data disappeared");
+    const call = await press("act-peak");
+    if (
+      call?.params.name !== "explore_corpus" ||
+      call.params.arguments.subset !== "images" ||
+      call.params.arguments.selection?.country !== "Togo"
+    )
+      fail("lunar peak lost subset or filters");
+    if (call)
+      await answer(call, {
+        view: "records",
+        mode: "items",
+        subset: "images",
+        filters: { country: "Togo" },
+        total_matches: 1,
+        rows: [{ id: "images:701", title: "Mosquée", url: "https://islam.zmo.de/s/afrique_ouest/item/701" }],
+      });
+    outbound.length = 0;
+    rootEl.querySelector('[data-id="images:701"]')?.click();
+    await flush();
+    const read = take((m) => m.method === "tools/call");
+    if (read?.params.name !== "fetch") fail("source list cannot open a reader");
+    if (read)
+      await answer(read, {
+        id: "images:701",
+        title: "Mosquée",
+        text: "<script>not executable</script>",
+        url: "https://islam.zmo.de/s/afrique_ouest/item/701",
+        metadata: {},
+      });
+    if (!rootEl.querySelector(".source-text") || rootEl.querySelector("script"))
+      fail("reader did not safely render source text");
+  }
+  {
+    await renderPayload(BASE);
+    const earlier = await press("act-gran"),
+      later = await press("act-group");
+    if (earlier && later) {
+      await answer(later, { ...BASE, distribution: { 2004: 3 } });
+      await answer(earlier, { ...BASE, distribution: { 1999: 9 } });
+      if (!rootEl.innerHTML.includes("2004") || rootEl.innerHTML.includes("1999"))
+        fail("stale response overwrote newer navigation");
+    }
+  }
+  {
+    await renderPayload({
+      view: "coverage",
+      subset: "articles",
+      filters: { keyword: "islam" },
+      source_field: "newspaper",
+      total_matches: 3,
+      rows: [{ source: "Le Pays", year: "2003", total: 3, fulltext: 2, embedded: 2, scored: 3 }],
+    });
+    const cell = rootEl.querySelector('[data-key="Le Pays"][data-key2="2003"]');
+    outbound.length = 0;
+    cell?.dispatchEvent(new dom.window.Event("click"));
+    await flush();
+    const call = take((m) => m.method === "tools/call");
+    if (
+      call?.params.arguments.selection?.exact?.newspaper?.[0] !== "Le Pays" ||
+      call.params.arguments.selection.keyword !== "islam"
+    )
+      fail("coverage cell lost the selection");
+    if (call) await answer(call, { error: "simulated unavailable source" }, true);
+    if (!rootEl.querySelector("svg") || !rootEl.innerHTML.includes("simulated unavailable"))
+      fail("failed source reading removed its chart");
+  }
+
+  {
+    for (const [view, rowsKey, countKey, subset] of [["newspapers","newspapers","article_count","articles"],["periodicals","periodicals","issue_count","publications"]]) {
+      await renderPayload({view,country_filter:"Benin",[rowsKey]:[{newspaper:"Same title",country:"Benin",[countKey]:3,earliest_year:2000,latest_year:2003}]});
+      outbound.length=0; rootEl.querySelector(".hit[data-key]")?.dispatchEvent(new dom.window.Event("click")); await flush();
+      const call=take(m=>m.method==="tools/call");
+      if (call?.params.arguments.subset!==subset || call.params.arguments.country!=="Benin" || call.params.arguments.exact?.newspaper?.[0]!=="Same title") fail(`${view} lost exact outlet/country scope`);
+      if (call) await answer(call,BASE);
+    }
+    await renderPayload({...BASE,filters:{exact:{spatial:["Cotonou","Lomé"]}}});
+    if(rootEl.innerHTML.includes("[object Object]") || !rootEl.innerHTML.includes("Cotonou AND Lomé")) fail("exact filters are not readable in chips");
+    const svg=await press("act-svg","ui/download-file");
+    if(svg){const text=svg.params.contents[0].resource.text;if(!text.includes('xmlns="http://www.w3.org/2000/svg"') || !text.includes("<style>")) fail("SVG export is not standalone");deliver({jsonrpc:"2.0",id:svg.id,result:{}});await flush();}
   }
 
   console.log(failures ? `\n${failures} APP CHECK(S) FAILED` : "\nALL APP CHECKS PASSED");

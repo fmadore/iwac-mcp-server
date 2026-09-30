@@ -179,6 +179,7 @@ await withFixtureScope(async (fixtures) => {
   const WORST_CASE = {
     // Row lists: no filter (so everything matches), the largest limit the server
     // will honour, and every verbosity flag switched on.
+    explore_corpus: { mode: "concordance", selection: { keyword: "islam" }, limit: 50 },
     search: { query: "islam", limit: BIG },
     search_articles: { limit: BIG, with_description: true },
     search_by_sentiment: { limit: BIG },

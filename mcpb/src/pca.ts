@@ -25,7 +25,7 @@ export interface Projection {
 
 /**
  * Project `vectors` (all the same length) onto their first two principal
- * components. Deterministic: the seed is derived from the data, and each
+ * components. Deterministic: three fixed pseudo-random starts compete by variance, and each
  * component's sign is fixed so the same input always yields the same picture.
  */
 export function project2d(vectors: number[][], iterations = 64): Projection {
@@ -53,26 +53,21 @@ export function project2d(vectors: number[][], iterations = 64): Projection {
   }
   totalVariance /= n;
 
-  const component = (): { axis: Float64Array; scores: Float64Array; variance: number } => {
-    // Seed from the row furthest from the mean: deterministic, and already
-    // pointing somewhere in the data's span, so it converges fast.
-    let seed = 0;
-    let best = -1;
-    for (let i = 0; i < n; i++) {
-      let norm = 0;
-      const off = i * d;
-      for (let j = 0; j < d; j++) norm += X[off + j] * X[off + j];
-      if (norm > best) {
-        best = norm;
-        seed = i;
-      }
-    }
+  const iteration = (trial: number): { axis: Float64Array; scores: Float64Array; variance: number } => {
+    // Independent deterministic starts have support in every coordinate. A
+    // data-row seed can be exactly orthogonal to the dominant eigenspace.
+    let state = 0x9e3779b9 ^ (trial * 2654435761);
     const axis = new Float64Array(d);
-    for (let j = 0; j < d; j++) axis[j] = X[seed * d + j];
+    for (let j = 0; j < d; j++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      axis[j] = (state >>> 0) / 4294967296 - 0.5;
+    }
     normalise(axis);
-
     const scores = new Float64Array(n);
     for (let it = 0; it < iterations; it++) {
+      const previous = axis.slice();
       // scores = X · axis
       for (let i = 0; i < n; i++) {
         let s = 0;
@@ -89,6 +84,9 @@ export function project2d(vectors: number[][], iterations = 64): Projection {
         for (let j = 0; j < d; j++) axis[j] += X[off + j] * s;
       }
       if (!normalise(axis)) break;
+      let alignment = 0;
+      for (let j = 0; j < d; j++) alignment += previous[j] * axis[j];
+      if (1 - Math.abs(alignment) < 1e-12) break;
     }
     // Final scores against the converged axis.
     let variance = 0;
@@ -113,6 +111,14 @@ export function project2d(vectors: number[][], iterations = 64): Projection {
     return { axis, scores, variance };
   };
 
+  const component = () => {
+    let best = iteration(0);
+    for (let trial = 1; trial < 3; trial++) {
+      const candidate = iteration(trial);
+      if (candidate.variance > best.variance) best = candidate;
+    }
+    return best;
+  };
   const first = component();
   // Deflate: remove PC1 from the data so the next pass finds the orthogonal
   // direction of greatest remaining variance.

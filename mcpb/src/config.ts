@@ -6,14 +6,7 @@ export const DATASET_REPO = "fmadore/islam-west-africa-collection";
 export const PRIVATE_DATASET_REPO = `${DATASET_REPO}-full`;
 export const DATASET_REVISION = "main";
 
-export type Subset =
-  | "articles"
-  | "publications"
-  | "documents"
-  | "audiovisual"
-  | "images"
-  | "index"
-  | "references";
+export type Subset = "articles" | "publications" | "documents" | "audiovisual" | "images" | "index" | "references";
 
 export const ALL_SUBSETS: Subset[] = [
   "articles",
@@ -46,11 +39,7 @@ function parseBool(v: string | undefined, fallback: boolean): boolean {
 /** Parse a decimal positive-integer env var. `parseInt()` is deliberately not
  * used: it accepts malformed prefixes such as `8000junk` and truncates `3.5`
  * to 3, contradicting the configuration contract. */
-export function parsePositiveInt(
-  v: string | undefined,
-  fallback: number,
-  max = Number.MAX_SAFE_INTEGER,
-): number {
+export function parsePositiveInt(v: string | undefined, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
   const raw = v?.trim() ?? "";
   if (!/^\d+$/.test(raw)) return fallback;
   const n = Number(raw);
@@ -126,7 +115,7 @@ export const config = {
   datasetRepo: privateDataset ? PRIVATE_DATASET_REPO : DATASET_REPO,
   privateDataset,
   hfToken: process.env.IWAC_HF_TOKEN?.trim() || process.env.HF_TOKEN?.trim() || undefined,
-  datasetRevision: DATASET_REVISION,
+  datasetRevision: process.env.IWAC_DATASET_REVISION?.trim() || DATASET_REVISION,
   cacheDir: datasetCacheDir(resolveCacheDir(), privateDataset),
   // Offline mode: trust whatever parquet is cached, never touch the network.
   // Used by the hermetic fixture tests and useful on flaky links.
@@ -137,6 +126,9 @@ export const config = {
   // otherwise serves the data it started with until it is restarted.
   refreshIntervalMs: parseRefreshHours(process.env.IWAC_REFRESH_HOURS) * 3_600_000,
   semanticSearchEnabled: parseBool(process.env.IWAC_SEMANTIC_SEARCH_ENABLED, false),
+  embeddingProvider: process.env.IWAC_EMBEDDING_PROVIDER === "local" ? "local" : "gemini",
+  localEmbeddingUrl: process.env.IWAC_LOCAL_EMBEDDING_URL?.trim() || "http://127.0.0.1:8080/v1/embeddings",
+  localEmbeddingApiKey: process.env.IWAC_LOCAL_EMBEDDING_API_KEY?.trim() || undefined,
   embeddingModel: process.env.IWAC_EMBEDDING_MODEL?.trim() || "gemini-embedding-2",
   embeddingDimensionality: parsePositiveInt(process.env.IWAC_EMBEDDING_DIMENSIONALITY, 768),
   googleApiKey:

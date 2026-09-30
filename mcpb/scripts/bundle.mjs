@@ -64,7 +64,7 @@ const stubZodLocales = {
     build.onLoad({ filter: /.*/, namespace: "iwac-stub" }, () => ({
       contents:
         "export default function stubbedZodLocale(){throw new Error(" +
-        '"This bundle ships only zod\'s English locale; the others are stubbed out by ' +
+        "\"This bundle ships only zod's English locale; the others are stubbed out by " +
         'scripts/bundle.mjs. Drop the stub-zod-locales plugin to use z.locales.<lang>().")}',
       loader: "js",
     }));
@@ -150,6 +150,10 @@ svg{display:block;width:100%;height:auto}
 .node:hover{stroke:var(--fg)}
 .hit{cursor:pointer}
 .hit:hover{opacity:.78}
+[data-key]{cursor:pointer}
+[data-key]:focus-visible,button:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
+.scroll{overflow:auto;max-height:420px}table{border-collapse:collapse;font-size:12px}td,th{padding:5px 9px;border-bottom:1px solid var(--line);text-align:left}
+.record{padding:10px 0;border-bottom:1px solid var(--line)}.record p{margin:4px 0;color:var(--muted)}.source{text-align:left}.source-text{white-space:pre-wrap;overflow-wrap:anywhere;max-height:620px;overflow:auto;line-height:1.65}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid var(--line)}.citation{overflow-wrap:anywhere}
 .legend{list-style:none;display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 0;padding:0;font-size:12px}
 .legend li{display:flex;align-items:center;gap:5px}
 .swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
@@ -184,6 +188,16 @@ for (const skill of skills.skills) {
 }
 if (skills.skills.length === 0) console.log("  skill         (none found, skill:// resources will be absent)");
 
+const pcaWorker = await esbuild.build({
+  absWorkingDir: rootDir,
+  entryPoints: [join(rootDir, "src", "pcaWorker.ts")],
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: nodeTarget,
+  write: false,
+});
+
 await esbuild.build({
   absWorkingDir: rootDir,
   entryPoints: [join(rootDir, "src", "index.ts")],
@@ -205,6 +219,7 @@ await esbuild.build({
   // here as they are in an iframe.
   plugins: [stubZodLocales],
   define: {
+    __IWAC_PCA_WORKER__: JSON.stringify(pcaWorker.outputFiles[0].text),
     __IWAC_VERSION__: JSON.stringify(pkg.version),
     __IWAC_UI_CHARTS__: JSON.stringify(uiHtml),
     __IWAC_SKILLS__: JSON.stringify(skillsJson),

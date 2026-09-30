@@ -1,4 +1,6 @@
-import { createHash } from "node:crypto";
+import { requestSignal } from "./request.js";
+import { withCacheLock } from "./cacheLock.js";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -17,6 +19,11 @@ import {
 } from "./hfCache.js";
 
 class HuggingFaceAccessError extends Error {}
+function networkSignal(timeout: number): AbortSignal {
+  const parent = requestSignal(),
+    deadline = AbortSignal.timeout(timeout);
+  return parent ? AbortSignal.any([parent, deadline]) : deadline;
+}
 
 function authHeaders(): HeadersInit | undefined {
   if (!config.privateDataset) return undefined;
@@ -37,8 +44,8 @@ function checkAccess(res: Response): void {
 }
 
 async function listTree(subset: Subset): Promise<TreeEntry[]> {
-  const url = `https://huggingface.co/api/datasets/${config.datasetRepo}/tree/${config.datasetRevision}/${subset}`;
-  const res = await fetch(url, { headers: authHeaders(), signal: AbortSignal.timeout(30_000) });
+  const url = `https://huggingface.co/api/datasets/${config.datasetRepo}/tree/${encodeURIComponent(config.datasetRevision)}/${subset}`;
+  const res = await fetch(url, { headers: authHeaders(), signal: networkSignal(30_000) });
   checkAccess(res);
   if (!res.ok) {
     throw new Error(`Failed to list ${subset} tree: HTTP ${res.status}`);
@@ -58,16 +65,16 @@ async function listTree(subset: Subset): Promise<TreeEntry[]> {
  * the manifest is not written and the next attempt downloads again.
  */
 async function downloadFile(entry: TreeEntry, destPath: string): Promise<void> {
-  const url = `https://huggingface.co/datasets/${config.datasetRepo}/resolve/${config.datasetRevision}/${entry.path}`;
+  const url = `https://huggingface.co/datasets/${config.datasetRepo}/resolve/${encodeURIComponent(config.datasetRevision)}/${entry.path}`;
   // Generous timeout: the largest subset is ~185 MB and may run on slow links.
-  const res = await fetch(url, { headers: authHeaders(), signal: AbortSignal.timeout(15 * 60_000) });
+  const res = await fetch(url, { headers: authHeaders(), signal: networkSignal(15 * 60_000) });
   checkAccess(res);
   const body = res.body;
   if (!res.ok || !body) {
     throw new Error(`Failed to download ${entry.path}: HTTP ${res.status}`);
   }
   await fs.mkdir(path.dirname(destPath), { recursive: true });
-  const tmp = `${destPath}.partial`;
+  const tmp = `${destPath}.${process.pid}.${randomUUID()}.partial`;
   const hash = createHash("sha256");
   let bytes = 0;
   const meter = new Transform({
@@ -93,31 +100,51 @@ async function downloadFile(entry: TreeEntry, destPath: string): Promise<void> {
   await fs.rename(tmp, destPath);
 }
 
-async function readCacheManifest(localDir: string): Promise<CacheManifest | undefined> {
-  try {
-    const raw = JSON.parse(
-      await fs.readFile(path.join(localDir, CACHE_MANIFEST_FILE), "utf8"),
-    ) as unknown;
-    return parseCacheManifest(raw, config.datasetRepo, config.datasetRevision);
-  } catch {
-    return undefined;
-  }
+async function manifestComplete(localDir: string, manifest: CacheManifest): Promise<boolean> {
+  const entries = Object.entries(manifest.files);
+  if (!entries.length) return false;
+  return (
+    await Promise.all(
+      entries.map(async ([name, meta]) => {
+        try {
+          const stat = await fs.stat(path.join(localDir, name));
+          return stat.isFile() && (meta.size === undefined || stat.size === meta.size);
+        } catch {
+          return false;
+        }
+      }),
+    )
+  ).every(Boolean);
 }
 
-async function writeCacheManifest(
-  localDir: string,
-  entries: TreeEntry[],
-  localNames: string[],
-): Promise<void> {
+async function readCacheManifest(localDir: string): Promise<CacheManifest | undefined> {
+  for (const suffix of ["", ".backup"]) {
+    try {
+      const manifest = parseCacheManifest(
+        JSON.parse(await fs.readFile(path.join(localDir, CACHE_MANIFEST_FILE + suffix), "utf8")),
+        config.datasetRepo,
+        config.datasetRevision,
+      );
+      if (manifest && (await manifestComplete(localDir, manifest))) return manifest;
+    } catch {
+      /* Try the last known complete generation. */
+    }
+  }
+  return undefined;
+}
+
+async function writeCacheManifest(localDir: string, entries: TreeEntry[], localNames: string[]): Promise<void> {
   const target = path.join(localDir, CACHE_MANIFEST_FILE);
-  const tmp = `${target}.partial`;
-  const manifest = buildCacheManifest(
-    config.datasetRepo,
-    config.datasetRevision,
-    entries,
-    localNames,
-  );
+  const tmp = `${target}.${process.pid}.${randomUUID()}.partial`;
+  const manifest = buildCacheManifest(config.datasetRepo, config.datasetRevision, entries, localNames);
   await fs.writeFile(tmp, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  const previous = await readCacheManifest(localDir);
+  if (previous && (await manifestComplete(localDir, previous))) {
+    const backup = `${target}.backup`;
+    const backupTmp = `${backup}.${randomUUID()}.partial`;
+    await fs.writeFile(backupTmp, JSON.stringify(previous));
+    await fs.rename(backupTmp, backup);
+  }
   await fs.rename(tmp, target);
 }
 
@@ -169,7 +196,7 @@ async function localFileIsCurrent(
  * reading: on Windows a rename over a file an in-flight query holds open
  * fails, and a multi-shard subset could be read half old, half new. With
  * distinct names the switch is one CREATE OR REPLACE VIEW over the new list
- * (db.ts), and the old file is pruned afterwards. The digest is hashed rather
+ * (db.ts); old generations remain available to in-flight and other-process readers. The digest is hashed rather
  * than embedded because identities contain `:`, which Windows forbids in
  * file names. Without an identity there is nothing to tell revisions apart,
  * so the Hub name is kept.
@@ -199,29 +226,55 @@ async function currentLocalName(
 
 /**
  * The cached parquet files for a subset without asking the Hub: the manifest's
- * list when it names files that all exist, otherwise every `*.parquet` in the
- * directory (a cache that predates the manifest, or the offline fixtures).
+ * complete committed list or backup. A plain legacy cache without sidecars is
+ * supported; ambiguous content-named generations fail closed.
  */
 async function cachedFiles(localDir: string): Promise<string[]> {
   const manifest = await readCacheManifest(localDir);
-  const recorded = Object.keys(manifest?.files ?? {});
-  if (recorded.length > 0) {
-    const present = await Promise.all(
-      recorded.map((name) => fs.stat(path.join(localDir, name)).then(() => true, () => false)),
-    );
-    if (present.every(Boolean)) return recorded.map((name) => path.join(localDir, name));
-  }
+  if (manifest) return Object.keys(manifest.files).map((name) => path.join(localDir, name));
+  let names: string[];
   try {
-    return (await fs.readdir(localDir))
-      .filter((name) => name.endsWith(".parquet"))
-      .sort()
-      .map((name) => path.join(localDir, name));
+    names = await fs.readdir(localDir);
   } catch {
     return [];
   }
+  // Legacy fixtures have plain shard names and no sidecar. Content-named files
+  // without a complete manifest must NEVER be unioned across generations.
+  if (names.some((n) => n.startsWith(CACHE_MANIFEST_FILE) || /\.[a-f0-9]{12}\.parquet$/.test(n))) {
+    throw new Error(
+      "No complete cache manifest or backup. Reconnect to rebuild the cache; refusing to combine dataset generations.",
+    );
+  }
+  return names
+    .filter((n) => n.endsWith(".parquet"))
+    .sort()
+    .map((n) => path.join(localDir, n));
+}
+
+async function describeFiles(subset: Subset, files: string[], freshness: string): Promise<Record<string, unknown>> {
+  const manifest = await readCacheManifest(path.join(config.cacheDir, subset));
+  const identities = await Promise.all(
+    files.map(async (file) => {
+      const name = path.basename(file),
+        meta = manifest?.files[name];
+      return {
+        path: meta?.remotePath ?? `${subset}/${name}`,
+        identity: meta?.identity ?? `sha256:${await sha256File(file)}`,
+      };
+    }),
+  );
+  return {
+    repository: config.datasetRepo,
+    revision: config.datasetRevision,
+    access: config.privateDataset ? "private" : "public",
+    files: identities,
+    freshness,
+    loaded_at: new Date().toISOString(),
+  };
 }
 
 export interface SubsetFiles {
+  provenance: Record<string, unknown>;
   /** Absolute paths of the parquet files that make up the subset now. */
   files: string[];
   /** Whether this call downloaded anything, i.e. the data may have changed. */
@@ -230,21 +283,26 @@ export interface SubsetFiles {
 
 /**
  * Ensure the current parquet files for a subset are present locally and return
- * them. Files a newer revision replaced are left in place: the view may still
- * be reading them, so removing them is pruneSubset's job, once the view no
- * longer points at them.
+ * them. Replaced files stay immutable and retained for other processes, pinned
+ * requests and reproducible exports. Cleanup requires stopping cache users.
  */
 export async function ensureSubset(subset: Subset): Promise<SubsetFiles> {
+  const directory = path.join(config.cacheDir, subset);
+  await fs.mkdir(directory, { recursive: true });
+  if (config.offline) return ensureSubsetUnlocked(subset);
+  return withCacheLock(directory, () => ensureSubsetUnlocked(subset));
+}
+
+async function ensureSubsetUnlocked(subset: Subset): Promise<SubsetFiles> {
   const localDir = path.join(config.cacheDir, subset);
   await fs.mkdir(localDir, { recursive: true });
 
   // Offline mode: trust the cache as-is, no metadata refresh, no pruning.
   if (config.offline) {
     const files = await cachedFiles(localDir);
-    if (files.length > 0) return { files, downloaded: false };
-    throw new Error(
-      `IWAC_OFFLINE is set but there are no cached parquet files for ${subset} in ${localDir}`,
-    );
+    if (files.length > 0)
+      return { files, downloaded: false, provenance: await describeFiles(subset, files, "offline") };
+    throw new Error(`IWAC_OFFLINE is set but there are no cached parquet files for ${subset} in ${localDir}`);
   }
 
   let tree: TreeEntry[];
@@ -258,13 +316,11 @@ export async function ensureSubset(subset: Subset): Promise<SubsetFiles> {
         `[iwac] warning: failed to refresh Hugging Face metadata for ${subset}; using cached parquet files in ${localDir}. ` +
           `Freshness could not be verified. ${(err as Error).message}`,
       );
-      return { files, downloaded: false };
+      return { files, downloaded: false, provenance: await describeFiles(subset, files, "cached; refresh failed") };
     }
     throw err;
   }
-  const parquetFiles = tree.filter(
-    (e) => e.type === "file" && e.path.endsWith(".parquet"),
-  );
+  const parquetFiles = tree.filter((e) => e.type === "file" && e.path.endsWith(".parquet"));
   if (parquetFiles.length === 0) {
     throw new Error(`No parquet files found for subset ${subset}`);
   }
@@ -290,39 +346,8 @@ export async function ensureSubset(subset: Subset): Promise<SubsetFiles> {
   // the previous identities remain and force a safe retry.
   await writeCacheManifest(localDir, parquetFiles, names);
 
-  return { files: names.map((name) => path.join(localDir, name)), downloaded };
-}
-
-/**
- * Delete the parquet files of a subset that are not in `keep`, plus `.partial`
- * leftovers from interrupted downloads. Call it only once nothing reads the
- * other files any more, i.e. after the view points at `keep`.
- *
- * Disk hygiene, not correctness: the view reads an explicit file list, so a
- * stale shard left behind (a repartitioned revision, say) is never unioned in.
- * That is also why a failed delete is only logged. On Windows a query still
- * finishing on the old file holds it open, and the next prune retries.
- */
-export async function pruneSubset(subset: Subset, keep: string[]): Promise<void> {
-  if (config.offline) return;
-  const localDir = path.join(config.cacheDir, subset);
-  const wanted = new Set(keep.map((file) => path.basename(file)));
-  let names: string[];
-  try {
-    names = await fs.readdir(localDir);
-  } catch {
-    return;
-  }
-  for (const name of names) {
-    const stale = (name.endsWith(".parquet") && !wanted.has(name)) || name.endsWith(".partial");
-    if (!stale) continue;
-    try {
-      await fs.rm(path.join(localDir, name), { force: true });
-      console.error(`[iwac] pruned stale cache file ${subset}/${name}`);
-    } catch (err) {
-      console.error(`[iwac] could not prune ${subset}/${name} yet: ${(err as Error).message}`);
-    }
-  }
+  const files = names.map((name) => path.join(localDir, name));
+  return { files, downloaded, provenance: await describeFiles(subset, files, "verified against Hub file identities") };
 }
 
 /** A DuckDB `read_parquet` list literal for these files. Forward slashes work

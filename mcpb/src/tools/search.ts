@@ -101,12 +101,7 @@ interface SubsetHits {
   searchable: boolean;
 }
 
-async function searchSubset(
-  subset: Subset,
-  queryStr: string,
-  limit: number,
-  cols: string[],
-): Promise<SubsetHits> {
+async function searchSubset(subset: Subset, queryStr: string, limit: number, cols: string[]): Promise<SubsetHits> {
   const schema = await ensureView(subset);
   const titleCol = TITLE_COL[subset];
   if (!schema.has("o:id") || !schema.has(titleCol)) return { hits: [], searchable: false };
@@ -206,12 +201,22 @@ const label = (s: Subset, c: string) => SUBSET_COL_LABELS[s]?.[c] ?? COL_LABELS[
 
 /** Columns matched in the fast first pass, per subset (title always included). */
 const FAST_FIELDS = SEARCH_SUBSETS.map(
-  (s) => `${s}: title${FAST_TEXT_COLS[s].filter((c) => c !== TITLE_COL[s]).map((c) => ` + ${label(s, c)}`).join("")}`,
+  (s) =>
+    `${s}: title${FAST_TEXT_COLS[s]
+      .filter((c) => c !== TITLE_COL[s])
+      .map((c) => ` + ${label(s, c)}`)
+      .join("")}`,
 ).join("; ");
 
 /** Columns added only by the deep pass (the `heavy` full-text blobs). */
 const DEEP_FIELDS = SEARCH_SUBSETS.filter((s) => HAS_HEAVY_TEXT[s])
-  .map((s) => `${s}: ${TEXT_COLS[s].filter((c) => !FAST_TEXT_COLS[s].includes(c)).map((c) => label(s, c)).join(" + ")}`)
+  .map(
+    (s) =>
+      `${s}: ${TEXT_COLS[s]
+        .filter((c) => !FAST_TEXT_COLS[s].includes(c))
+        .map((c) => label(s, c))
+        .join(" + ")}`,
+  )
   .join("; ");
 
 const RANKING_NOTE =
@@ -252,6 +257,7 @@ const SEARCH_OUTPUT = z.object({
   limit: z.number().int(),
   ranking: z.string(),
   deep_scan: z.boolean(),
+  search_coverage: z.record(z.string(), z.looseObject({})).optional(),
   unavailable_categories: z.array(z.string()).optional(),
   coverage_warning: z.string().optional(),
   requested_limit: z.number().int().optional(),
@@ -293,7 +299,9 @@ export function registerSearchTools(server: Server): void {
         query: z
           .string()
           .min(1)
-          .describe("One concept, name, or short phrase; use French concept terms for primary sources, and French/English terms for references"),
+          .describe(
+            "One concept, name, or short phrase; use French concept terms for primary sources, and French/English terms for references",
+          ),
         limit: z.number().int().optional().describe("Max results across all categories. Default 20, max 50."),
       }),
       outputSchema: SEARCH_OUTPUT,
@@ -343,12 +351,20 @@ export function registerSearchTools(server: Server): void {
       // {count: 0} there would present a total outage as "no matches found".
       if (unavailable.length === SEARCH_SUBSETS.length) {
         return errorResult({
-          error: "No IWAC subset could be loaded — the dataset cache is unavailable and Hugging Face could not be reached.",
+          error:
+            "No IWAC subset could be loaded — the dataset cache is unavailable and Hugging Face could not be reached.",
           unavailable_categories: unavailable,
         });
       }
 
       const perSubset = fast.map((r) => r.hits);
+      const coverage: Record<string, { metadata: string; fulltext: string }> = Object.fromEntries(
+        fast.map((r) => [
+          r.subset,
+          { metadata: r.ok && r.searchable ? "searched" : "unavailable", fulltext: "not_searched" },
+        ]),
+      );
+      const deepFailures: Subset[] = [];
       // Pass 2: only when the cheap pass under-fills the page, and only for the
       // subsets that actually have a full-text column to scan. This is where the
       // seconds are: one folded LIKE over publications.OCR costs ~1.8 s.
@@ -360,6 +376,11 @@ export function registerSearchTools(server: Server): void {
           (s) => HAS_HEAVY_TEXT[s] && fast.find((r) => r.subset === s)?.ok === true,
         );
         for (let i = 0; i < SEARCH_SUBSETS.length; i++) {
+          const attempted = HAS_HEAVY_TEXT[deep[i].subset] && fast[i].ok;
+          if (attempted) {
+            coverage[deep[i].subset].fulltext = deep[i].ok && deep[i].searchable ? "searched" : "unavailable";
+            if (!deep[i].ok || !deep[i].searchable) deepFailures.push(deep[i].subset);
+          }
           const seen = new Set(perSubset[i].map((h) => h.id));
           // Appended, not merged: within a category the metadata matches stay
           // ahead of the items that matched only deep inside an OCR blob.
@@ -371,7 +392,7 @@ export function registerSearchTools(server: Server): void {
       // revision is a coverage hole too — report it alongside the load failures
       // rather than letting it look like a category with no matches.
       const notSearchable = fast.filter((r) => r.ok && !r.searchable).map((r) => r.subset);
-      const missing = [...unavailable, ...notSearchable];
+      const missing = [...new Set([...unavailable, ...notSearchable, ...deepFailures])];
 
       const results = interleave(perSubset, cap.value);
       return structuredResult({
@@ -380,12 +401,13 @@ export function registerSearchTools(server: Server): void {
         limit: cap.value,
         ranking: RANKING_NOTE,
         deep_scan: deepScan,
+        search_coverage: coverage,
         ...(missing.length
           ? {
               unavailable_categories: missing,
               coverage_warning:
-                `Could not search ${missing.join(", ")}; these categories are MISSING from these results ` +
-                "rather than empty. Retry, or use the matching search_* tool, before concluding a term is absent.",
+                `Search coverage is incomplete for ${missing.join(", ")}. ${deepFailures.length ? `Full-text pass failed for ${deepFailures.join(", ")}. ` : ""}Metadata hits may still be present; ` +
+                "read search_coverage before interpreting zero matches. Retry before concluding a term is absent.",
             }
           : {}),
         ...limitWarning(cap),

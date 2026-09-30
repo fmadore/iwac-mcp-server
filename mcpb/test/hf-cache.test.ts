@@ -6,13 +6,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { config, datasetCacheDir, PRIVATE_DATASET_REPO } from "../src/config.js";
-import { ensureView, pendingRefresh, query, viewGeneration } from "../src/db.js";
-import { downloadName, ensureSubset, pruneSubset } from "../src/hf.js";
-import {
-  CACHE_MANIFEST_FILE,
-  parseCacheManifest,
-  remoteIdentity,
-} from "../src/hfCache.js";
+import { withRequest } from "../src/request.js";
+import { ensureView, pendingRefresh, query, viewGeneration, viewName } from "../src/db.js";
+import { downloadName, ensureSubset } from "../src/hf.js";
+import { CACHE_MANIFEST_FILE, parseCacheManifest, remoteIdentity } from "../src/hfCache.js";
 
 function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
@@ -34,10 +31,7 @@ describe("Hugging Face cache freshness", () => {
       }),
       `lfs:${"a".repeat(64)}`,
     );
-    assert.equal(
-      remoteIdentity({ type: "file", path: "train.parquet", oid: "ABC" }),
-      "git:abc",
-    );
+    assert.equal(remoteIdentity({ type: "file", path: "train.parquet", oid: "ABC" }), "git:abc");
     assert.equal(parseCacheManifest({}, "repo", "main"), undefined);
     assert.equal(
       parseCacheManifest(
@@ -106,11 +100,10 @@ describe("Hugging Face cache freshness", () => {
       assert.equal(downloads, 1);
       assert.equal(downloaded, true);
       // The new revision lands beside the stale copy, never on top of it (a
-      // live view may still be reading that). Pruning removes it afterwards.
+      // live view or another process may still be reading that). Both stay immutable.
       assert.notEqual(files[0], localFile);
       assert.equal(await fs.readFile(localFile, "utf8"), "alpha");
-      await pruneSubset("articles", files);
-      assert.deepEqual(await parquetIn(subsetDir), [path.basename(files[0])]);
+      assert.deepEqual(await parquetIn(subsetDir), [path.basename(files[0]), path.basename(localFile)].sort());
 
       // A republish with another five-byte payload changes the LFS identity,
       // and with it the local name.
@@ -131,10 +124,20 @@ describe("Hugging Face cache freshness", () => {
       await fs.rm(path.join(subsetDir, CACHE_MANIFEST_FILE));
       await ensureSubset("articles");
       assert.equal(downloads, 2);
-      const manifest = JSON.parse(
-        await fs.readFile(path.join(subsetDir, CACHE_MANIFEST_FILE), "utf8"),
-      ) as { files: Record<string, { identity?: string }> };
+      const manifest = JSON.parse(await fs.readFile(path.join(subsetDir, CACHE_MANIFEST_FILE), "utf8")) as {
+        files: Record<string, { identity?: string }>;
+      };
       assert.equal(manifest.files[path.basename(files[0])]?.identity, `lfs:${sha256("cider")}`);
+
+      // A damaged current manifest recovers only its complete backup, never a
+      // glob that combines old and new content-named shards.
+      config.offline = true;
+      await fs.writeFile(path.join(subsetDir, CACHE_MANIFEST_FILE), "broken json");
+      const recovered = await ensureSubset("articles");
+      assert.equal(recovered.files.length, 1);
+      await fs.rm(path.join(subsetDir, `${CACHE_MANIFEST_FILE}.backup`));
+      await assert.rejects(ensureSubset("articles"), /refusing to combine/);
+      config.offline = false;
 
       // A cache from before content-named downloads keeps its Hub file name:
       // once its digest verifies, upgrading must not download ~250 MB again.
@@ -156,7 +159,6 @@ describe("Hugging Face cache freshness", () => {
     }
   });
 });
-
 
 describe("private dataset access", () => {
   it("isolates caches and authenticates both requests without public token use", async () => {
@@ -182,7 +184,7 @@ describe("private dataset access", () => {
       assert.equal(path.basename(files[0]), "train.parquet");
       assert.equal(await fs.readFile(files[0], "utf8"), "private");
       assert.equal(requests.length, 2);
-      assert.ok(requests.every(r => r.auth === "Bearer hf_test_only" && r.url.includes(PRIVATE_DATASET_REPO)));
+      assert.ok(requests.every((r) => r.auth === "Bearer hf_test_only" && r.url.includes(PRIVATE_DATASET_REPO)));
       // Even with cached text, invalid/missing credentials must fail online.
       config.hfToken = undefined;
       await assert.rejects(ensureSubset("articles"), /requires IWAC_HF_TOKEN/);
@@ -219,11 +221,19 @@ describe("download verification", () => {
     const listed = "genuine";
     let served = "tamper!"; // same length, different content
     try {
-      Object.assign(config, { cacheDir, datasetRepo: "example/iwac", datasetRevision: "main", offline: false, privateDataset: false });
+      Object.assign(config, {
+        cacheDir,
+        datasetRepo: "example/iwac",
+        datasetRevision: "main",
+        offline: false,
+        privateDataset: false,
+      });
       console.error = () => {};
       globalThis.fetch = (async (input) =>
         String(input).includes("/api/datasets/")
-          ? Response.json([{ type: "file", path: "documents/train.parquet", size: listed.length, lfs: { oid: sha256(listed) } }])
+          ? Response.json([
+              { type: "file", path: "documents/train.parquet", size: listed.length, lfs: { oid: sha256(listed) } },
+            ])
           : new Response(served)) as typeof fetch;
       const dir = path.join(cacheDir, "documents");
 
@@ -248,7 +258,11 @@ describe("download verification", () => {
 
 describe("content-named downloads", () => {
   it("names a download after its content identity, and only then", () => {
-    const entry = { type: "file" as const, path: "articles/train-00000-of-00001.parquet", lfs: { oid: "a".repeat(64) } };
+    const entry = {
+      type: "file" as const,
+      path: "articles/train-00000-of-00001.parquet",
+      lfs: { oid: "a".repeat(64) },
+    };
     const name = downloadName(entry);
     assert.match(name, /^train-00000-of-00001\.[0-9a-f]{12}\.parquet$/);
     assert.equal(downloadName(entry), name);
@@ -259,7 +273,7 @@ describe("content-named downloads", () => {
 });
 
 describe("background dataset refresh", () => {
-  it("serves the loaded view, then swaps to a newer revision and prunes the old file", async () => {
+  it("serves the loaded view, then swaps while retaining immutable generations", async () => {
     const cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), "iwac-refresh-"));
     const original = { ...config };
     const originalFetch = globalThis.fetch;
@@ -303,6 +317,28 @@ describe("background dataset refresh", () => {
       assert.equal(await count(), 1);
       assert.equal(viewGeneration("images"), 1);
 
+      let resume: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      let pinned: () => void = () => {};
+      const ready = new Promise<void>((resolve) => {
+        pinned = resolve;
+      });
+      const oldRequest = withRequest(undefined, async () => {
+        await ensureView("images");
+        const firstCount = Number((await query(`SELECT count(*) AS n FROM ${viewName("images")}`))[0].n);
+        pinned();
+        await gate;
+        assert.equal(
+          Number((await query(`SELECT count(*) AS n FROM ${viewName("images")}`))[0].n),
+          firstCount,
+          "one request retains one immutable snapshot across refresh",
+        );
+        assert.equal(viewGeneration("images"), 1);
+      });
+      await ready;
+
       // A newer revision is published. The call that notices is answered from
       // the loaded view at once; the swap happens in the background.
       payload = versions[1];
@@ -312,7 +348,14 @@ describe("background dataset refresh", () => {
       assert.equal((await ensureView("images")).has("added"), true);
       assert.equal(await count(), 2);
       assert.equal(viewGeneration("images"), 2);
-      assert.equal((await parquetIn(path.join(cacheDir, "images"))).length, 1, "the replaced file is pruned");
+      assert.equal(
+        (await parquetIn(path.join(cacheDir, "images"))).length,
+        2,
+        "the replaced file remains available to other readers",
+      );
+
+      resume();
+      await oldRequest;
 
       // A failed check keeps serving what was loaded.
       hubDown = true;

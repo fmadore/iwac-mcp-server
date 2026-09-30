@@ -30,6 +30,12 @@
 export const VIEW_DATA_META_KEY = "islam.zmo.de/viewData";
 
 export const VIEW = {
+  records: "records",
+  reader: "reader",
+  coverage: "coverage",
+  comparison: "comparison",
+  attention: "attention",
+  aliases: "aliases",
   temporal: "temporal",
   // The lunar cycle is a different SHAPE, not just a different calendar: twelve
   // fixed named categories with a meaningful baseline, where `temporal` plots an
@@ -291,11 +297,14 @@ export interface Neighbour {
 
 export interface SimilarPayload extends ChartPayloadBase {
   subset?: string;
-  source?: { id?: string; title?: string; url?: string };
+  source?: Neighbour;
   neighbours?: Neighbour[];
 }
 
 export interface TemporalPayload extends ChartPayloadBase {
+  normalize_by?: string;
+  denominators?: Record<string, Record<string, number>>;
+  denominator_filters?: Record<string, unknown>;
   subset?: string;
   granularity?: string;
   calendar?: string;
@@ -318,7 +327,10 @@ export interface Topic {
 
 export interface TopicsPayload extends ChartPayloadBase {
   span?: string[];
-  trend_by_topic?: Record<string, { total: number; first: string; last: string; peak_year: string; peak_count: number; median_year: string }>;
+  trend_by_topic?: Record<
+    string,
+    { total: number; first: string; last: string; peak_year: string; peak_count: number; median_year: string }
+  >;
   subset?: string;
   filters?: Record<string, unknown>;
   total_matches?: number;
@@ -328,8 +340,30 @@ export interface TopicsPayload extends ChartPayloadBase {
   series_by_topic?: Record<string, Record<string, number>>;
 }
 
+/** New workbench destinations have required envelopes, independently of their
+ * compact MCP wire schemas. SQL-specific row fields remain extensible. */
+export interface ResearchPayload extends ChartPayloadBase {
+  subset: string;
+  filters: Record<string, unknown>;
+  rows: Record<string, unknown>[];
+  total_matches: number;
+}
+export interface ReaderPayload extends ChartPayloadBase {
+  id: string;
+  title: string;
+  text: string;
+  url: string;
+  metadata?: Record<string, unknown>;
+}
+
 /** Reconstructed chart payloads; dense fields may arrive through result _meta. */
 export interface ChartPayloads {
+  records: ResearchPayload;
+  reader: ReaderPayload;
+  coverage: ResearchPayload;
+  comparison: ResearchPayload;
+  attention: ResearchPayload;
+  aliases: ResearchPayload;
   collection: CollectionPayload;
   cooccurrence: CooccurrencePayload;
   countries: CountriesPayload;
@@ -353,5 +387,6 @@ export interface ChartOnlyData {
 }
 
 export type ChartPayload<K extends ViewName> = ChartPayloads[K] & { view: K };
-export type ChartModelPayload<K extends keyof ChartOnlyData> =
-  Omit<ChartPayload<K>, keyof ChartOnlyData[K]> & { [P in keyof ChartOnlyData[K]]?: never };
+export type ChartModelPayload<K extends keyof ChartOnlyData> = Omit<ChartPayload<K>, keyof ChartOnlyData[K]> & {
+  [P in keyof ChartOnlyData[K]]?: never;
+};

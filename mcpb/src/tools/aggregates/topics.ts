@@ -4,13 +4,7 @@ import { z } from "zod";
 import { ensureView, query, queryScalarSingle, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
-import {
-  COUNTRIES,
-  errorResult,
-  toolMeta,
-  validateEnum,
-  type Server,
-} from "../_shared.js";
+import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
 import { aggregateFilters, filterInputs } from "./shared.js";
 
 const TOPIC_OUTPUT = z.object({
@@ -37,14 +31,7 @@ export function registerTopicsTools(server: Server): void {
     {
       ...toolMeta("Topic distribution"),
       description:
-        "How a filtered set distributes across the precomputed LDA topics, each labelled by its top terms " +
-        "(articles carry 30 topics and are ~99.5% classified; references have their own 33-topic model and only " +
-        "~46% carry an assignment, so read its `classified` against `total_matches`). Topics are assigned offline " +
-        "over the full text, so they describe what a piece is ABOUT rather " +
-        "than which words it contains — use this instead of keyword counting to map a corpus. " +
-        "Optional over_time returns per-year counts for the leading topics. " +
-        "min_prob keeps only articles where the topic is at least that dominant (mean assignment probability is " +
-        "0.34, so 0.5 is already a strong filter).",
+        "Counts of offline LDA topic assignments, optionally over time. Topic labels are interpretive model outputs; exact topic_id filters select assignments rather than keyword matches. Reports unclassified coverage.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         subset: z.string().optional().describe("articles (default) | references"),
@@ -82,11 +69,7 @@ export function registerTopicsTools(server: Server): void {
 
       // Topic rows only: an unclassified article (no label) is not a topic of
       // its own, and -1 is the outlier marker in the pipeline's convention.
-      const topicWhere = [
-        ...where,
-        `NULLIF(trim(lda_topic_label), '') IS NOT NULL`,
-        `coalesce(lda_topic_id, 0) <> -1`,
-      ];
+      const topicWhere = [...where, `NULLIF(trim(lda_topic_label), '') IS NOT NULL`, `coalesce(lda_topic_id, 0) <> -1`];
       const topicParams = [...params];
       if (typeof args.min_prob === "number" && Number.isFinite(args.min_prob)) {
         topicWhere.push(`coalesce(lda_topic_prob, 0) >= ?`);
@@ -200,5 +183,4 @@ export function registerTopicsTools(server: Server): void {
       return viewOnly ? chartViewResult(payload, viewOnly) : chartResult(payload);
     },
   );
-
 }

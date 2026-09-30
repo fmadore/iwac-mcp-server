@@ -113,7 +113,7 @@ const ALL_ARTICLE_VIEWS: FieldView[] = ["detail", "fetch", "summary", "sentiment
  */
 const SENTIMENT = sentimentCols(DEFAULT_SENTIMENT_MODEL);
 
-const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
+export const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
   articles: [
     ...ID_URL(ALL_ARTICLE_VIEWS),
     { expr: "identifier", views: ["detail"] },
