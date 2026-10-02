@@ -227,6 +227,14 @@ chart selections, source reading, Back navigation and provenance exports are
 shared across the app. See [the workbench guide](docs/research-workbench.md) for
 examples, interpretation limits, cache behavior and local embedding migration.
 
+On supported MCP Apps hosts, **Fullscreen** expands the view, and a compact
+summary of the current selection is shared automatically with the assistant.
+**Ask about this selection** sends an explicit question with that selection's
+snapshot; automatic updates do not start a conversation turn. The summary carries
+bounded filters, counts, source IDs and provenance, with omissions marked; full
+source text still requires retrieval. Controls depend on the host's advertised
+capabilities. See [the interaction contract](docs/mcp-apps-roadmap.md#9-current-interaction-contract-october-2026).
+
 ## Architecture
 
 - **Data**: parquet files from the

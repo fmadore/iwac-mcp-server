@@ -47,6 +47,7 @@ Because reports are date-stamped and location-specific, the collection also supp
 - **By outlet and period** — filter by newspaper, country, date range; contrast state vs. private press, pre- vs. post-1990.
 - **Inside Islamic periodicals** — browse the 25 series, search tables of contents (complete for 17 smaller magazines), or pull keyword excerpts from a full issue. The same keyword-excerpt reading works on long archival documents and articles too.
 - **Reproducible selections** — preserve exact filters, inspect coverage and keyword contexts, and export source manifests or CSL-JSON/BibTeX bibliographies with dataset provenance.
+- **Discuss the view you are exploring** — on supported hosts, enlarge it to fullscreen and use **Ask about this selection** to request an interpretation of its current filters and evidence. Automatic sharing keeps a compact selection summary available; source reading remains a separate research step. Available controls depend on the host.
 - **Scholarship** — connect press findings to the 864 academic references.
 
 ## Example questions (adapt, don't recite)

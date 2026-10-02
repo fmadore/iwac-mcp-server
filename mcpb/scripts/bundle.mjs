@@ -98,6 +98,7 @@ const ui = await esbuild.build({
   minify: true,
   legalComments: "none",
   plugins: [stubZodLocales],
+  define: { __IWAC_VERSION__: JSON.stringify(pkg.version) },
   write: false,
   metafile: true,
 });
@@ -182,6 +183,7 @@ svg{display:block;width:100%;height:auto}
 [data-key]:focus-visible,button:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
 .scroll{overflow:auto;max-height:420px}table{border-collapse:collapse;font-size:12px}td,th{padding:5px 9px;border-bottom:1px solid var(--line);text-align:left}
 .record{padding:10px 0;border-bottom:1px solid var(--line)}.record p{margin:4px 0;color:var(--muted)}.source{text-align:left}.source-text{white-space:pre-wrap;overflow-wrap:anywhere;max-height:620px;overflow:auto;line-height:1.65}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid var(--line)}.citation{overflow-wrap:anywhere}
+:root[data-display-mode=fullscreen] .scroll,:root[data-display-mode=fullscreen] .source-text{max-height:calc(100dvh - 200px);min-height:160px}
 .legend{list-style:none;display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 0;padding:0;font-size:12px}
 .legend li{display:flex;align-items:center;gap:5px}
 .swatch{width:10px;height:10px;border-radius:2px;display:inline-block}

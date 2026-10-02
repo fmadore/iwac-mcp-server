@@ -23,6 +23,33 @@ or deployment is performed by preparing this branch.
 | Docker | Root build context embeds skill; glibc base matches DuckDB binary; authenticated skill and native SQL smoke | Smoke harness; actual image execution in CI |
 | Releases | Immutable-version guard precedes publication; publisher/checksum and actions pinned; exact tested artifacts are published | 11 packaging tests, actionlint, native artifact CI |
 
+## MCP Apps interaction follow-up
+
+The migration to `@modelcontextprotocol/ext-apps` 2.0.3 was included in the
+original review implementation. The follow-up adopts three existing Apps
+capabilities; these are not new library features introduced in patch 2.0.3.
+
+- Fullscreen follows the host's available modes and actual response. Newer
+  host mode notifications supersede delayed responses, including an exit from
+  fullscreen while a request is pending.
+- Successful navigation, Back and local view changes share bounded selection
+  context with supporting hosts. Updates are serialized, coalesced and
+  deduplicated. Text-only and structured-only hosts receive the modalities they
+  advertise. Source bodies, chart coordinates and export contents are excluded;
+  abbreviated filters and source lists are explicitly flagged.
+- **Ask about this selection** sends a question only on a user click. It includes
+  the current compact snapshot even when automatic context is unsupported or
+  rejected, so the assistant can retrieve and cite the selected source items.
+- Host rejection of downloads, links and messages is surfaced. Cancellation
+  retains the previous view, clears busy state and discards late tool responses;
+  teardown stops pending context sharing. The app identity version comes from
+  the package rather than a separate hardcoded version.
+
+The bundled IWAC skill and user/developer documentation describe these
+interactions, capability fallbacks, source retrieval and interpretation of
+truncation/provenance. Regression coverage includes bounded context summaries,
+concurrent update ordering and real Chromium iframe interactions under CSP.
+
 The semantic-map benchmark on synthetic 10,000 × 768 vectors transferred 230,400
 values for a 300-point display instead of 7,680,000 (97% fewer). Observed runtime
 and heap improvements are environment-dependent; bounded materialization is the
