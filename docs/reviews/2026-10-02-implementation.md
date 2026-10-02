@@ -92,3 +92,9 @@ synthetic regression suite; the scheduled live smoke remains the dataset-drift g
 - [MCP Apps releases](https://github.com/modelcontextprotocol/ext-apps/releases)
 - [Node.js release status](https://nodejs.org/en/about/previous-releases)
 - [Unpatched forge advisory](https://github.com/advisories/GHSA-86w9-cpqp-85rv)
+
+The first native CI run passed on macOS and in Docker. The Windows artifact
+check exposed checkout CRLF conversion of skill sources against the Linux-built
+archive's LF bytes. `.gitattributes` now fixes skill source line endings to LF
+across platforms, preserving strict byte-for-byte assertions and reproducible
+skill digests rather than weakening the test.

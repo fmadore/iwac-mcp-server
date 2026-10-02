@@ -1,0 +1,3 @@
+# Embedded skill digests and release ZIPs must describe the same source bytes
+# on every platform, including Windows checkouts with core.autocrlf enabled.
+.agents/skills/** text eol=lf
