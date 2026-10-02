@@ -98,3 +98,7 @@ check exposed checkout CRLF conversion of skill sources against the Linux-built
 archive's LF bytes. `.gitattributes` now fixes skill source line endings to LF
 across platforms, preserving strict byte-for-byte assertions and reproducible
 skill digests rather than weakening the test.
+The subsequent CI run passed all six active jobs, including both native desktop
+platforms and the authenticated container query. Bundled research guidance also
+now reflects 35 core/38 possible tools, workbench/export modes and pair-specific
+agreement denominators; obsolete confidence-score wording was removed.
