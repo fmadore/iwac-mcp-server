@@ -65,10 +65,10 @@ export function registerAppResources(server: Server): void {
       // Hosts' defaults vary and the chart CSS draws on a transparent
       // background, so ask explicitly for the host's frame rather than
       // rendering as loose ink on the conversation.
-      _meta: { prefersBorder: true },
+      _meta: { ui: { prefersBorder: true } },
     },
     async () => ({
-      contents: [{ uri: CHARTS_UI_URI, mimeType: UI_MIME_TYPE, text: html }],
+      contents: [{ uri: CHARTS_UI_URI, mimeType: UI_MIME_TYPE, text: html, _meta: { ui: { prefersBorder: true } } }],
     }),
   );
 }

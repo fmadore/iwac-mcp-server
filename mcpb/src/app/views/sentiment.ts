@@ -23,6 +23,7 @@ import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.
 import { donut, heatmapMatrix, horizontalBar, legend } from "../svg.js";
 import {
   CENTRALITY_ORDER,
+  esc,
   fmtInt,
   fmtPct,
   ordinalColor,
@@ -205,12 +206,14 @@ function allModels(p: SentimentPayload): ViewResult {
       })
     : "";
 
-  // Confusion between the first two models: not "they disagree 29% of the
-  // time" but which label one reads where the other reads something else.
+  // A pair has its own common-scored population, independent of the all-model
+  // polarity agreement bars. Never silently intersect it with other models.
   const cm = p.agreement_matrix;
-  const rowLabels = cm?.counts ? orderBy(Object.keys(cm.counts), POLARITY_ORDER) : [];
+  const field = cm?.field ?? "polarity";
+  const scale = field === "centrality" ? CENTRALITY_ORDER : field === "subjectivity" ? SUBJECTIVITY_ORDER : POLARITY_ORDER;
+  const rowLabels = cm?.counts ? orderBy(Object.keys(cm.counts), scale) : [];
   const colLabels = cm?.counts
-    ? orderBy([...new Set(Object.values(cm.counts).flatMap((r) => Object.keys(r)))], POLARITY_ORDER)
+    ? orderBy([...new Set(Object.values(cm.counts).flatMap((r) => Object.keys(r)))], scale)
     : [];
   const confusion = rowLabels.length
     ? heatmapMatrix({
@@ -221,9 +224,18 @@ function allModels(p: SentimentPayload): ViewResult {
         values: rowLabels.map((r) => colLabels.map((c) => (r === c ? Number.NaN : (cm?.counts?.[r]?.[c] ?? 0)))),
         clickable: true,
         gutter: 120,
-        ariaLabel: `${cm?.rows} vs ${cm?.cols} polarity`,
+        ariaLabel: `${cm?.rows} vs ${cm?.cols} ${field}`,
       })
     : "";
+
+  const selectModels = (selected: string | undefined) => models.map((m) => `<option value="${esc(m)}"${m === selected ? " selected" : ""}>${esc(m)}</option>`).join("");
+  const pairControls = `<form class="pair-controls"><fieldset><legend>Inspect model disagreement</legend><label>Rows <select name="rows" aria-label="Row model">${selectModels(cm?.rows ?? models[0])}</select></label> <label>Columns <select name="cols" aria-label="Column model">${selectModels(cm?.cols ?? models[1])}</select></label> <label>Field <select name="field" aria-label="Agreement field">${["polarity", "centrality", "subjectivity"].map((f) => `<option value="${f}"${field === f ? " selected" : ""}>${f}</option>`).join("")}</select></label> <button type="submit">Compare pair</button><p class="pair-error warn" role="alert"></p></fieldset></form>`;
+  const pairCount = cm?.common_scored;
+  const pairNotes = cm && pairCount !== undefined ? [
+    `Pair matrix: ${fmtInt(pairCount)} articles have recognized ${field} labels from both ${cm.rows} and ${cm.cols}; ${fmtInt(cm.excluded_articles ?? 0)} matching articles are excluded.`,
+    `Pair agreement: ${cm.agreement_percent === null || cm.agreement_percent === undefined ? "undefined (no shared labels)" : `${cm.agreement_percent}%`}. Cohen's κ: ${cm.kappa === null || cm.kappa === undefined ? "undefined (insufficient variation or no shared labels)" : cm.kappa.toFixed(3)}. Agreement is not a measure of historical truth or calibrated confidence.`,
+    ...(cm.weighted_n !== undefined ? [`Weighted κ: ${cm.weighted_kappa === null || cm.weighted_kappa === undefined ? "undefined" : cm.weighted_kappa.toFixed(3)} over ${fmtInt(cm.weighted_n ?? pairCount)} articles. ${cm.notes?.join(" ") ?? ""}`] : cm.notes ?? []),
+  ] : [];
 
   return {
     title: `AI sentiment — ${models.length} models compared`,
@@ -232,18 +244,19 @@ function allModels(p: SentimentPayload): ViewResult {
       `${fmtInt(agreement?.unanimous ?? 0)} (${agreement?.unanimous_percent ?? 0}%)`,
     chips: p.filters,
     body:
-      panels(rings) +
+      pairControls + panels(rings) +
       (consensusRing
         ? panels([{ title: "Panel consensus — majority of the votes actually cast", body: consensusRing }])
         : "") +
       panels([
         { title: "Polarity agreement", body: pairChart },
-        { title: `Where they part: ${cm?.rows} (rows) vs ${cm?.cols} (cols)`, body: confusion },
+        { title: `${field}: ${cm?.rows} (rows) vs ${cm?.cols} (cols)`, body: confusion },
       ]),
     notes: [
+      ...pairNotes,
       agreement && agreement.unanimous_percent !== undefined
         ? `All ${models.length} models agree on polarity for ${agreement.unanimous_percent}% of scored articles. ` +
-          `Treat that as the confidence floor for any single model's number quoted from this selection.`
+          `This describes model agreement on the common scored base; it is not a calibrated confidence score.`
         : null,
       confusion
         ? "The confusion matrix blanks its agreeing diagonal, which holds most of the mass; the colour scale is " +
@@ -267,14 +280,29 @@ function allModels(p: SentimentPayload): ViewResult {
           `scored_by_all above for how many carry all ${models.length} judgements.`,
     ],
     wire(root, ctx) {
+      const form = root.querySelector<HTMLFormElement>(".pair-controls");
+      form?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const row = form.querySelector<HTMLSelectElement>('[name="rows"]')?.value;
+        const col = form.querySelector<HTMLSelectElement>('[name="cols"]')?.value;
+        const chosenField = form.querySelector<HTMLSelectElement>('[name="field"]')?.value;
+        const error = form.querySelector(".pair-error");
+        if (!row || !col || row === col) {
+          if (error) error.textContent = "Choose two different models.";
+          return;
+        }
+        if (error) error.textContent = "";
+        void ctx.run("get_sentiment_distribution", {
+          ...selectionFrom(p.filters), model: "all", compare_models: [row, col], agreement_field: chosenField,
+        });
+      });
       root.querySelectorAll<SVGElement>(".hit[data-key][data-key2]").forEach((el) => {
         el.addEventListener("click", () => {
           const row = el.getAttribute("data-key"),
             col = el.getAttribute("data-key2");
           if (!cm?.rows || !cm.cols || !row || !col) return;
-          let selection = narrowSelection(selectionFrom(p.filters), `polarity:${cm.rows}`, row);
-          selection = narrowSelection(selection, `polarity:${cm.cols}`, col);
-          selection.exact = { ...selection.exact, scored_by: models };
+          let selection = narrowSelection(selectionFrom(p.filters), `${field}:${cm.rows}`, row);
+          selection = narrowSelection(selection, `${field}:${cm.cols}`, col);
           void ctx.run("explore_corpus", { mode: "items", subset: "articles", selection });
         });
       });

@@ -64,5 +64,17 @@ Worth knowing when assessing impact:
 - **All tools are read-only.** There is no tool that writes, deletes, or mutates
   anything, locally or remotely.
 - **Semantic search is opt-in and off by default.** When
-  `IWAC_SEMANTIC_SEARCH_ENABLED=true`, query text is sent to the Google Gemini
-  embedding API using the operator's own key; nothing else leaves the machine.
+  `IWAC_SEMANTIC_SEARCH_ENABLED=true`, query text is sent to the configured embedding provider (Gemini by default,
+  or an explicitly configured OpenAI-compatible local endpoint). Provider
+  credentials stay server-side.
+
+## Dependency exception reviewed 2026-10-02
+
+`@anthropic-ai/mcpb@2.1.2` uses `node-forge@1.4.0` in the development-only
+packaging/signing toolchain. [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv)
+has no patched release at this review. The production dependency audit is clean;
+`node-forge` is not included in the runtime container or server bundle. Packaging
+must use repository-controlled inputs, and this exception does not authorize
+processing untrusted certificates or archives. Recheck on each mcpb/forge update
+and remove the exception when a compatible fix exists. Do not force an unrelated
+major upgrade or suppress all audit findings to hide this one.

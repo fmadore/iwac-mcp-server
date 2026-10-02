@@ -32,8 +32,8 @@ export function annotate(title: string) {
  * display) plus the read-only annotation set (which older clients read the
  * title from). Spread into every tool's config.
  */
-export function toolMeta(title: string): { title: string; annotations: ReturnType<typeof annotate> } {
-  return { title, annotations: annotate(title) };
+export function toolMeta(title: string, options: { openWorldHint?: boolean } = {}): { title: string; annotations: ReturnType<typeof annotate> } {
+  return { title, annotations: { ...annotate(title), ...options } };
 }
 
 function bigintReplacer(_key: string, value: unknown): unknown {
@@ -67,16 +67,16 @@ function sanitizeString(s: string): string {
  * to ship as `structuredContent` (the transport JSON.stringifies it without a
  * replacer).
  */
-function compactValue(value: unknown): unknown {
+function compactValue(value: unknown, preserveNulls = false): unknown {
   if (typeof value === "string") return sanitizeString(value);
   if (typeof value === "bigint") return Number(value);
-  if (Array.isArray(value)) return value.map(compactValue);
+  if (Array.isArray(value)) return value.map((item) => compactValue(item, preserveNulls));
   if (value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      if (v === null || v === undefined) continue;
+      if (v === undefined || (v === null && !preserveNulls)) continue;
       if (typeof v === "string" && v.trim().length === 0) continue;
-      out[k] = compactValue(v);
+      out[k] = compactValue(v, preserveNulls);
     }
     return out;
   }
@@ -100,11 +100,11 @@ export function textResult(payload: unknown): { content: { type: "text"; text: s
  * doubles the wire payload — acceptable for small structured envelopes
  * (search/fetch, stats), waste for 25k-char OCR responses.
  */
-export function structuredResult(payload: unknown): {
+export function structuredResult(payload: unknown, options?: { preserveNulls?: boolean }): {
   content: { type: "text"; text: string }[];
   structuredContent: Record<string, unknown>;
 } {
-  const compacted = compactValue(payload) as Record<string, unknown>;
+  const compacted = compactValue(payload, options?.preserveNulls) as Record<string, unknown>;
   return {
     content: [{ type: "text" as const, text: JSON.stringify(compacted, bigintReplacer) }],
     structuredContent: compacted,

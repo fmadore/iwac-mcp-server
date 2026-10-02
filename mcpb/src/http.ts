@@ -1,5 +1,5 @@
 import { activeQueries, queuedQueries } from "./db.js";
-import { requestMetrics } from "./request.js";
+import { requestMetrics, stopSharedWork } from "./request.js";
 // Remote Streamable HTTP transport for the IWAC MCP server.
 //
 // Activated by `node server/index.js --http`; the stdio transport in index.ts
@@ -207,9 +207,12 @@ export function startHttpServer(createServer: () => McpServer): void {
   const drain = () => {
     if (draining) return;
     draining = true;
-    setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS).unref();
+    setTimeout(() => {
+      void stopSharedWork();
+      process.exit(0);
+    }, SHUTDOWN_GRACE_MS).unref();
     server.close(() => {
-      void mcpHandler.close().finally(() => process.exit(0));
+      void Promise.all([stopSharedWork(), mcpHandler.close()]).finally(() => process.exit(0));
     });
     server.closeIdleConnections();
   };

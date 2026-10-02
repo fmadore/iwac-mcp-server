@@ -16,6 +16,8 @@
 // (scripts/bundle.mjs) because MCP App resources render under a deny-by-default
 // CSP: no external stylesheet, font, or script may load.
 import { App } from "@modelcontextprotocol/ext-apps";
+import { ViewRequests, wireActions } from "./actions.js";
+import { chartSvg } from "./export.js";
 import { chips, empty, type BasePayload, type ViewContext, type ViewOptions, type ViewResult } from "./shell.js";
 import { esc } from "./theme.js";
 import { setTheme } from "./theme.js";
@@ -33,7 +35,7 @@ let transientError: string | null = null;
 /** View-local UI state (see shell.ts), discarded whenever the view changes. */
 let options: ViewOptions = {};
 let optionsView: string | undefined;
-let generation = 0;
+const requests = new ViewRequests(root);
 const history: { payload: BasePayload; options: ViewOptions }[] = [];
 function navigate(next: BasePayload): void {
   if (current.view) {
@@ -41,6 +43,7 @@ function navigate(next: BasePayload): void {
     if (history.length > 30) history.shift();
   }
   render(next);
+  root.querySelector<HTMLElement>("h1")?.focus?.();
 }
 
 // -----------------------------------------------------------------------------
@@ -73,53 +76,58 @@ function readPayload(result: unknown): BasePayload {
     return merged;
   };
 
-  if (r?.structuredContent) return merge(r.structuredContent);
+  if (r?.structuredContent) {
+    const payload = merge(r.structuredContent);
+    return r.isError ? { error: payload.error ?? "The tool could not complete this request." } : payload;
+  }
   const text = r?.content?.find((c) => c.type === "text")?.text;
   if (!text) return { error: "The tool returned no readable result." };
   try {
-    return merge(JSON.parse(text) as BasePayload);
+    const payload = merge(JSON.parse(text) as BasePayload);
+    return r.isError ? { error: payload.error ?? text } : payload;
   } catch {
-    return { error: "The tool result was not valid JSON." };
+    return { error: r.isError ? text : "The tool result was not valid JSON." };
   }
 }
 
 const ctx: ViewContext = {
   async run(name, args) {
-    const ticket = ++generation;
-    root.setAttribute("aria-busy", "true");
-    if (!root.querySelector(".loading")) {
-      const status = document.createElement("p");
-      status.className = "loading";
-      status.setAttribute("role", "status");
-      status.textContent = "Loading…";
-      root.append(status);
-    }
+    const ticket = requests.begin();
     try {
       const result = await app.callServerTool({ name, arguments: args });
-      if (ticket !== generation) return;
+      if (!requests.isCurrent(ticket)) return;
       const next = readPayload(result);
       if (next.error) throw new Error(String(next.error));
       transientError = null;
       navigate(next);
     } catch (error) {
-      if (ticket !== generation) return;
+      if (!requests.isCurrent(ticket)) return;
       transientError = (error as Error).message;
       render(current);
     } finally {
-      if (ticket === generation) {
-        root.removeAttribute("aria-busy");
-        root.querySelector(".loading")?.remove();
-      }
+      requests.finish(ticket);
     }
   },
   setOption(key, value) {
+    const focused = document.activeElement?.id;
     options = { ...options, [key]: value };
     render(current);
+    if (focused) document.getElementById(focused)?.focus?.();
   },
   canDownload: false,
   canOpenLink: false,
   async download(filename, mimeType, text) {
     const contents = [{ type: "resource" as const, resource: { uri: `file:///${filename}`, mimeType, text } }];
+    const exported = current.export as { filename?: string; manifest?: unknown } | undefined;
+    if (exported?.filename === filename && exported.manifest)
+      contents.push({
+        type: "resource",
+        resource: {
+          uri: `file:///${filename}.manifest.json`,
+          mimeType: "application/json",
+          text: JSON.stringify(exported.manifest, null, 2),
+        },
+      });
     if (mimeType !== "application/json" && current.provenance)
       contents.push({
         type: "resource",
@@ -190,7 +198,10 @@ function render(payload: BasePayload): void {
     .map((t) => `<p class="foot">${esc(t)}</p>`)
     .join("");
 
-  const actions = (result.actions ?? []).filter((a) => a.id !== "csv" || ctx.canDownload);
+  const actions = (result.actions ?? []).filter((a) =>
+    (a.id !== "csv" && a.capability !== "download" || ctx.canDownload) &&
+    (a.capability !== "openLink" || ctx.canOpenLink),
+  );
   if (
     payload.subset &&
     payload.filters &&
@@ -222,21 +233,7 @@ function render(payload: BasePayload): void {
       actions.push({
         id: "svg",
         label: "Download chart SVG",
-        run: (c) => {
-          const theme = document.documentElement.getAttribute("data-theme") ?? "light";
-          const styles = document.querySelector("style")?.textContent ?? "";
-          let y = 40,
-            width = 900;
-          const parts = Array.from(root.querySelectorAll("svg")).map((svg) => {
-            const [, , w, h] = (svg.getAttribute("viewBox") ?? "0 0 900 300").split(/\s+/).map(Number);
-            width = Math.max(width, w);
-            const top = y;
-            y += h + 40;
-            return `<text x="10" y="${top}" fill="var(--fg)" font-size="14">${esc(svg.getAttribute("aria-label") ?? "")}</text><svg x="0" y="${top + 10}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${svg.innerHTML}</svg>`;
-          });
-          const svg = `<svg xmlns="http://www.w3.org/2000/svg" data-theme="${theme}" viewBox="0 0 ${width} ${y}" width="${width}" height="${y}" style="font-family:system-ui,sans-serif"><style>${styles}</style><rect width="100%" height="100%" fill="${theme === "dark" ? "#17130f" : "#ffffff"}"/><title>${esc(result.title)}</title>${parts.join("")}</svg>`;
-          return c.download("iwac-chart.svg", "image/svg+xml", svg);
-        },
+        run: (c) => c.download("iwac-chart.svg", "image/svg+xml", chartSvg(root, result, payload)),
       });
   }
   if (history.length)
@@ -244,23 +241,24 @@ function render(payload: BasePayload): void {
       id: "back",
       label: "Back",
       run: () => {
-        generation++;
+        requests.invalidate();
         const previous = history.pop();
         if (!previous) return;
         options = previous.options;
         optionsView = previous.payload.view;
         transientError = null;
         render(previous.payload);
+        root.querySelector<HTMLElement>("h1")?.focus?.();
       },
     });
 
   root.innerHTML = `
     <header>
-      <h1>${esc(result.title)}</h1>
+      <h1 tabindex="-1">${esc(result.title)}</h1>
       ${result.subtitle ? `<p class="totals">${result.subtitle}</p>` : ""}
       ${result.chips === undefined ? "" : `<div class="chips">${chips(result.chips)}</div>`}
     </header>
-    ${transientError ? `<p class="warn">${esc(transientError)}</p>` : ""}
+    ${transientError ? `<p class="warn" role="alert">${esc(transientError)}</p>` : ""}
     <div class="chart">${result.body}</div>
     ${notes}
     ${
@@ -272,22 +270,8 @@ function render(payload: BasePayload): void {
     }
   `;
 
-  for (const action of actions) {
-    const button = document.getElementById(`act-${action.id}`) as HTMLButtonElement | null;
-    button?.addEventListener("click", async () => {
-      const label = button.textContent;
-      button.disabled = true;
-      button.textContent = action.busyLabel ?? "Loading…";
-      try {
-        await action.run(ctx);
-      } catch (err) {
-        // render() replaces the whole subtree on success, so only a genuine
-        // failure reaches here and the button is still on screen to restore.
-        button.disabled = false;
-        button.textContent = `${label} — failed (${(err as Error).message})`;
-      }
-    });
-  }
+  requests.sync();
+  wireActions(root, actions, ctx);
 
   result.wire?.(root, ctx);
   root.querySelectorAll<SVGElement>("[data-key]").forEach((el) => {
@@ -311,7 +295,7 @@ function render(payload: BasePayload): void {
 // -----------------------------------------------------------------------------
 
 app.ontoolresult = (result) => {
-  generation++;
+  requests.invalidate();
   history.length = 0;
   transientError = null;
   render(readPayload(result));

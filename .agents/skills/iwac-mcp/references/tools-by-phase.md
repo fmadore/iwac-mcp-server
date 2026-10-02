@@ -1,6 +1,6 @@
 # IWAC MCP Tools by Research Phase
 
-37 possible tools (34 core + 3 optional semantic) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Server **v0.9.0+** adds `get_temporal_distribution` (counts per year/month — use it for any "how did coverage evolve" question instead of paging through searches).
+38 possible tools (35 core + 3 optional semantic) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Server **v0.9.0+** adds `get_temporal_distribution` (counts per year/month — use it for any "how did coverage evolve" question instead of paging through searches).
 
 ## Cross-Collection Entry Points
 
@@ -15,6 +15,28 @@ Cross-subset search for skill-less clients and quick discovery.
 Fetch one item returned by `search`.
 - `id` (required): namespaced id from `search`, e.g. `articles:28576`
 - Returns `id`, `title`, `text`, `url`, `category`, and `metadata`. Long text may be capped; when that happens, `recommended_tool` points to the subset-specific full-text tool to call with a `keyword`.
+
+### explore_corpus
+Use one `selection` across `items`, `concordance`, `coverage`, `compare`,
+`attention`, `aliases`, `manifest`, `csl_json` and `bibtex` modes. Default subset:
+articles; default page:20; limit:1–50 (concordance applies a maximum20). Follow the
+returned `limit`/`has_more`; a page export never represents all matches.
+
+- `selection`: keyword, keyword_mode (literal/all_terms), keyword_aliases (OR
+  alternatives), country, newspaper, subject, date_from/date_to, hijri_month/year,
+  and `exact` tags/labels. Values within exact fields intersect. `country_raw`
+  matches a whole pipe-joined category; `country` matches individual country tags.
+- `compare` requires `comparison` with the same selection shape. Its timeline
+  reports both cohorts against one archived-corpus denominator over their date
+  windows, including explicit omitted and uncertain-date buckets.
+- Concordance returns at most three left/match/right contexts per item, a source
+  hash and offsets only when reliable. Metadata-only matches need not have body
+  contexts. Contexts are leads to read, not replacements for their source.
+- Exports retain selected IDs/URLs, filters and dataset provenance. Preserve the
+  manifest companion; compare snapshots before joining pages. Citation metadata
+  is served as stored, with missing fields omitted and author names kept literal.
+- Read resource `iwac://datasets` for the subset catalogue and
+  `iwac://datasets/{subset}` for live columns, availability and provenance.
 
 ## Phase 1: Scoping Tools
 
@@ -229,10 +251,11 @@ Counts of matching items per year (or month) — one call replaces paging throug
 
 ### get_sentiment_distribution *(`model` added v0.13.0; model-exact ids since the 2026-07-31 dataset rename)*
 Aggregated AI sentiment counts.
-- `country` (optional, exact name), `newspaper` (optional), `subject` (optional)
+- Shared filters: keyword/variants, country, newspaper, subject, Gregorian/Hijri dates and exact tags/labels.
+- `compare_models`: two distinct available model IDs or aliases; `agreement_field`: polarity, centrality or subjectivity. Both require `model="all"`.
 - `model` (optional, validated): `gpt-5-6-luna` (default) | `mistral-small-2603` | `deepseek-v4-flash-0731` | `gemma-4-31b-it` | `qwen3-8-27b` | **all** | **consensus**. Vendor shorthand (`chatgpt` / `mistral` / `deepseek` / `gemma` or `google` / `qwen` or `alibaba`) resolves to these ids, which is what the payload echoes back — quote the id, never the vendor. The generation-1 ids (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) are **refused by name**, not substituted, and so is bare `gemini`: Google's generation-2 member is Gemma, a different model line (`qwen` resolves, by contrast, because the Qwen line did score generation 2)
 - Returns `polarity_distribution`, `centrality_distribution` and `subjectivity` — a distribution over the five French labels plus `scored` / `unscored` and a `mean_rank` / `median_rank` derived by ranking the labels 1-5. That rank is a position on a five-point scale, never a percentage. The block also carries a `caveat`: quote it whenever you quote the number
-- With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity — ten pairwise counts and one unanimous count for five models) and `agreement_matrix` (where the first two part company)
+- With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity — ten pairwise counts and one unanimous count for five models) and `agreement_matrix` (the chosen pair/field, default first two models on polarity; counts include only recognized labels from both models, with common_scored/excluded_articles and kappa statistics)
 - Every model block carries a `coverage` object, because the five do **not** score the same articles: `qwen3-8-27b` reaches 12,098 where the others reach 12,298. `agreement` is measured on the articles *all* of them scored, so its `scored_by_all` base — and every pairwise count in it, including pairs Qwen is not part of — is the smaller one, and `base_caveats` names why. Compare proportions, not raw counts, across models
 
 ### `model="consensus"` — what the panel concluded *(v3.5.0+)*
@@ -249,11 +272,16 @@ The three fields do not behave alike, and this is the part to get right:
 
 **Tip:** `get_sentiment_distribution(subject="Laïcité", country="Burkina Faso")` gives the polarity distribution for laïcité articles in BF specifically; compare against the unfiltered country baseline.
 
-**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the five models agree unanimously on polarity for only 3,929 of the 12,098 articles they all scored (**32%**). That number is the confidence floor: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable. Four models reached 36% and the first three alone 43%, so a figure copied from an older draft will overstate the agreement.
+**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the five models agree unanimously on polarity for only 3,929 of the 12,098 articles they all scored (**32%**). That is an agreement rate, not a confidence score: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable. Four models reached 36% and the first three alone 43%, so a figure copied from an older draft will overstate the agreement.
 
-**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-08-31): 12,298 articles carry sentiment from every model. Two different gaps separate that from the 13,397 in the corpus — 51 non-French/English articles skipped by design, and ~1,050 recent arrivals the enrichment pass has not reached yet (the 2026-08 refresh added them with no OCR, abstract, sentiment or topic). Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
+**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-08-31): four models cover 12,298 articles while Qwen covers 12,098; use the returned common-scored denominator. Two different gaps separate that from the 13,397 in the corpus — 51 non-French/English articles skipped by design, and ~1,050 recent arrivals the enrichment pass has not reached yet (the 2026-08 refresh added them with no OCR, abstract, sentiment or topic). Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
 
-**Reliability differs sharply by scale** (κ measured full-corpus, all six model pairs). Polarity (0.26–0.57) and centrality (0.46–0.72) are the solid ones; **subjectivity is not** (0.16–0.47, and `deepseek-v4-flash-0731` reproduces its own answer only 47% of the time on a re-run), so report it as weak evidence with that caveat, or not at all. On *centrality* specifically, `mistral-small-2603` is a systematic outlier (its pairs run 0.46–0.53 against 0.67–0.72 for the non-Mistral ones, `gemma-4-31b-it` included) — a 3-of-4 majority there is the others outvoting Mistral, not a panel consensus.
+**Reliability differs by scale and population.** Use the selected pair's current
+`kappa`, `weighted_kappa` and denominators instead of treating older whole-corpus
+rates as constants. Quadratic weighted kappa excludes Non applicable and reports
+`weighted_n`; undefined statistics are null, not zero. Subjectivity is especially
+weak evidence and its returned caveat must accompany findings. Agreement between
+models does not establish historical truth or calibrated confidence.
 
 ### get_topic_distribution *(v0.13.0)*
 How a set spreads across the 30 precomputed LDA topics (12,234 of 12,287 articles are classified), each labelled by its top terms. Topics were assigned offline over the full text, so they describe what a piece is **about** rather than which words it contains — the fastest way to map an unfamiliar corpus without keyword guessing.

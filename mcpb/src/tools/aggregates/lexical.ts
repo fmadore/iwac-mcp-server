@@ -52,10 +52,10 @@ export function registerLexicalTools(server: Server): void {
       if (!present.length) {
         return errorResult({ error: "This dataset revision carries no lexical metric columns" });
       }
-      if (groupBy !== "year" && !schema.has(groupBy)) {
+      if (!schema.has(groupBy === "year" ? "pub_date" : groupBy)) {
         return errorResult({
           error: `group_by '${groupBy}' is not available`,
-          valid_values: GROUP_FIELDS.filter((g) => g === "year" || schema.has(g)),
+          valid_values: GROUP_FIELDS.filter((g) => schema.has(g === "year" ? "pub_date" : g)),
         });
       }
       const topN = Math.max(1, Math.min(60, args.top_n ?? 20));
@@ -96,7 +96,7 @@ export function registerLexicalTools(server: Server): void {
           params,
         ),
         queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`, params),
-        schema.has("language")
+        schema.has("language") && schema.has("Lisibilite_OCR")
           ? queryScalarSingle<number | bigint>(
               `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}${whereSql ? " AND" : " WHERE"} ` +
                 `"Lisibilite_OCR" IS NOT NULL AND NULLIF(trim(language), '') IS NOT NULL ` +

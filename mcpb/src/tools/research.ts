@@ -2,13 +2,17 @@
 import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ALL_SUBSETS, type Subset } from "../config.js";
-import { ensureView, q, query, queryScalarSingle, viewName, type Row } from "../db.js";
+import type { ComparisonRow, ComparisonSelection } from "../viewContract.js";
+import { ensureView, q, query, queryScalarSingle, viewName } from "../db.js";
 import { aggregateFilters, filterInputs } from "./aggregates/shared.js";
 import { bodyColumn, EMBEDDING_COLUMNS } from "./shared/research.js";
 import { colsFor, itemUrl, TITLE_COL } from "./shared/fields.js";
-import { annotate, errorResult, keywordExcerpts, type Server } from "./_shared.js";
+import { annotate, errorResult, type Server } from "./_shared.js";
 import { CHARTS_UI_META } from "./appUi.js";
 import { SENTIMENT_MODELS, sentimentCols } from "./shared/sentiment.js";
+import { concordanceContexts } from "./research/concordance.js";
+import { comparisonTimeline } from "./research/comparison.js";
+import { EXPORT_MODES, citationProjection, isExportMode, researchExport } from "./researchExports.js";
 
 const selectionSchema = z.object({
   ...filterInputs(),
@@ -32,6 +36,9 @@ const output = z.object({
   selections: z.array(rowSchema).optional(),
   overlap: z.number().optional(),
   omitted_cells: z.number().optional(),
+  source_exact_field: z.string().optional(),
+  export: rowSchema.optional(),
+  temporal: rowSchema.optional(),
 });
 const whereSql = (where: string[]) => (where.length ? where.join(" AND ") : "TRUE");
 const count = async (v: string, f: ReturnType<typeof aggregateFilters>) =>
@@ -47,9 +54,9 @@ export function registerResearchTools(server: Server): void {
       annotations: annotate("Research workbench"),
       _meta: CHARTS_UI_META,
       description:
-        "Inspect a reproducible selection: items or concordance (keyword contexts), source×year coverage, compare two selections, publication-country×mentioned-place attention, or authority aliases. Exact filters intersect; aliases are suggestions, never silently applied. Coverage reports availability, not historical prevalence. Compare requires comparison. Lists paginate with offset; charts disclose caps.",
+        "Selection workbench: items, concordance, coverage, compare (requires comparison), attention, aliases, or paginated manifest/CSL-JSON/BibTeX exports. Exact filters intersect. Coverage measures archive availability. Exports identify this page and dataset snapshot; compare snapshot IDs across pages. Schema discovery: iwac://datasets/{subset}.",
       inputSchema: z.object({
-        mode: z.enum(["items", "concordance", "coverage", "compare", "attention", "aliases"]).default("items"),
+        mode: z.enum(["items", "concordance", "coverage", "compare", "attention", "aliases", ...EXPORT_MODES]).default("items"),
         subset: z.enum(ALL_SUBSETS as [Subset, ...Subset[]]).default("articles"),
         selection: selectionSchema.optional(),
         comparison: selectionSchema.optional(),
@@ -59,6 +66,8 @@ export function registerResearchTools(server: Server): void {
       outputSchema: output,
     },
     async ({ mode, subset: requested, selection = {}, comparison, offset, limit }) => {
+      if (mode === "concordance" && !selection.keyword?.trim())
+        return errorResult({ error: "Concordance requires nonempty selection.keyword" });
       const subset = mode === "aliases" ? "index" : requested;
       const schema = await ensureView(subset),
         v = viewName(subset);
@@ -66,6 +75,25 @@ export function registerResearchTools(server: Server): void {
       if (f.err) return errorResult(f.err);
       const total = await count(v, f);
       const base = { subset, filters: f.echo, total_matches: total };
+      if (isExportMode(mode)) {
+        const rows = await query(
+          `SELECT ${citationProjection(subset, schema)} FROM ${v} WHERE ${whereSql(f.where)} ORDER BY ${schema.has("pub_date") ? "pub_date DESC NULLS LAST, " : ""}"o:id" LIMIT ? OFFSET ?`,
+          [...f.params, limit, offset],
+        );
+        for (const row of rows) {
+          const id = String(row.id);
+          row.id = `${subset}:${id}`;
+          row.url ||= itemUrl(id);
+        }
+        const exported = researchExport(mode, subset, rows, f.echo, { offset, limit, total_matches: total });
+        if (Buffer.byteLength(JSON.stringify(exported), "utf8") > 64_000)
+          return errorResult({ error: "Export page exceeds 64 kB; reduce limit or narrow selection" });
+        return chartResult({
+          ...base, view: "records", mode, rows: rows.map(({ id, url, title, date }) => ({ id: String(id), url: String(url), ...(title ? { title: String(title) } : {}), ...(date ? { date: String(date) } : {}) })),
+          offset, limit, has_more: offset + rows.length < total, export: exported,
+          note: "Export contains this page only. Keep its manifest, and verify matching snapshot IDs when combining pages. Missing citation fields are omitted; author names are literal.",
+        });
+      }
       const body = bodyColumn(subset, schema);
       const embedding = EMBEDDING_COLUMNS[subset];
       const hasEmbedding =
@@ -75,13 +103,15 @@ export function registerResearchTools(server: Server): void {
       const metrics = `COUNT(*) AS total, ${body ? `COUNT(*) FILTER (WHERE ${present(body)})` : "NULL"} AS fulltext, ${embedding && schema.has(embedding) ? `COUNT(*) FILTER (WHERE ${hasEmbedding})` : "NULL"} AS embedded, ${scoredCols.length ? `COUNT(*) FILTER (WHERE ${scored})` : "NULL"} AS scored`;
 
       if (mode === "items" || mode === "concordance" || mode === "aliases") {
-        if (mode === "concordance" && !selection.keyword)
-          return errorResult({ error: "Concordance requires selection.keyword" });
         if (mode === "concordance" && !body) return errorResult({ error: `No body text column in ${subset}` });
+        // Rich KWIC records include both legacy excerpts and sortable contexts.
+        // Keep pages within the tool-response budget, and echo the applied page
+        // size so clients advance by it without skipping unreturned records.
+        const pageLimit = mode === "concordance" ? Math.min(limit, 20) : limit;
         const projection = colsFor(subset, schema, "summary");
         const rows = await query(
           `SELECT ${projection}${mode === "concordance" ? `, ${q(body ?? "")} AS context_text` : ""} FROM ${v} WHERE ${whereSql(f.where)} ORDER BY ${schema.has("pub_date") ? "pub_date DESC NULLS LAST, " : ""}"o:id" LIMIT ? OFFSET ?`,
-          [...f.params, limit, offset],
+          [...f.params, pageLimit, offset],
         );
         for (const r of rows) {
           r.id = `${subset}:${r.id}`;
@@ -91,13 +121,7 @@ export function registerResearchTools(server: Server): void {
               selection.keyword_mode === "all_terms"
                 ? (selection.keyword ?? "").trim().split(/\s+/)
                 : [selection.keyword ?? "", ...(selection.keyword_aliases ?? [])];
-            const matches = terms.map((term) => ({
-              term,
-              ...keywordExcerpts(String(r.context_text ?? ""), term, { contextChars: 400, maxExcerpts: 3 }),
-            }));
-            r.excerpts = [...new Set(matches.flatMap((m) => m.excerpts))].slice(0, 3);
-            r.matched_terms = matches.filter((m) => m.match_count > 0).map((m) => m.term);
-            r.match_count = matches.reduce((n, m) => n + m.match_count, 0);
+            Object.assign(r, concordanceContexts(String(r.context_text ?? ""), terms, body ?? ""));
             delete r.context_text;
           }
         }
@@ -107,13 +131,13 @@ export function registerResearchTools(server: Server): void {
           mode,
           rows,
           offset,
-          limit,
+          limit: pageLimit,
           has_more: offset + rows.length < total,
           note:
             mode === "aliases"
               ? "Alternate titles are authority suggestions. Choose a term explicitly; expansions can change recall and meaning."
               : mode === "concordance"
-                ? "Accent-insensitive literal contexts from stored body text, at most three per item. Metadata-only hits may have no context; missing text is not negative evidence."
+                ? "Pages contain at most 20 items and three accent-insensitive literal contexts per item; match_count sums distinct folded terms. UTF-16 source offsets and SHA-256 identify stored text; offsets are omitted when NFC normalization changes the source. Metadata-only hits may have no context."
                 : "Ordered by stored date descending, then stable item ID. Open an item for text and canonical citation.",
         });
       }
@@ -127,11 +151,15 @@ export function registerResearchTools(server: Server): void {
             ...b.params,
           ]),
         );
-        const selections: Row[] = [];
-        const rows: Row[] = [];
+        const selections: ComparisonSelection[] = [];
+        const rows: ComparisonRow[] = [];
         for (const [i, filter] of [f, b].entries()) {
           const m = (await query(`SELECT ${metrics} FROM ${v} WHERE ${whereSql(filter.where)}`, filter.params))[0];
-          selections.push({ label: i === 0 ? "A" : "B", filters: filter.echo, ...m });
+          selections.push({ label: i === 0 ? "A" : "B", filters: filter.echo, total: Number(m.total),
+            fulltext: m.fulltext === null ? null : Number(m.fulltext),
+            embedded: m.embedded === null ? null : Number(m.embedded),
+            scored: m.scored === null ? null : Number(m.scored),
+          });
           for (const field of ["country", "newspaper", "lda_topic_id"])
             if (schema.has(field)) {
               const dist = await query(
@@ -142,7 +170,7 @@ export function registerResearchTools(server: Server): void {
                 ...dist.map((r) => ({
                   selection: i === 0 ? "A" : "B",
                   field,
-                  value: r.value || "(missing)",
+                  value: String(r.value || "(missing)"),
                   count: Number(r.count),
                   share: Number(m.total) ? Number(r.count) / Number(m.total) : 0,
                 })),
@@ -168,6 +196,7 @@ export function registerResearchTools(server: Server): void {
           rows: kept,
           selections,
           overlap,
+          temporal: await comparisonTimeline(subset, schema, v, selection, comparison),
           omitted_cells: rows.length - kept.length,
           note: "Shares use each selection's entire base, including missing values. Categories use stored labels (pipe-joined countries remain one category). Selections can overlap; differences are descriptive, not causal. Largest 40 combined categories shown.",
         });
@@ -183,7 +212,13 @@ export function registerResearchTools(server: Server): void {
           ...base,
           view: "coverage",
           source_field: source,
-          rows: rows.slice(0, 400),
+          ...(source === "country" ? { source_exact_field: "country_raw" } : {}),
+          rows: rows.slice(0, 400).map((row) => ({
+            source: String(row.source), year: String(row.year), total: Number(row.total),
+            fulltext: row.fulltext === null ? null : Number(row.fulltext),
+            embedded: row.embedded === null ? null : Number(row.embedded),
+            scored: row.scored === null ? null : Number(row.scored),
+          })),
           omitted_cells: Math.max(0, rows.length - 400),
           metrics: {
             fulltext: body ?? "unavailable",
@@ -207,7 +242,7 @@ export function registerResearchTools(server: Server): void {
       return chartResult({
         ...base,
         view: "attention",
-        rows: rows.slice(0, 200),
+        rows: rows.slice(0, 200).map((row) => ({ origin: String(row.origin), destination: String(row.destination), count: Number(row.count), denominator: Number(row.denominator) })),
         omitted_cells: Math.max(0, rows.length - 200),
         note: "Publication-country metadata × mentioned place tags, not routes, migration or information flows. A multi-tagged item can occur in several cells. Denominator is all selected items tagged with that origin country. Largest 200 populated cells shown.",
       });

@@ -372,3 +372,88 @@ describe("background dataset refresh", () => {
     }
   });
 });
+
+describe("Hub tree pagination", () => {
+  it("downloads every page and rejects foreign targets or repeated pages before sending credentials", async () => {
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "iwac-pagination-"),
+    );
+    const original = { ...config },
+      originalFetch = globalThis.fetch;
+    const first = `https://huggingface.co/api/datasets/${PRIVATE_DATASET_REPO}/tree/main/articles`;
+    const requests: string[] = [];
+    try {
+      Object.assign(config, {
+        cacheDir: directory,
+        offline: false,
+        privateDataset: true,
+        datasetRepo: PRIVATE_DATASET_REPO,
+        datasetRevision: "main",
+        hfToken: "test-pagination-token",
+      });
+      globalThis.fetch = (async (input, init) => {
+        const url = String(input);
+        requests.push(url);
+        assert.equal(
+          new Headers(init?.headers).get("Authorization"),
+          "Bearer test-pagination-token",
+        );
+        if (url === first)
+          return Response.json(
+            [
+              {
+                type: "file",
+                path: "articles/first.parquet",
+                size: 5,
+                lfs: { oid: sha256("first") },
+              },
+            ],
+            { headers: { Link: `<${first}?cursor=second>; rel="next"` } },
+          );
+        if (url === `${first}?cursor=second`)
+          return Response.json([
+            {
+              type: "file",
+              path: "articles/second.parquet",
+              size: 6,
+              lfs: { oid: sha256("second") },
+            },
+          ]);
+        return new Response(url.endsWith("first.parquet") ? "first" : "second");
+      }) as typeof fetch;
+      const result = await ensureSubset("articles");
+      assert.equal(result.files.length, 2);
+      assert.deepEqual(
+        await Promise.all(
+          result.files.map((file) => fs.readFile(file, "utf8")),
+        ),
+        ["first", "second"],
+      );
+      assert.equal(requests.length, 4);
+      for (const [i, target] of [
+        "https://evil.example/tree",
+        `${first}/other?cursor=bad`,
+        first,
+      ].entries()) {
+        config.cacheDir = path.join(directory, `invalid-${i}`);
+        requests.length = 0;
+        globalThis.fetch = (async (input) => {
+          requests.push(String(input));
+          return Response.json([], {
+            headers: { Link: `<${target}>; rel="next"` },
+          });
+        }) as typeof fetch;
+        await assert.rejects(ensureSubset("articles"), /pagination/);
+        assert.deepEqual(
+          requests,
+          [first],
+          "credentials never reach an unvalidated target or pagination loop",
+        );
+      }
+    } finally {
+      Object.assign(config, original);
+      globalThis.fetch = originalFetch;
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+});

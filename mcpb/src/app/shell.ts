@@ -53,6 +53,8 @@ export interface Action {
   label: string;
   /** Label shown while `run` is in flight. */
   busyLabel?: string;
+  /** Host operation required by this action; hide it when unavailable. */
+  capability?: "download" | "openLink";
   run(ctx: ViewContext): Promise<void> | void;
 }
 

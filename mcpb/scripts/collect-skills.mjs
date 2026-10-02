@@ -131,7 +131,7 @@ export function collectSkills(rootDir) {
   try {
     entries = readdirSync(base, { withFileTypes: true });
   } catch (err) {
-    if (err.code === "ENOENT") return { skills: [] };
+    if (err.code === "ENOENT") throw new Error(`Required research skill directory is missing: ${base}`, { cause: err });
     throw err;
   }
 
@@ -187,5 +187,8 @@ export function collectSkills(rootDir) {
     });
   }
 
+  if (!skills.some((skill) => skill.name === "iwac-mcp")) {
+    throw new Error(`Required iwac-mcp research skill is missing from ${base}`);
+  }
   return { skills: skills.sort((a, b) => a.name.localeCompare(b.name)) };
 }

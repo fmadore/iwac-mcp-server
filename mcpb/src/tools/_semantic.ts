@@ -16,6 +16,15 @@ import {
   type ResolvedLimit,
 } from "./_shared.js";
 
+/** A requested constraint must never disappear on an older dataset revision. */
+export function requireSemanticFilters(schema: Set<string>, filters: Record<string, unknown>): void {
+  for (const [column, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== "" && !schema.has(column)) {
+      throw new Error(`This dataset revision has no ${column} column, so the requested filter cannot be applied`);
+    }
+  }
+}
+
 export async function runSemanticSearchTool(opts: {
   subset: Subset;
   embeddingColumn: string;

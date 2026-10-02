@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { setMaxListeners } from "node:events";
 
 import type { Subset } from "./config.js";
 export interface RequestSnapshot {
@@ -10,6 +11,61 @@ export interface RequestSnapshot {
 const scope = new AsyncLocalStorage<{ signal: AbortSignal; snapshots: Map<Subset, RequestSnapshot> }>();
 export const requestSignal = (): AbortSignal | undefined => scope.getStore()?.signal;
 export const requestSnapshots = (): Map<Subset, RequestSnapshot> | undefined => scope.getStore()?.snapshots;
+const sharedWorkLifetime = new AbortController();
+const sharedJobs = new Set<Promise<unknown>>();
+// Shared jobs may legitimately have more than ten concurrent query listeners.
+setMaxListeners(0, sharedWorkLifetime.signal);
+
+/** A shared download/index belongs to the process, not its first caller.
+ * Index builders can copy a caller's pinned snapshots without inheriting its
+ * cancellation or deadline. Each job receives its own mutable snapshot map. */
+export function runSharedWork<T>(
+  fn: () => Promise<T>,
+  snapshots?: ReadonlyMap<Subset, RequestSnapshot>,
+): Promise<T> {
+  const signal = AbortSignal.any([
+    sharedWorkLifetime.signal,
+    AbortSignal.timeout(15 * 60_000),
+  ]);
+  const job = scope.run({ signal, snapshots: new Map(snapshots) }, async () => {
+    signal.throwIfAborted();
+    return fn();
+  });
+  sharedJobs.add(job);
+  void job.then(() => sharedJobs.delete(job), () => sharedJobs.delete(job));
+  return job;
+}
+
+/** Cancel maintenance after requests drain and allow cache locks/partials to
+ * finish cleanup before a normal process exit. The transport owns the final
+ * hard shutdown deadline in case a dependency cannot be interrupted. */
+export async function stopSharedWork(): Promise<void> {
+  sharedWorkLifetime.abort();
+  await Promise.allSettled([...sharedJobs]);
+}
+
+/** Cancel this caller's wait without cancelling a promise shared by others. */
+export async function waitForSharedWork<T>(
+  job: Promise<T>,
+  signal = requestSignal(),
+): Promise<T> {
+  signal?.throwIfAborted();
+  if (!signal) return job;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    void job.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
 const latencies: number[] = [];
 let completed = 0;
 export function requestMetrics(): { completed: number; window: number; p50_ms: number; p95_ms: number } {

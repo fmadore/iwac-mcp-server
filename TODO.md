@@ -1,5 +1,22 @@
 # TODO
 
+## October 2026 review implementation
+
+- [x] Bound keyword contexts and reject empty folded search terms.
+- [x] Apply interval dates consistently in shared selections; distinguish missing,
+  invalid and imprecise dates in temporal output.
+- [x] Isolate shared cache/index work from individual request cancellation;
+  record successful unchanged freshness checks and coalesce embedding requests.
+- [x] Add typed research views, reliable export/back actions, visible link
+  fallbacks, proportional maps and self-contained SVG exports.
+- [x] Add corpus manifests, CSL-JSON/BibTeX pages, live dataset resources,
+  sentiment pair selection and agreement statistics with explicit denominators.
+- [x] Validate platform bindings, skills and actual SQL in packaged artifacts;
+  reject published release versions before privileged publication.
+- [x] Expand regression, protocol and browser coverage; upgrade compatible
+  runtime/development dependencies and document the packaging-only audit exception.
+
+
 > Larger features — remote transport, auth, zero-config semantic search, skill
 > portability — are tracked as
 > [GitHub issues](https://github.com/fmadore/iwac-mcp-server/issues). This file
@@ -77,11 +94,11 @@
   directory listing surfaces these.
 
 - [ ] **Drop the `@hono/node-server` override once the SDK catches up** —
-  `mcpb/package.json` forces `@hono/node-server` to `^2.0.12` via `overrides`
+  `mcpb/package.json` forces `@hono/node-server` to `^2.1.3` via `overrides`
   because the entire 1.x line carries GHSA-frvp-7c67-39w9 (Windows
   `serve-static` path traversal) with no backport, while
   `@modelcontextprotocol/node` still declares `^1.19.9` (re-checked at 2.1.0,
-  2026-09-25). Running a
+  2026-10-02). Running a
   transitive dep a major above what upstream asks for is safe *here* — the SDK
   imports exactly one symbol, `getRequestListener`, which v2 still exports, v2
   wants Node ≥20 against this project's ≥24, and it peers on `hono ^4` — and the
@@ -91,17 +108,11 @@
   *remove* the override rather than bumping it, so the resolved version goes
   back to being upstream's problem.
 
-- [ ] **Move the chart UI to `@modelcontextprotocol/ext-apps` 2.x when it fits
-  the budget** — 2.0.0 (2026-09-24) ports the `App` class to the split v2 SDK
-  and would drop the v1 `@modelcontextprotocol/sdk` + Express tree (~75
-  packages) that 1.7.5 pulls in as a dev-only peer. It builds and typechecks
-  unchanged, but the UI resource grows 257.6 → 336.6 kb, over the 300 kb gate in
-  `test/app.test.mjs`: ext-apps imports `Protocol` from
-  `@modelcontextprotocol/client`, whose single 87 kb chunk (OAuth, transports,
-  validators) does not tree-shake, and `@modelcontextprotocol/core` does not
-  export `Protocol` publicly. 1.7.x is wire-compatible with v2 hosts, so nothing
-  is broken by staying. Re-measure on each ext-apps release; a Dependabot PR
-  for the major will fail the size gate until then, which is the gate working.
+- [x] **Move the chart UI to `@modelcontextprotocol/ext-apps` 2.x** — upgraded
+  to 2.0.3 with Zod 4.6.5. A self-contained gzip inline bundle keeps the resource
+  below 300 KB without dropping SDK protocol features. Browser tests execute the
+  actual decompression bootstrap; a separate 500 KB decoded-JavaScript cap makes
+  expanded code growth visible.
 
 - [x] **Migrate to MCP TypeScript SDK v2 / protocol 2026-07-28** — done
   2026-07-29. `@modelcontextprotocol/server` 2.0.0 went stable 2026-07-27, four
@@ -170,43 +181,11 @@
   the answer: density is not the criterion, redundancy is. See
   `docs/mcp-apps-roadmap.md` §2.4.
 
-- [ ] **Decide the fate of the `skill://` prototype.** The skill is embedded at
-  build time (`scripts/collect-skills.mjs`) and served two ways from one
-  catalogue (`src/tools/skills.ts`): as `skill://` resources, and through the
-  extension's own `skills/list` / `skills/get` behind the declared
-  `io.modelcontextprotocol/skills` capability. Remote-HTTP callers get the
-  research workflow with no separate download. It follows
-  [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
-  **an open draft PR**. Flagged as a prototype in the README,
-  `docs/connecting.md` and `mcpb/README.md`; the `.zip` stays the supported
-  install. Revisit when the SEP resolves:
-
-  - **Correction (2026-08-12).** This item previously deferred the methods on
-    the grounds that they and the capability "exist in no SDK". Half right: there
-    is no `registerSkill` and no dedicated capability, but `ServerCapabilities`
-    models `extensions` as a generic record and `setRequestHandler` takes
-    arbitrary method names, so the adapter was ~60 lines over the catalogue that
-    already existed. Ported from the sibling `amira-mcp-server`, which
-    implements the same SEP.
-  - **Still not served:** `resources/directory/read`, the SEP's one optional
-    method. Its root would be the bare `skill://iwac-mcp`, which is already the
-    catalogue document; one URI cannot be both `application/json` and
-    `inode/directory`. The capability is declared as `{}`, which forbids a
-    conformant host from calling it. Revisit only if a host needs directory
-    walking — `skills/list` already carries the complete manifest — and note it
-    would mean moving or dropping the catalogue document.
-  - **Cross-repo divergence to keep in view:** `amira-mcp-server` makes the
-    opposite trade (no catalogue document, bare URI as a directory resource,
-    `directoryRead: true`). Same SEP, same URI, two meanings. Fine while both are
-    prototypes; reconcile if the SEP lands.
-  - If **changed**, the collector is the only thing that needs to move; the URI
-    scheme, the catalogue and the methods live in one file each.
-  - If **rejected**, decide whether serving the skill this way is worth keeping
-    on its own merits. It probably is, for the remote endpoint, but then it
-    should be documented as ours rather than as a spec preview, and the
-    `skills/*` methods should go.
-  - Either way, note the skill is a **build-time snapshot**: editing
-    `.agents/skills/` needs a rebuild to reach clients over MCP.
+- [x] **Align Skills over MCP with the finalized extension** — manifest byte
+  sizes, typed result/cache contracts and modern/legacy transport tests now
+  match SEP-2640. Docker includes the same embedded skill as desktop builds.
+  Optional directory reads remain unadvertised; ordinary resource access and
+  installable zip delivery remain available.
 
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 

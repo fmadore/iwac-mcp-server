@@ -180,6 +180,22 @@ await withFixtureScope(async (fixtures) => {
     // Row lists: no filter (so everything matches), the largest limit the server
     // will honour, and every verbosity flag switched on.
     explore_corpus: { mode: "concordance", selection: { keyword: "islam" }, limit: 50 },
+    "explore_corpus#concordance-contexts": {
+      tool: "explore_corpus", args: { mode: "concordance", selection: { keyword: "pèlerinage" }, limit: 50 },
+    },
+    "explore_corpus#concordance-aliases": {
+      tool: "explore_corpus", args: { mode: "concordance", selection: {
+        keyword: "pèlerinage", country: "Benin",
+        keyword_aliases: ["La Mecque", "Cotonou", "hadj", "autorités", "fidèles", "organisation", "année", "mobilise", "centaines", "encore", "depuis", "saluent"],
+      }, limit: 50 },
+    },
+    "explore_corpus#manifest": { tool: "explore_corpus", args: { mode: "manifest", subset: "references", limit: 50 } },
+    "explore_corpus#csl-json": { tool: "explore_corpus", args: { mode: "csl_json", subset: "references", limit: 50 } },
+    "explore_corpus#bibtex": { tool: "explore_corpus", args: { mode: "bibtex", subset: "references", limit: 50 } },
+    "explore_corpus#comparison": {
+      tool: "explore_corpus", args: { mode: "compare", selection: { country: "Benin" }, comparison: { country: "Togo" } },
+    },
+    "explore_corpus#coverage": { tool: "explore_corpus", args: { mode: "coverage", subset: "references" } },
     search: { query: "islam", limit: BIG },
     search_articles: { limit: BIG, with_description: true },
     search_by_sentiment: { limit: BIG },
@@ -260,6 +276,23 @@ await withFixtureScope(async (fixtures) => {
     // its own maximum arguments would otherwise "pass" the budget at 30 tokens.
     if (res.isError === true) fail(`${label} returned an error at worst-case arguments: ${body.slice(0, 200)}`);
     if (tokens > RESPONSE_CEILING) fail(`${label} worst case is ${tokens} tokens, over the ${RESPONSE_CEILING} ceiling`);
+    if (["explore_corpus#manifest", "explore_corpus#csl-json", "explore_corpus#bibtex"].includes(label)) {
+      const exported = res.structuredContent;
+      if (exported?.rows?.length !== 50 || !exported?.export?.content)
+        fail(`${label} must export all 50 requested metadata records`);
+      else {
+        const content = exported.export.content;
+        const count = label.endsWith("#manifest") ? JSON.parse(content).records.length
+          : label.endsWith("#csl-json") ? JSON.parse(content).length
+            : [...content.matchAll(/^@\w+\{/gm)].length;
+        if (count !== 50) fail(`${label} citation/manifest content omitted requested records`);
+      }
+    }
+    if (label === "explore_corpus#concordance-contexts") {
+      const page = res.structuredContent;
+      if (page?.rows?.length !== 20 || page.limit !== 20 || !page.has_more)
+        fail("concordance must disclose its 20-item page cap and retain pagination");
+    }
   }
 
   measured.sort((a, b) => b.tokens - a.tokens);

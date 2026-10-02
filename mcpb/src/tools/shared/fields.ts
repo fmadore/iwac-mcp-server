@@ -441,7 +441,12 @@ export function colsFor(subset: Subset, schema: Set<string>, view: FieldView): s
     if (alias === undefined) items.push(field.expr);
     else items.push([field.expr, alias, field.requires ?? [field.expr]]);
   }
-  return selectList(schema, items);
+  const projected = selectList(schema, items);
+  const hasSentiment = subset === "articles" && SUBSET_FIELDS.articles.some((field) =>
+    ["polarity", "centrality", "subjectivity"].includes(field.alias ?? "") &&
+    field.views.some((v) => chain.has(v)) && (field.requires ?? [field.expr]).every((c) => schema.has(c)),
+  );
+  return hasSentiment ? `${projected}, '${DEFAULT_SENTIMENT_MODEL.id}' AS sentiment_model` : projected;
 }
 
 /**

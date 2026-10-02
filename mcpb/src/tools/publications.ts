@@ -3,7 +3,7 @@ import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, getById, query, selectList, viewName, type Bindable } from "../db.js";
 import { config } from "../config.js";
-import { runSemanticSearchTool } from "./_semantic.js";
+import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   capOffset,
@@ -228,14 +228,14 @@ export function registerPublicationTools(server: Server): void {
   server.registerTool(
     "semantic_search_publications",
     {
-      ...toolMeta("Semantic search for publications"),
+      ...toolMeta("Semantic search for publications", { openWorldHint: true }),
       description:
-        "Semantic similarity search over publication tables of contents using Gemini embeddings. " +
+        "Semantic similarity search over publication tables of contents using the configured embedding provider. " +
         "TOC coverage: ~22% of issues — complete for 17 of the 25 series (the smaller magazines), but absent " +
         "for the three largest (Islam Info, An-Nasr Vendredi, Islam Hebdo); use search_publications for those. " +
-        "The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
+        "The natural-language query may be in any language. Sends queries to the configured embedding provider; its model must match the stored corpus vectors.",
       inputSchema: z.object({
-        query: z.string().describe("Natural-language query, any language"),
+        query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
         country: countryParam(),
         limit: z.number().int().optional().describe("Default 10, max 50"),
       }),
@@ -252,6 +252,7 @@ export function registerPublicationTools(server: Server): void {
         // similarity ranking matched against. (Empty TOCs are compacted away.)
         summaryView: "withToc",
         buildCandidateFilters: (schema, where, params) => {
+          requireSemanticFilters(schema, { country: country.canonical });
           pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
         },
         filtersEcho: { country: country.canonical ?? null },

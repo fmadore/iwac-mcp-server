@@ -21,6 +21,13 @@ on:
     - cron: "17 5 * * 1" # Mondays 05:17 UTC — weekly live smoke
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -30,10 +37,12 @@ jobs:
         working-directory: mcpb
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
@@ -78,22 +87,21 @@ jobs:
       - name: Build server bundle
         run: npm run build
 
-      - name: Unit tests
-        run: npm run test:unit
+      - name: Complete offline test suite
+        run: npm test
 
-      - name: Fixture MCP round-trip (offline)
-        run: npm run test:fixture
+      - name: Install Chromium for browser smoke tests
+        run: npx playwright install --with-deps chromium
 
-      - name: MCP App bundle (offline)
-        run: npm run test:app
+      - name: Real-browser layout and interaction smoke tests
+        run: npm run test:browser
 
-      - name: HTTP transport round-trip (offline)
-        run: npm run test:http
+  artifacts:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    uses: ./.github/workflows/package-validation.yml
+    with:
+      run-tests: false
 
-      # Prints the per-tool breakdown either way, so a PR that adds a tool shows
-      # what it costs in the log rather than only when it trips the gate.
-      - name: Token budget (offline)
-        run: npm run test:tokens
 
   runtime-floor:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -103,10 +111,12 @@ jobs:
         working-directory: mcpb
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up build toolchain
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
@@ -120,19 +130,19 @@ jobs:
       - name: Read declared runtime floor
         id: runtime
         run: |
-          major=$(node -e '
+          version=$(node -e '
             const manifest = require("./manifest.json");
             const range = manifest.compatibility?.runtimes?.node;
-            const match = typeof range === "string" && /^>=\s*(\d+)(?:\.|$)/.exec(range);
+            const match = typeof range === "string" && /^>=\s*(\d+\.\d+\.\d+)$/.exec(range);
             if (!match) throw new Error(`invalid compatibility.runtimes.node: ${range}`);
             process.stdout.write(match[1]);
           ')
-          echo "major=$major" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up declared runtime floor
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: ${{ steps.runtime.outputs.major }}
+          node-version: ${{ steps.runtime.outputs.version }}
 
       - name: Test built bundle at declared floor
         run: |
@@ -147,10 +157,12 @@ jobs:
         working-directory: mcpb
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
@@ -165,7 +177,7 @@ jobs:
         run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
 
       - name: Restore HF parquet cache (~250 MB)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.iwac-mcp/cache
           key: iwac-hf-parquet-${{ steps.month.outputs.month }}

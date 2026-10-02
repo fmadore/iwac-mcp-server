@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { ensureView, getById, type Bindable } from "../db.js";
 import { config } from "../config.js";
-import { runSemanticSearchTool } from "./_semantic.js";
+import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
 import {
   capOffset,
   colsFor,
@@ -118,14 +118,14 @@ export function registerImageTools(server: Server): void {
   server.registerTool(
     "semantic_search_images",
     {
-      ...toolMeta("Semantic search for photographs"),
+      ...toolMeta("Semantic search for photographs", { openWorldHint: true }),
       description:
         "Find photographs by describing what they SHOW, in any language ('mosquée en construction', 'street " +
         "signage in Arabic'). This is cross-modal: the ranking runs against a multimodal embedding of the " +
         "photograph itself, not against a caption, so it works even though only 2 of the 30 images have one. " +
-        "Requires semantic search to be enabled and a Google API key.",
+        "Sends queries to the configured embedding provider; its model must match the stored corpus vectors.",
       inputSchema: z.object({
-        query: z.string().describe("Description of the visual content, any language"),
+        query: z.string().trim().min(1).max(8192).describe("Description of the visual content, any language"),
         country: countryParam({ nigeria: true }),
         limit: z.number().int().optional().describe("Default 10, max 30"),
       }),
@@ -140,6 +140,7 @@ export function registerImageTools(server: Server): void {
         limit: resolveLimit(args.limit, 10, 30),
         summaryView: "summary",
         buildCandidateFilters: (schema, where, params) => {
+          requireSemanticFilters(schema, { country: country.canonical });
           pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
         },
         filtersEcho: { country: country.canonical ?? null },

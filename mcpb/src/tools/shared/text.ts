@@ -146,37 +146,29 @@ export function keywordExcerpts(
   const haystack = foldText(ocr);
   const needle = foldText(keyword);
 
-  // All match positions first (cheap), then excerpts up to the caps. A common
-  // keyword in a 1M-char issue can match hundreds of times — uncapped, that once
-  // produced a single ~150k-char (~38k-token) response.
-  const positions: number[] = [];
-  let pos = 0;
-  while (true) {
-    const idx = haystack.indexOf(needle, pos);
-    if (idx === -1) break;
-    positions.push(idx);
-    pos = idx + Math.max(1, needle.length);
-  }
-  const parameterNote = clampNote(opts, { contextChars, maxExcerpts });
-  if (positions.length === 0) {
-    return {
-      excerpts: [],
-      excerpts_returned: 0,
-      match_count: 0,
-      note: `Keyword '${keyword}' not found in full text`,
-      ...(parameterNote ? { parameter_note: parameterNote } : {}),
-    };
+  // indexOf("", position) keeps returning the end of the string even when
+  // position is past it. Reject blank needles before that loop can run forever.
+  if (!needle.trim()) {
+    return { excerpts: [], excerpts_returned: 0, match_count: 0, note: "A nonempty keyword is required" };
   }
 
+  // Count every match, retaining only the bounded context windows. Common
+  // one-character terms must not allocate an array proportional to OCR length.
   const excerpts: string[] = [];
-  let coveredUntil = -1; // skip matches already visible in the previous excerpt
+  let matchCount = 0;
+  let coveredUntil = -1;
   let totalChars = 0;
   let capped = false;
-  for (const idx of positions) {
+  let pos = 0;
+  while (pos <= haystack.length - needle.length) {
+    const idx = haystack.indexOf(needle, pos);
+    if (idx === -1) break;
+    matchCount++;
+    pos = idx + needle.length;
     if (idx < coveredUntil) continue;
     if (excerpts.length >= maxExcerpts || totalChars >= CHARACTER_LIMIT) {
       capped = true;
-      break;
+      continue;
     }
     const start = codePointBoundary(ocr, Math.max(0, idx - half));
     const end = codePointBoundary(ocr, Math.min(ocr.length, idx + needle.length + half));
@@ -187,17 +179,27 @@ export function keywordExcerpts(
     totalChars += ex.length;
     coveredUntil = end;
   }
+  const parameterNote = clampNote(opts, { contextChars, maxExcerpts });
+  if (matchCount === 0) {
+    return {
+      excerpts: [],
+      excerpts_returned: 0,
+      match_count: 0,
+      note: `Keyword '${keyword}' not found in full text`,
+      ...(parameterNote ? { parameter_note: parameterNote } : {}),
+    };
+  }
 
   const result: ExcerptResult = {
     excerpts,
     excerpts_returned: excerpts.length,
-    match_count: positions.length,
+    match_count: matchCount,
     ...(parameterNote ? { parameter_note: parameterNote } : {}),
   };
   if (capped) {
     result.truncated = true;
     result.truncation_message =
-      `Showing ${excerpts.length} excerpts for ${positions.length} matches. ` +
+      `Showing ${excerpts.length} excerpts for ${matchCount} matches. ` +
       `Use a more specific keyword, or raise max_excerpts (max 25).`;
   }
   return result;
@@ -228,4 +230,3 @@ export function attachOcrOrExcerpts(
     }
   }
 }
-

@@ -161,6 +161,7 @@ export interface LexicalPayload extends ChartPayloadBase {
 
 export interface LunarPayload extends TemporalPayload {
   imprecise_date_count?: number;
+  invalid_date_count?: number;
   month_labels?: Record<string, string>;
 }
 
@@ -281,7 +282,21 @@ export interface SentimentPayload extends ChartPayloadBase, ModelBlock {
     base?: string;
     base_caveats?: Record<string, string>;
   };
-  agreement_matrix?: { rows?: string; cols?: string; counts?: Record<string, Record<string, number>> };
+  agreement_matrix?: {
+    rows?: string;
+    cols?: string;
+    field?: "polarity" | "centrality" | "subjectivity";
+    counts?: Record<string, Record<string, number>>;
+    matched_articles?: number;
+    common_scored?: number;
+    excluded_articles?: number;
+    agreements?: number;
+    agreement_percent?: number | null;
+    kappa?: number | null;
+    weighted_kappa?: number | null;
+    weighted_n?: number;
+    notes?: string[];
+  };
   consensus?: ModelBlock;
 }
 
@@ -314,6 +329,7 @@ export interface TemporalPayload extends ChartPayloadBase {
   dated_count?: number;
   undated_count?: number;
   imprecise_date_count?: number;
+  invalid_date_count?: number;
   distribution?: Record<string, number>;
   distribution_by_group?: Record<string, Record<string, number>>;
 }
@@ -342,11 +358,83 @@ export interface TopicsPayload extends ChartPayloadBase {
 
 /** New workbench destinations have required envelopes, independently of their
  * compact MCP wire schemas. SQL-specific row fields remain extensible. */
-export interface ResearchPayload extends ChartPayloadBase {
+export interface ResearchPayload<R extends Record<string, unknown> = Record<string, unknown>> extends ChartPayloadBase {
   subset: string;
   filters: Record<string, unknown>;
-  rows: Record<string, unknown>[];
+  rows: R[];
   total_matches: number;
+}
+export interface RecordRow extends Record<string, unknown> {
+  id?: string;
+  title?: string;
+  date?: string;
+  country?: string;
+  newspaper?: string;
+  url?: string;
+  alternate_titles?: string;
+  excerpts?: string[];
+  matched_terms?: string[];
+  match_count?: number;
+  contexts?: Record<string, unknown>[];
+  source_field?: string;
+  source_text_sha256?: string;
+  source_offsets_available?: boolean;
+}
+export interface RecordsPayload extends ResearchPayload<RecordRow> {
+  mode?: string;
+  offset?: number;
+  limit?: number;
+  has_more?: boolean;
+  export?: { format: string; mime_type: string; filename: string; content: string; manifest?: unknown };
+}
+export interface CoverageRow extends Record<string, unknown> {
+  source: string;
+  year: string;
+  total: number;
+  fulltext?: number | null;
+  embedded?: number | null;
+  scored?: number | null;
+}
+export interface CoveragePayload extends ResearchPayload<CoverageRow> {
+  source_field: string;
+  source_exact_field?: string;
+  metrics?: Record<string, unknown>;
+  omitted_cells?: number;
+}
+export interface ComparisonRow extends Record<string, unknown> {
+  selection: string;
+  field: string;
+  value: string;
+  count: number;
+  share: number;
+}
+export interface ComparisonSelection {
+  label: string;
+  filters: Record<string, unknown>;
+  total: number;
+  fulltext?: number | null;
+  embedded?: number | null;
+  scored?: number | null;
+}
+export interface ComparisonPayload extends ResearchPayload<ComparisonRow> {
+  selections: ComparisonSelection[];
+  overlap: number;
+  omitted_cells?: number;
+  temporal?: {
+    rows: { selection: string; year: string; count: number; denominator: number; share: number }[];
+    normalize_by: "corpus";
+    omitted_years: number;
+    note: string;
+  };
+}
+export interface AttentionRow extends Record<string, unknown> {
+  origin: string;
+  destination: string;
+  count: number;
+  denominator: number;
+}
+export interface AttentionPayload extends ResearchPayload<AttentionRow> {
+  omitted_cells?: number;
 }
 export interface ReaderPayload extends ChartPayloadBase {
   id: string;
@@ -354,16 +442,18 @@ export interface ReaderPayload extends ChartPayloadBase {
   text: string;
   url: string;
   metadata?: Record<string, unknown>;
+  text_source?: string;
+  text_truncated?: boolean;
 }
 
 /** Reconstructed chart payloads; dense fields may arrive through result _meta. */
 export interface ChartPayloads {
-  records: ResearchPayload;
+  records: RecordsPayload;
   reader: ReaderPayload;
-  coverage: ResearchPayload;
-  comparison: ResearchPayload;
-  attention: ResearchPayload;
-  aliases: ResearchPayload;
+  coverage: CoveragePayload;
+  comparison: ComparisonPayload;
+  attention: AttentionPayload;
+  aliases: RecordsPayload;
   collection: CollectionPayload;
   cooccurrence: CooccurrencePayload;
   countries: CountriesPayload;

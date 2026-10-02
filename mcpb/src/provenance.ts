@@ -14,7 +14,7 @@ export function requestProvenance(tool: string, args: unknown): Record<string, u
   );
   return {
     snapshot_id: createHash("sha256").update(JSON.stringify(identities)).digest("hex"),
-    analysis_version: "iwac-research-v1",
+    analysis_version: "iwac-research-v2",
     tool,
     arguments: args,
     datasets,

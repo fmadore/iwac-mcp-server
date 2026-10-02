@@ -1,5 +1,6 @@
-import { aggregateFilters, exactInput } from "./aggregates/shared.js";
+import { aggregateFilters, filterInputs } from "./aggregates/shared.js";
 import { bodyColumn } from "./shared/research.js";
+import { dateInterval } from "./shared/filters.js";
 import type { ChartPayload, Coverage } from "../viewContract.js";
 import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
@@ -86,6 +87,7 @@ const TEMPORAL_OUTPUT = z.object({
   // one to place in a lunar month. Distinct from undated_count, and reported
   // separately so a lunar total is never mistaken for the subset total.
   imprecise_date_count: z.number().optional(),
+  invalid_date_count: z.number().optional(),
   month_labels: z.record(z.string(), z.string()).optional(),
   normalize_by: z.string().optional(),
   denominators: z.record(z.string(), z.record(z.string(), z.number())).optional(),
@@ -352,9 +354,7 @@ export function registerStatsTools(server: Server): void {
         "Counts by Gregorian or Hijri year/month, or pooled lunar month. Group by country/newspaper. Partial dates and missing lunar dates are disclosed. normalize_by returns numerator counts and per-bucket denominators in the same country/outlet/date scope, removing thematic filters. Shares describe IWAC holdings.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
-        ...exactInput(),
-        hijri_month: z.string().optional(),
-        hijri_year: z.number().int().optional(),
+        ...filterInputs(),
         normalize_by: z
           .enum(["scope", "searchable"])
           .optional()
@@ -375,17 +375,6 @@ export function registerStatsTools(server: Server): void {
           .string()
           .optional()
           .describe("gregorian (default) | hijri — bucket by the Islamic (Umm al-Qura) calendar"),
-        keyword: z
-          .string()
-          .optional()
-          .describe(
-            "ONE French concept keyword (French/English for references); substring over the subset's text fields",
-          ),
-        country: countryParam({ nigeria: true }),
-        newspaper: z.string().optional().describe("Newspaper (articles) or periodical/series title (publications)"),
-        subject: z.string().optional().describe("Exact subject tag (pipe-aware)"),
-        date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
-        date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
         group_by: z.string().optional().describe("country | newspaper — one distribution per group value"),
       }),
       outputSchema: TEMPORAL_OUTPUT,
@@ -438,9 +427,9 @@ export function registerStatsTools(server: Server): void {
         if (!body) return errorResult({ error: `No full-text column on ${subset}` });
         where.push(`NULLIF(trim(CAST(${q(body)} AS VARCHAR)), '') IS NOT NULL`);
       }
-      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
-      // Gregorian buckets slice the ISO string; Hijri buckets read the
+      // Gregorian buckets require the whole source-date interval to fit within
+      // one bucket. A year-only record cannot be plotted as if it had a month.
+      // Hijri buckets read the
       // precomputed columns (post-processing/calculate_hijri_dates.py), which
       // are NULL for any date too imprecise to carry a lunar day.
       //
@@ -449,9 +438,18 @@ export function registerStatsTools(server: Server): void {
       // on current revisions but DOUBLE on older ones (see there).
       const hijriYear = hijriPart("hijri_year", 0);
       const hijriMonth = hijriPart("hijri_month");
+      const interval = dateInterval();
+      const datedSource = `NULLIF(trim(CAST(pub_date AS VARCHAR)), '') IS NOT NULL`;
+      const validSource = `_iwac_date_start IS NOT NULL AND _iwac_date_end >= _iwac_date_start`;
+      const datedRows = (conditions: string[]) => `(
+        SELECT *, (${interval.start}) AS _iwac_date_start, (${interval.end}) AS _iwac_date_end
+        FROM ${viewName(subset)} ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+      )`;
       let bucketExpr: string;
       if (!hijri) {
-        bucketExpr = `NULLIF(substr(CAST(pub_date AS VARCHAR), 1, ${granularity === "month" ? 7 : 4}), '')`;
+        const format = granularity === "month" ? "%Y-%m" : "%Y";
+        bucketExpr = `CASE WHEN ${validSource} AND strftime(_iwac_date_start, '${format}') = strftime(_iwac_date_end, '${format}')
+          THEN strftime(_iwac_date_start, '${format}') END`;
       } else if (granularity === "lunar_month") {
         bucketExpr = hijriMonth;
       } else if (granularity === "month") {
@@ -459,6 +457,7 @@ export function registerStatsTools(server: Server): void {
       } else {
         bucketExpr = hijriYear;
       }
+      if (hijri) bucketExpr = `CASE WHEN ${validSource} AND _iwac_date_start = _iwac_date_end THEN ${bucketExpr} END`;
       const groupSel = groupBy ? `, ${q(groupBy)} AS grp` : "";
       // `c_dated` splits the NULL-bucket rows: on the Hijri calendar a missing
       // bucket means EITHER no date at all OR a date too imprecise to convert,
@@ -466,8 +465,9 @@ export function registerStatsTools(server: Server): void {
       // total. One query answers both.
       const rows = await query(
         `SELECT ${bucketExpr} AS bucket${groupSel}, COUNT(*) AS c,
-                COUNT(*) FILTER (WHERE NULLIF(trim(CAST(pub_date AS VARCHAR)), '') IS NOT NULL) AS c_dated
-         FROM ${viewName(subset)} ${whereSql}
+                COUNT(*) FILTER (WHERE ${datedSource}) AS c_dated,
+                COUNT(*) FILTER (WHERE ${validSource}) AS c_valid
+         FROM ${datedRows(where)}
          GROUP BY ALL ORDER BY bucket`,
         params,
       );
@@ -475,6 +475,7 @@ export function registerStatsTools(server: Server): void {
       let dated = 0;
       let undated = 0;
       let imprecise = 0;
+      let invalid = 0;
       let pipeGroups = false;
       const flat: Record<string, number> = {};
       const grouped: Record<string, Record<string, number>> = {};
@@ -485,7 +486,9 @@ export function registerStatsTools(server: Server): void {
           // Rows here carry a pub_date the calendar could not bucket — on the
           // Hijri side that is an imprecise date, not a missing one.
           const withDate = Number(r.c_dated ?? 0);
-          imprecise += withDate;
+          const withValidDate = Number(r.c_valid ?? 0);
+          imprecise += withValidDate;
+          invalid += withDate - withValidDate;
           undated += n - withDate;
           continue;
         }
@@ -509,10 +512,11 @@ export function registerStatsTools(server: Server): void {
         ...(hijri ? { calendar: "hijri" } : {}),
         ...(groupBy ? { group_by: groupBy } : {}),
         filters: echo,
-        total_matches: dated + undated + imprecise,
+        total_matches: dated + undated + imprecise + invalid,
         dated_count: dated,
         undated_count: undated,
         ...(imprecise ? { imprecise_date_count: imprecise } : {}),
+        ...(invalid ? { invalid_date_count: invalid } : {}),
         // The keys are zero-padded numbers so they sort; the model (and the
         // chart) should show names. Sending the table beats making either
         // hard-code a transliteration that would drift from the archive's.
@@ -526,7 +530,7 @@ export function registerStatsTools(server: Server): void {
       const notes: string[] = [];
       if (args.normalize_by) {
         const baselineExact = Object.fromEntries(
-          Object.entries(args.exact ?? {}).filter(([k]) => k === "country" || k === "newspaper"),
+          Object.entries(args.exact ?? {}).filter(([k]) => k === "country" || k === "country_raw" || k === "newspaper"),
         );
         const baseline = aggregateFilters(subset, schema, {
           country: country.canonical,
@@ -544,8 +548,8 @@ export function registerStatsTools(server: Server): void {
           baseline.where.push(`NULLIF(trim(CAST(${q(body)} AS VARCHAR)), '') IS NOT NULL`);
         }
         const baseRows = await query(
-          `SELECT ${bucketExpr} AS bucket${groupSel}, COUNT(*) AS c FROM ${viewName(subset)}
-          ${baseline.where.length ? `WHERE ${baseline.where.join(" AND ")}` : ""} GROUP BY ALL ORDER BY bucket`,
+          `SELECT ${bucketExpr} AS bucket${groupSel}, COUNT(*) AS c FROM ${datedRows(baseline.where)}
+          GROUP BY ALL ORDER BY bucket`,
           baseline.params,
         );
         const denominators: Record<string, Record<string, number>> = {};
@@ -567,12 +571,13 @@ export function registerStatsTools(server: Server): void {
           `Some ${groupBy} values are multi-valued (pipe-joined, e.g. 'Niger|Nigeria') and are grouped by the stored string.`,
         );
       }
-      if (hijri && imprecise) {
+      if (imprecise) {
         notes.push(
-          `${imprecise} matching item(s) carry a date too imprecise for a lunar month (year- or month-only, or a range) ` +
+          `${imprecise} matching item(s) have dates too imprecise or otherwise unavailable for one ${hijri ? "Hijri" : "Gregorian"} ${granularity === "lunar_month" ? "month" : granularity} bucket ` +
             "and are excluded from the distribution — they are absent from these counts, not zero.",
         );
       }
+      if (invalid) notes.push(`${invalid} matching item(s) have invalid or unsupported source dates and are excluded.`);
       if (granularity === "lunar_month") {
         notes.push(
           "Counts are pooled across all Hijri years, so this shows the lunar cycle, not a trend over time. " +

@@ -226,6 +226,44 @@ try {
     fail(`tools/list should carry our cache hints, got ttlMs=${modernTools.ttlMs} cacheScope=${modernTools.cacheScope}`);
   }
 
+  // Final Skills extension contracts must survive the modern HTTP adapter too.
+  const skillEntry = z.looseObject({
+    uri: z.string(),
+    frontmatter: z.looseObject({ name: z.string(), description: z.string() }),
+    resources: z.array(z.looseObject({
+      uri: z.string(), digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+      size: z.number().int().nonnegative(),
+    })),
+  });
+  const skillCache = {
+    ttlMs: z.number().int().positive(), cacheScope: z.literal("public"),
+  };
+  // SDK Client.request unwraps resultType, so inspect the actual wire separately.
+  const skillWire = await fetch(`${BASE}/mcp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": "skills/list",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: "skills-wire", method: "skills/list", params: {
+      _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} },
+    } }),
+  });
+  const skillWireBody = await skillWire.json();
+  if (skillWire.status !== 200 || skillWireBody.result?.resultType !== "complete") {
+    fail(`modern skills/list wire envelope is invalid: ${JSON.stringify(skillWireBody)}`);
+  }
+  const modernSkills = await modern.request(
+    { method: "skills/list", params: {} }, z.looseObject({ ...skillCache, skills: z.array(skillEntry).min(1) }),
+  );
+  const modernSkill = await modern.request(
+    { method: "skills/get", params: { uri: modernSkills.skills[0].uri } },
+    z.looseObject({ ...skillCache, skill: skillEntry }),
+  );
+  if (JSON.stringify(modernSkill.skill) !== JSON.stringify(modernSkills.skills[0])) {
+    fail("modern HTTP skills/get and skills/list manifests differ");
+  }
+
   const { call: modernCall, failures: modernFailures } = createHarness(modern, { timeoutMs: 60_000 });
   await modernCall("get_collection_stats", {}, {
     structured: true,

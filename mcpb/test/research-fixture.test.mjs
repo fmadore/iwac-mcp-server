@@ -30,12 +30,28 @@ test("research workbench counts, exact selection, normalization, provenance and 
       selection: { keyword: "pèlerinage", country: "Benin" },
     });
     assert.ok(context.rows[0].excerpts[0].includes("pèlerinage"));
+    assert.equal(context.rows[0].source_field, "OCR");
+    assert.equal(context.rows[0].contexts[0].offset_unit, "utf16");
+    assert.match(context.rows[0].source_text_sha256, /^[a-f0-9]{64}$/);
+    for (const keyword of ["", "  \n\t"]) {
+      const empty = await client.callTool({ name: "explore_corpus", arguments: { mode: "concordance", selection: { keyword } } });
+      assert.ok(empty.isError, "blank concordance terms fail promptly");
+    }
     const coverage = await call("explore_corpus", { mode: "coverage", selection: { country: "Benin" } });
     assert.equal(
       coverage.rows.reduce((n, r) => n + r.total, 0),
       coverage.total_matches,
     );
     assert.ok(coverage.rows.every((r) => r.fulltext <= r.total));
+    const countries = await call("explore_corpus", { mode: "coverage", subset: "references" });
+    const combinedCountry = countries.rows.find((row) => row.source === "Niger|Nigeria");
+    assert.ok(combinedCountry);
+    assert.equal(countries.source_exact_field, "country_raw");
+    const drilldown = await call("explore_corpus", {
+      subset: "references", selection: { exact: { [countries.source_exact_field]: [combinedCountry.source] }, date_from: combinedCountry.year, date_to: combinedCountry.year },
+    });
+    assert.equal(drilldown.total_matches, combinedCountry.total);
+    assert.equal(drilldown.rows[0].id, "references:301");
     const compare = await call("explore_corpus", {
       mode: "compare",
       selection: { country: "Benin" },
@@ -43,6 +59,10 @@ test("research workbench counts, exact selection, normalization, provenance and 
     });
     assert.equal(compare.overlap, 0);
     assert.equal(compare.selections.length, 2);
+    assert.equal(compare.temporal.normalize_by, "corpus");
+    assert.ok(compare.temporal.rows.every((row) => row.count <= row.denominator));
+    for (const selection of compare.selections)
+      assert.equal(compare.temporal.rows.filter((row) => row.selection === selection.label).reduce((sum, row) => sum + row.count, 0), selection.total);
     const same = await call("explore_corpus", {
       mode: "compare",
       selection: { country: "Benin" },
@@ -83,6 +103,39 @@ test("research workbench counts, exact selection, normalization, provenance and 
     assert.ok(provenance.datasets.articles.files[0].identity.startsWith("sha256:"));
     assert.equal(provenance.arguments.limit, 1);
     assert.ok((await call("fetch", { id: payload(result).rows[0].id })).url.startsWith("https://islam.zmo.de/"));
+
+    const exported = await call("explore_corpus", { mode: "manifest", limit: 1 });
+    const manifest = JSON.parse(exported.export.content);
+    assert.equal(manifest.returned, 1);
+    assert.equal(manifest.has_more, true);
+    assert.equal(manifest.records[0].id, exported.rows[0].id);
+    assert.equal(manifest.provenance.snapshot_id, provenance.snapshot_id);
+    assert.ok(manifest.provenance.datasets.articles.files[0].identity.startsWith("sha256:"));
+    const csl = await call("explore_corpus", { mode: "csl_json", subset: "references", selection: { country: "Benin" } });
+    const citation = JSON.parse(csl.export.content)[0];
+    assert.equal(citation.type, "book");
+    assert.deepEqual(citation.author, [{ literal: "Kadiri, Aïcha" }]);
+    assert.deepEqual(citation.issued, { "date-parts": [[1999]] });
+    assert.equal(citation.DOI, undefined);
+    assert.ok(csl.export.manifest.provenance.datasets.references);
+    const bibtex = await call("explore_corpus", { mode: "bibtex", subset: "references", selection: { country: "Benin" } });
+    assert.match(bibtex.export.content, /^@book\{iwac-references:302,/);
+    assert.ok(!bibtex.export.content.includes("author = {Unknown}"));
+    const second = await call("explore_corpus", { mode: "manifest", limit: 1, offset: 1 });
+    const secondManifest = JSON.parse(second.export.content);
+    assert.equal(secondManifest.provenance.snapshot_id, manifest.provenance.snapshot_id);
+    assert.notEqual(secondManifest.records[0].id, manifest.records[0].id);
+    const emptyExport = await call("explore_corpus", { mode: "csl_json", selection: { keyword: "notawordxyz" } });
+    assert.deepEqual(JSON.parse(emptyExport.export.content), []);
+
+    const discovered = JSON.parse((await client.readResource({ uri: "iwac://datasets/references" })).contents[0].text);
+    assert.equal(discovered.total, 4);
+    assert.ok(discovered.columns.some((column) => column.name === "author" && column.type === "VARCHAR"));
+    assert.equal(discovered.body_field, "abstract");
+    assert.ok(discovered.provenance.datasets.references.files[0].identity.startsWith("sha256:"));
+    const templates = await client.listResourceTemplates();
+    assert.ok(templates.resourceTemplates.some((template) => template.uriTemplate === "iwac://datasets/{subset}"));
+    await assert.rejects(client.readResource({ uri: "iwac://datasets/not-a-subset" }), /Unknown IWAC dataset subset/);
   }));
 
 test("full-text failure remains visible with zero hits and useful metadata hits", async () => {
