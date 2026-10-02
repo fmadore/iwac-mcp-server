@@ -297,7 +297,10 @@ describe("background dataset refresh", () => {
         datasetRevision: "main",
         offline: false,
         privateDataset: false,
-        refreshIntervalMs: 1,
+        // Pin the old request without starting an unrelated refresh. Enable
+        // refresh only after publishing v2 below; otherwise a slow CI worker
+        // can still be checking v1 when pendingRefresh is awaited for v2.
+        refreshIntervalMs: 0,
       });
       console.error = () => {};
       globalThis.fetch = (async (input) => {
@@ -342,6 +345,7 @@ describe("background dataset refresh", () => {
       // A newer revision is published. The call that notices is answered from
       // the loaded view at once; the swap happens in the background.
       payload = versions[1];
+      config.refreshIntervalMs = 1;
       await new Promise((resolve) => setTimeout(resolve, 5));
       assert.equal((await ensureView("images")).has("added"), false);
       await pendingRefresh("images");

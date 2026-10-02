@@ -100,6 +100,20 @@ not treated as publication origins.
 
 ## Navigation and exports
 
+Supporting hosts offer **Fullscreen / Exit fullscreen** for a larger research
+view and **Ask about this selection** for an explicit follow-up question. The
+question includes the view's current selection, so you can discuss an inspected
+source or comparison directly. Fullscreen changes only the display.
+
+When supported, navigation and view-option changes automatically share compact
+filters, source IDs, counts, selected sentiment pair and provenance with the
+assistant. A status below the view reports whether sharing succeeded. These
+updates do not start a conversation turn. Shared context excludes source text
+and dense chart data; abbreviated filters and source samples are marked. The
+assistant must still retrieve and read sources before quoting them. The Ask
+message includes its own snapshot when automatic sharing is unavailable or
+fails. Host capabilities determine which controls appear.
+
 Interactive marks preserve the existing selection and intersect the clicked
 category. Back restores the previous payload and view options. Loading and tool
 errors retain the current view; a late response cannot replace a newer selection.

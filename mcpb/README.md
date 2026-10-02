@@ -260,7 +260,7 @@ Environment variables (all transports unless noted):
   response says which happened in `deep_scan`, and `ranking` describes both
   passes. The per-subset `search_*` tools deliberately keep scanning everything:
   their callers explicitly asked for a full-text search.
-- MCP Apps: eleven tools declare `_meta.ui.resourceUri` (`src/tools/appUi.ts`),
+- MCP Apps: fourteen tools declare `_meta.ui.resourceUri` (`src/tools/appUi.ts`),
   so hosts that support the
   [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview)
   — Claude and Claude Desktop — render their results as interactive charts in a
@@ -283,6 +283,24 @@ Environment variables (all transports unless noted):
   mirrors the [IwacVisualizations](https://github.com/fmadore/IwacVisualizations)
   Omeka module's sanctioned chart tokens, so the same breakdown is coloured the
   same way here as on islam.zmo.de.
+
+  Supporting hosts also offer **Fullscreen / Exit fullscreen** and **Ask about
+  this selection**. Fullscreen follows the host's granted display mode and
+  gives tables and source readers more vertical space. The Ask button sends a
+  question with the selection visible when clicked; it never sends messages
+  automatically. Downloads, source links and messages show host refusal as an
+  error, so a rejected operation cannot appear successful.
+
+  When a host accepts model context updates, successful navigation, Back and
+  local view options share a compact snapshot: filters, visible source IDs,
+  selected comparisons, dataset provenance and caveats. The snapshot excludes
+  source text, chart coordinates and export contents, has an explicit size
+  bound, and replaces the previous selection. Updates are serialized and
+  coalesced; failed or stale tool responses cannot replace the current
+  selection. Theme and display changes do not resend identical context. Text
+  and structured content are negotiated independently. A small status below
+  the chart shows whether automatic sharing succeeded. The Ask message includes
+  its own snapshot even when automatic sharing is unavailable.
 
   `scripts/make-basemap.mjs` regenerates `src/app/basemap.ts`, the simplified
   Natural Earth outline the place map draws on — vendored rather than fetched
