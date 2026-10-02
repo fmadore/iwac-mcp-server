@@ -1,0 +1,145 @@
+name: Validate installable artifacts
+
+on:
+  workflow_call:
+    inputs:
+      run-tests:
+        type: boolean
+        default: true
+      retain-image:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+      - run: npm ci
+        working-directory: mcpb
+      - name: Validate source before packing
+        if: inputs.run-tests
+        working-directory: mcpb
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run build
+          npm test
+          npx playwright install --with-deps chromium
+          npm run test:browser
+      - name: Pack the exact release bytes
+        working-directory: mcpb
+        run: npm run release
+      - name: Record artifact digests
+        run: sha256sum mcpb/iwac-mcp-server-*.mcpb iwac-mcp-skill.zip server.json > release-checksums.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-bundles
+          path: |
+            mcpb/iwac-mcp-server-*.mcpb
+            iwac-mcp-skill.zip
+            server.json
+            release-checksums.sha256
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
+
+  desktop-native:
+    needs: desktop-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            bundle: windows
+          - os: macos-14
+            bundle: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: desktop-bundles
+      - name: Install test harness and generate offline fixture data
+        working-directory: mcpb
+        run: |
+          npm ci
+          node scripts/make-fixtures.mjs
+      - name: Execute the installed desktop bundle on its native platform
+        env:
+          BUNDLE: ${{ matrix.bundle }}
+        shell: bash
+        run: node mcpb/scripts/smoke-package.mjs "mcpb/iwac-mcp-server-${BUNDLE}.mcpb"
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+      - name: Prepare synthetic parquet for the image smoke test
+        working-directory: mcpb
+        run: |
+          npm ci
+          node scripts/make-fixtures.mjs
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Build from root including research skills
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: mcpb/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: iwac-mcp-smoke:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify authenticated resources and native SQL in the image
+        env:
+          IWAC_MCP_BEARER_TOKEN: ci-container-smoke
+        run: |
+          trap 'docker logs iwac-smoke; docker rm -f iwac-smoke' EXIT
+          docker run -d --name iwac-smoke \
+            -e IWAC_MCP_BEARER_TOKEN -e IWAC_OFFLINE=1 \
+            -v "$PWD/mcpb/test/fixtures:/cache:ro" \
+            -p 127.0.0.1:8000:8000 iwac-mcp-smoke:ci
+          node mcpb/scripts/smoke-container.mjs
+      - name: Export the tested image without rebuilding
+        if: inputs.retain-image
+        run: |
+          docker save -o image.tar iwac-mcp-smoke:ci
+          sha256sum image.tar > image.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: inputs.retain-image
+        with:
+          name: container-image
+          path: |
+            image.tar
+            image.sha256
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0

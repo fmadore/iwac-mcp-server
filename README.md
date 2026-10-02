@@ -119,42 +119,25 @@ Download the latest [iwac-mcp-skill.zip](https://github.com/fmadore/iwac-mcp-ser
   Installing it this way is still worth doing: an installed skill is matched
   against your question automatically, before any tool is called.
 
-#### The server also serves the skill (`skill://`, prototype)
+#### The server also serves the skill (`skill://`)
 
-> **Prototype.** This is an experiment tracking a draft spec, not a supported
-> interface. The URIs and the catalogue shape may change or be withdrawn
-> without a major version bump. Installing the skill from the `.zip` above is
-> still the supported path on Claude Desktop and Claude Code. Do not rely on
-> `skill://` in anything you build.
+Every build embeds the research skill as MCP resources, including the Docker
+image. The [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
+is finalized (SEP-2640); clients supporting it can discover the same catalogue
+through `skills/list` and `skills/get` under `io.modelcontextprotocol/skills`.
+Clients without that extension can use ordinary `resources/read`:
 
-Every build also embeds the skill and exposes it as MCP resources, so a client
-that has not installed it can still read it:
-
-| Resource | What it is |
+| Resource | Content |
 | --- | --- |
-| `skill://iwac-mcp` | Catalogue: every file with its size and SHA-256 digest |
-| `skill://iwac-mcp/SKILL.md` | The workflow itself |
-| `skill://iwac-mcp/references/…` | The four reference files, read on demand |
+| `skill://iwac-mcp` | Catalogue with byte sizes and SHA-256 digests |
+| `skill://iwac-mcp/SKILL.md` | Research workflow |
+| `skill://iwac-mcp/references/…` | Reference files, read on demand |
 
-A host that implements the draft extension can instead discover the same
-catalogue through `skills/list` and `skills/get`, which the server declares via
-the `io.modelcontextprotocol/skills` capability. Both routes read one catalogue,
-so they cannot disagree.
-
-This matters most for the remote HTTP endpoint, where there is no release
-artifact to download: add the connector and the manual comes with it. The
-server's handshake instructions point at `skill://iwac-mcp/SKILL.md`, and
-nothing is pushed into the context until something asks for it.
-
-The shape follows [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)
-("Skills over MCP"), **an open draft PR against the MCP spec: not accepted, and
-subject to change**. Two routes reach the same catalogue: the `resources/*` one
-above, which every current client already speaks, and the extension's own
-`skills/list` / `skills/get`, for hosts that implement the draft. The SEP's one
-optional method, `resources/directory/read`, is **not** served — the bare
-`skill://iwac-mcp` is this server's catalogue document and cannot also be a
-directory resource — so the capability is declared without `directoryRead`.
-If the SEP changes shape or is rejected, all of this moves with it.
+The optional `resources/directory/read` method is not advertised. The bare
+`skill://iwac-mcp` URI is a catalogue document, not a directory. Skill content is
+a build-time snapshot; editing the source requires a rebuild. The release zip
+remains available for clients that install skills locally. Remote clients can
+read the same workflow without downloading a release artifact.
 
 ## What it gives Claude
 
@@ -234,8 +217,12 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
 ## Research workbench
 
 `explore_corpus` connects selections to sources, keyword contexts, coverage
-heatmaps, comparisons, and publication-country/mentioned-place matrices.
-Temporal charts support normalized shares with explicit denominators. Exact
+heatmaps, comparisons, publication-country/mentioned-place matrices, and pageable
+manifest, CSL-JSON and BibTeX exports. `iwac://datasets/{subset}` resources expose
+current columns, field availability and dataset provenance.
+Temporal charts support normalized shares with explicit denominators. Sentiment
+comparisons accept the same selection filters and a chosen pair of models, with
+Cohen’s kappa and quadratic weighted kappa on explicitly reported populations. Exact
 chart selections, source reading, Back navigation and provenance exports are
 shared across the app. See [the workbench guide](docs/research-workbench.md) for
 examples, interpretation limits, cache behavior and local embedding migration.
@@ -261,17 +248,23 @@ examples, interpretation limits, cache behavior and local embedding migration.
 
 ## Develop
 
+This implementation requires **Node.js 24 or newer** for both the build and server
+runtime. Node.js 20 is [end of life](https://nodejs.org/en/about/previous-releases).
+Desktop hosts with an older embedded runtime must be upgraded before installing
+the next bundle; the manifest rejects incompatible runtimes.
+
 The bundle lives under [`mcpb/`](mcpb/). See [`mcpb/README.md`](mcpb/README.md)
 for the build / pack workflow.
 
 ```bash
 cd mcpb
-npm install
+npm ci
 npm run install-bindings   # fetch the 4 macOS/Windows DuckDB binaries
 npm run typecheck   # tsc --noEmit
 npm run lint        # biome (linter only)
 npm run build       # esbuild -> single server/index.js
-npm test            # unit tests + offline fixture & HTTP MCP round-trips (no network)
+npm test            # unit, fixture, app, skills, HTTP and token-budget tests
+npm run test:browser # Chromium app behavior (install browser first)
 npm run test:live   # full smoke test against the real HF dataset (~250 MB)
 ```
 
@@ -279,8 +272,10 @@ CI runs the version check, typecheck, lint, build, unit tests, and the offline
 fixture + HTTP round-trip tests on every push to `main` and every pull request;
 the live smoke test runs weekly (its pinned counts are the dataset-drift alarm).
 Releases: push a `v*` tag — the release workflow re-runs the full test suite,
-packs the per-OS `.mcpb` bundles and skill zip, smoke-tests and pushes the
-Docker image, uploads the release assets, and publishes to the MCP Registry.
+checks that the version is unpublished, packs and validates desktop bundles on
+macOS/Windows, and smoke-tests the Docker image before publication. The publish
+job uses those tested artifacts. Existing releases and registry versions cannot
+be overwritten; use a new version for a new release.
 
 ## Roadmap
 

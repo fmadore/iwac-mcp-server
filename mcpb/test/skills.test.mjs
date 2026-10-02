@@ -21,7 +21,18 @@ import { withFixtureScope } from "./_fixture-client.mjs";
 
 await withFixtureScope(async (fixtures) => {
   /** `skills/*` are extension methods, absent from the client's spec table. */
-  const ANY = z.looseObject({});
+  // Final SEP-2640 fields are required; extra future metadata remains allowed.
+  const SKILL = z.looseObject({
+    uri: z.string(),
+    frontmatter: z.looseObject({ name: z.string(), description: z.string() }),
+    resources: z.array(z.looseObject({
+      uri: z.string(), digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+      size: z.number().int().nonnegative(),
+    })),
+  });
+  const CACHE = { ttlMs: z.number().int().nonnegative(), cacheScope: z.enum(["public", "private"]) };
+  const LIST = z.looseObject({ ...CACHE, skills: z.array(SKILL) });
+  const GET = z.looseObject({ ...CACHE, skill: SKILL });
 
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
   let failures = 0;
@@ -30,7 +41,9 @@ await withFixtureScope(async (fixtures) => {
     console.error(`  FAIL: ${msg}`);
   }
 
-  const { client, close: closeClient } = await fixtures.connect({ name: "skills-test" });
+  const { client, close: closeClient } = await fixtures.connect({
+    name: "skills-test", clientOptions: { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  });
 
   // Source of truth: the tree on disk, collected exactly as the bundler did.
   const onDisk = collectSkills(root);
@@ -147,7 +160,7 @@ await withFixtureScope(async (fixtures) => {
   // Declaring an extension must not cost the capabilities McpServer derives.
   if (!caps?.tools || !caps?.resources) fail("declaring extensions dropped the tools/resources capabilities");
 
-  const list = await client.request({ method: "skills/list", params: {} }, ANY);
+  const list = await client.request({ method: "skills/list", params: {} }, LIST);
   if ((list.skills ?? []).length !== onDisk.skills.length) {
     fail(`skills/list returned ${list.skills?.length} skill(s), disk has ${onDisk.skills.length}`);
   }
@@ -192,10 +205,13 @@ await withFixtureScope(async (fixtures) => {
       const diskPath = path.join(root, ...SKILLS_DIR.split("/"), skill.name, ...file.path.split("/"));
       const digest = `sha256:${createHash("sha256").update(readFileSync(diskPath, "utf8")).digest("hex")}`;
       if (entry.digest !== digest) fail(`skills/list: ${file.uri} digest ${entry.digest} != ${digest} on disk`);
+      const expectedBytes = readFileSync(diskPath).byteLength;
+      if (entry.size !== expectedBytes) fail(`skills/list: ${file.uri} size ${entry.size} != ${expectedBytes} on disk`);
     }
 
     // skills/get answers for the same skill, identically.
-    const got = await client.request({ method: "skills/get", params: { uri: entryUri } }, ANY);
+    const got = await client.request({ method: "skills/get", params: { uri: entryUri } }, GET);
+    if (got.cacheScope !== "public" || got.ttlMs !== list.ttlMs) fail(`skills/get ${entryUri}: cache hints differ`);
     if (JSON.stringify(got.skill) !== JSON.stringify(listed)) {
       fail(`skills/get ${entryUri}: entry differs from the one skills/list returned`);
     }
@@ -203,13 +219,21 @@ await withFixtureScope(async (fixtures) => {
 
   // A URI that identifies no served skill is -32602, per the SEP.
   try {
-    await client.request({ method: "skills/get", params: { uri: "skill://absent/SKILL.md" } }, ANY);
+    await client.request({ method: "skills/get", params: { uri: "skill://absent/SKILL.md" } }, GET);
     fail("skills/get resolved an unknown skill instead of erroring");
   } catch (err) {
     if (err?.code !== -32602) fail(`skills/get unknown skill: code ${err?.code}, expected -32602`);
   }
 
   await closeClient();
+
+  // The optional extension remains readable by existing 2025-era clients.
+  const legacy = await fixtures.connect({ name: "skills-test-legacy" });
+  const legacyList = await legacy.client.request(
+    { method: "skills/list", params: {} }, z.looseObject({ ...CACHE, skills: z.array(SKILL) }),
+  );
+  if (JSON.stringify(legacyList.skills) !== JSON.stringify(list.skills)) fail("legacy and modern skill manifests differ");
+  await legacy.close();
 
   const total = onDisk.skills.reduce((a, s) => a + s.files.length, 0);
   if (failures) {

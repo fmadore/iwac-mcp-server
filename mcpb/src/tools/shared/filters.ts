@@ -215,17 +215,35 @@ export function validateDateBounds(dateFrom?: string, dateTo?: string): DateVali
   return {};
 }
 
-/** Partial source dates denote intervals. Filtering uses interval overlap,
- * never invents a day for a year-only record, and ignores invalid dates. */
-export function dateInterval(column = "pub_date"): { start: string; end: string } {
-  const raw = `trim(CAST(${q(column)} AS VARCHAR))`;
-  const start = `CASE WHEN regexp_full_match(${raw}, '[0-9]{4}') THEN TRY_CAST(${raw} || '-01-01' AS DATE)
+/** Parse one ISO source-date component without assigning false precision. */
+function datePartBounds(raw: string): { start: string; end: string } {
+  const validDay = `(regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}-[0-9]{2}') OR
+    (regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})?')
+      AND TRY_CAST(${raw} AS TIMESTAMP) IS NOT NULL))`;
+  const start = `CASE WHEN substr(${raw}, 1, 4) = '0000' THEN NULL
+    WHEN regexp_full_match(${raw}, '[0-9]{4}') THEN TRY_CAST(${raw} || '-01-01' AS DATE)
     WHEN regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}') THEN TRY_CAST(${raw} || '-01' AS DATE)
-    WHEN regexp_matches(${raw}, '^[0-9]{4}-[0-9]{2}-[0-9]{2}($|[T ])') THEN TRY_CAST(substr(${raw}, 1, 10) AS DATE) END`;
-  const end = `CASE WHEN regexp_full_match(${raw}, '[0-9]{4}') THEN TRY_CAST(${raw} || '-12-31' AS DATE)
+    WHEN ${validDay} THEN TRY_CAST(substr(${raw}, 1, 10) AS DATE) END`;
+  const end = `CASE WHEN substr(${raw}, 1, 4) = '0000' THEN NULL
+    WHEN regexp_full_match(${raw}, '[0-9]{4}') THEN TRY_CAST(${raw} || '-12-31' AS DATE)
     WHEN regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}') THEN last_day(TRY_CAST(${raw} || '-01' AS DATE))
     ELSE (${start}) END`;
   return { start, end };
+}
+
+/** Partial source dates and slash-separated ranges denote inclusive intervals.
+ * Invalid or reversed intervals are excluded by callers; a year never acquires
+ * the precision of a day simply because a date filter was requested. */
+export function dateInterval(column = "pub_date"): { start: string; end: string } {
+  const raw = `trim(CAST(${q(column)} AS VARCHAR))`;
+  const single = datePartBounds(raw);
+  const first = datePartBounds(`trim(split_part(${raw}, '/', 1))`);
+  const last = datePartBounds(`trim(split_part(${raw}, '/', 2))`);
+  const isRange = `len(string_split(${raw}, '/')) = 2`;
+  return {
+    start: `CASE WHEN ${isRange} THEN (${first.start}) ELSE (${single.start}) END`,
+    end: `CASE WHEN ${isRange} THEN (${last.end}) ELSE (${single.end}) END`,
+  };
 }
 
 /**
@@ -247,6 +265,7 @@ export function dateRangeFilter(
   const interval = dateInterval(column);
   const from = normalizeDateBound(dateFrom, "from");
   const to = normalizeDateBound(dateTo, "to");
+  if (from || to) where.push(`(${interval.start}) <= (${interval.end})`);
   if (from) {
     where.push(`(${interval.end}) >= CAST(? AS DATE)`);
     params.push(from);

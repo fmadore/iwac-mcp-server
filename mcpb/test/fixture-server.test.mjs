@@ -452,7 +452,8 @@ await withFixtureScope(async (fixtures) => {
   });
   await call("get_temporal_distribution", { subset: "publications", granularity: "month" }, {
     check: (p) => {
-      if (p.distribution?.["1912"] !== 1) return "bare-year 1912 should keep its year key at month granularity";
+      if (p.distribution?.["1912"] !== undefined) return "bare years must not be plotted as month buckets";
+      if (p.imprecise_date_count !== 2 || p.dated_count !== 1) return "year-only records must be disclosed as imprecise";
       if (p.distribution?.["1995-06"] !== 1) return "full date should bucket to 1995-06";
       return null;
     },

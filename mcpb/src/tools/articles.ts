@@ -2,7 +2,7 @@ import { aggregateFilters, exactInput } from "./aggregates/shared.js";
 import { z } from "zod";
 import { ensureView, getById } from "../db.js";
 import { config } from "../config.js";
-import { runSemanticSearchTool } from "./_semantic.js";
+import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
 import {
   attachOcrOrExcerpts,
   capOffset,
@@ -149,11 +149,11 @@ export function registerArticleTools(server: Server): void {
   server.registerTool(
     "semantic_search_articles",
     {
-      ...toolMeta("Semantic search for articles"),
+      ...toolMeta("Semantic search for articles", { openWorldHint: true }),
       description:
-        "Semantic similarity search over article OCR using Gemini embeddings. The natural-language query may be in any language. Requires semantic search to be enabled and a Google API key.",
+        "Semantic similarity search over article OCR using the configured embedding provider. The natural-language query may be in any language. Sends queries to the configured embedding provider; its model must match the stored corpus vectors.",
       inputSchema: z.object({
-        query: z.string().describe("Natural-language query, any language"),
+        query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
         country: countryParam(),
         newspaper: z.string().optional(),
         date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
@@ -173,6 +173,7 @@ export function registerArticleTools(server: Server): void {
         limit: resolveLimit(args.limit, 10, 50),
         summaryView: "summary",
         buildCandidateFilters: (schema, where, params) => {
+          requireSemanticFilters(schema, { country: country.canonical, newspaper: args.newspaper, pub_date: args.date_from?.trim() || args.date_to?.trim() });
           pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
           likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
           dateRangeFilter(schema, where, params, args.date_from, args.date_to);

@@ -1,32 +1,35 @@
 import { narrowSelection, selectionFrom } from "../../selection.js";
+import type { AttentionPayload, ComparisonPayload, CoveragePayload, ReaderPayload, RecordsPayload, ResearchPayload } from "../../viewContract.js";
 import { csv, empty, panels, type BasePayload, type ViewContext, type ViewResult } from "../shell.js";
 import { heatmapMatrix, columns } from "../svg.js";
 import { esc, fmtInt } from "../theme.js";
 
 type Row = Record<string, unknown>;
-const data = (p: BasePayload) => (p.rows ?? []) as Row[];
+const data = <R extends Row>(p: ResearchPayload<R>): R[] => p.rows ?? [];
 const table = (headers: string[], rows: unknown[][]): string =>
   `<div class="scroll"><table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-const openItems = (ctx: ViewContext, p: BasePayload, selection = selectionFrom(p.filters as Row)) =>
+const openItems = (ctx: ViewContext, p: ResearchPayload, selection = selectionFrom(p.filters)) =>
   ctx.run("explore_corpus", { mode: "items", subset: p.subset, selection });
-const exportRows = (p: BasePayload, headers: string[]) => ({
+const exportRows = (p: ResearchPayload, headers: string[]) => ({
   id: "csv",
   label: "Download CSV",
   run: (ctx: ViewContext) =>
-    ctx.download(`iwac-${p.view}.csv`, "text/csv", csv([headers, ...data(p).map((r) => headers.map((k) => r[k]))])),
+    ctx.download(`iwac-${p.view}.csv`, "text/csv", csv([headers, ...data(p).map((r) => headers.map((k) => Array.isArray(r[k]) ? JSON.stringify(r[k]) : r[k]))])),
 });
-const detailTable = (p: BasePayload, headers: string[]) =>
+const detailTable = (p: ResearchPayload, headers: string[]) =>
   `<details><summary>Data table (${data(p).length} rows)</summary>${table(
     headers,
-    data(p).map((r) => headers.map((k) => r[k])),
+    data(p).map((r) => headers.map((k) => r[k] ?? "—")),
   )}</details>`;
 
-export function recordsView(p: BasePayload): ViewResult {
+export function recordsView(payload: BasePayload): ViewResult {
+  const p = payload as unknown as RecordsPayload;
   const rows = data(p),
     aliases = p.view === "aliases";
   const offset = Number(p.offset ?? 0),
     limit = Number(p.limit ?? 20);
-  const filters = p.filters as Row;
+  const filters = p.filters;
+  const exported = p.export;
   return {
     title: aliases ? "Authority aliases" : p.mode === "concordance" ? "Keyword in context" : "Source items",
     subtitle: `${fmtInt(Number(p.total_matches ?? 0))} matching · ${rows.length ? offset + 1 : 0}–${offset + rows.length}`,
@@ -89,7 +92,11 @@ export function recordsView(p: BasePayload): ViewResult {
             },
           ]
         : []),
-      exportRows(p, ["id", "title", "date", "country", "newspaper", "url", "alternate_titles"]),
+      exportRows(p, ["id", "title", "date", "country", "newspaper", "url", "alternate_titles", ...(p.mode === "concordance" ? ["excerpts", "matched_terms", "match_count", "contexts", "source_field", "source_text_sha256", "source_offsets_available"] : [])]),
+      ...(exported ? [{
+        id: "export", label: `Download ${exported.format}`, capability: "download" as const,
+        run: (ctx: ViewContext) => ctx.download(exported.filename, exported.mime_type, exported.content),
+      }] : []),
     ],
     wire(root, ctx) {
       root.querySelectorAll<HTMLElement>("[data-id]").forEach((el) => {
@@ -101,7 +108,8 @@ export function recordsView(p: BasePayload): ViewResult {
   };
 }
 
-export function readerView(p: BasePayload): ViewResult {
+export function readerView(payload: BasePayload): ViewResult {
+  const p = payload as unknown as ReaderPayload;
   const metadata = (p.metadata ?? {}) as Row;
   return {
     title: String(p.title || p.id || "Source text"),
@@ -109,7 +117,7 @@ export function readerView(p: BasePayload): ViewResult {
     body: `${table(
       ["Field", "Value"],
       Object.entries(metadata).filter(([, v]) => typeof v !== "object"),
-    )}<p class="citation">${esc(p.url)}</p><div class="source-text">${esc(p.text || "No body text available.")}</div>`,
+    )}<p class="citation"><label>Canonical source URL (select to copy)<input class="source-url" aria-label="Canonical source URL" readonly value="${esc(p.url)}" style="display:block;width:100%;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);padding:6px"/></label></p><div class="source-text">${esc(p.text || "No body text available.")}</div>`,
     notes: [
       p.text_source === "description"
         ? "This is a catalogue description, not a transcription or full source text."
@@ -123,15 +131,26 @@ export function readerView(p: BasePayload): ViewResult {
       {
         id: "source",
         label: "Open canonical source",
-        run: (ctx) => (ctx.canOpenLink ? ctx.openLink(String(p.url)) : ctx.setOption("link", p.url)),
+        capability: "openLink",
+        run: (ctx) => ctx.openLink(p.url),
       },
     ],
+    wire(root) {
+      const url = root.querySelector<HTMLInputElement>(".source-url");
+      url?.addEventListener("focus", () => url.select?.());
+      url?.addEventListener("click", () => url.select?.());
+    },
   };
 }
 
-export function coverageView(p: BasePayload, options: Row): ViewResult {
-  const rows = data(p),
-    metric = String(options.metric ?? "fulltext");
+export function coverageView(payload: BasePayload, options: Row): ViewResult {
+  const p = payload as unknown as CoveragePayload;
+  const rows = data(p);
+  const metrics = ["fulltext", "embedded", "scored", "total"] as const;
+  const available = metrics.filter((m) => m === "total" || rows.some((r) => typeof r[m] === "number"));
+  const requested = options.metric;
+  const metric = available.find((m) => m === requested) ?? available[0];
+  const nextMetric = available[(available.indexOf(metric) + 1) % available.length];
   const sources = [...new Set(rows.map((r) => String(r.source)))].sort(),
     years = [...new Set(rows.map((r) => String(r.year)))].sort();
   const lookup = new Map(rows.map((r) => [JSON.stringify([r.source, r.year]), r]));
@@ -145,7 +164,7 @@ export function coverageView(p: BasePayload, options: Row): ViewResult {
             return r
               ? metric === "total"
                 ? Number(r.total)
-                : (100 * Number(r[metric])) / Number(r.total)
+                : typeof r[metric] === "number" && r.total > 0 ? (100 * r[metric]) / r.total : Number.NaN
               : Number.NaN;
           }),
         ),
@@ -161,6 +180,7 @@ export function coverageView(p: BasePayload, options: Row): ViewResult {
     body: body + detailTable(p, ["source", "year", "total", "fulltext", "embedded", "scored"]),
     notes: [
       p.note,
+      available.length < metrics.length ? `Unavailable metrics: ${metrics.filter((m) => !available.includes(m)).join(", ")}. Missing measurements are not zero.` : undefined,
       Number(p.omitted_cells) > 0
         ? `${p.omitted_cells} lower-count populated cells omitted; blank cells can therefore include omitted data.`
         : undefined,
@@ -168,18 +188,8 @@ export function coverageView(p: BasePayload, options: Row): ViewResult {
     actions: [
       {
         id: "metric",
-        label: `Show ${metric === "fulltext" ? "embedded" : metric === "embedded" ? "scored" : metric === "scored" ? "total" : "fulltext"}`,
-        run: (ctx) =>
-          ctx.setOption(
-            "metric",
-            metric === "fulltext"
-              ? "embedded"
-              : metric === "embedded"
-                ? "scored"
-                : metric === "scored"
-                  ? "total"
-                  : "fulltext",
-          ),
+        label: `Show ${nextMetric}`,
+        run: (ctx) => ctx.setOption("metric", nextMetric),
       },
       exportRows(p, ["source", "year", "total", "fulltext", "embedded", "scored"]),
     ],
@@ -189,7 +199,7 @@ export function coverageView(p: BasePayload, options: Row): ViewResult {
           const source = el.dataset.key,
             year = el.dataset.key2;
           if (!source || !year || year === "(undated)" || el.dataset.key === "(missing)") return;
-          let selection = narrowSelection(selectionFrom(p.filters as Row), String(p.source_field), source);
+          let selection = narrowSelection(selectionFrom(p.filters as Row), p.source_exact_field ?? p.source_field, source);
           selection = {
             ...selection,
             date_from: selection.date_from && selection.date_from > year ? selection.date_from : year,
@@ -202,9 +212,10 @@ export function coverageView(p: BasePayload, options: Row): ViewResult {
   };
 }
 
-export function comparisonView(p: BasePayload): ViewResult {
+export function comparisonView(payload: BasePayload): ViewResult {
+  const p = payload as unknown as ComparisonPayload;
   const rows = data(p),
-    selections = (p.selections ?? []) as Row[];
+    selections = p.selections ?? [];
   const plots = [...new Set(rows.map((r) => String(r.field)))].map((field) => {
     const part = rows.filter((r) => r.field === field),
       categories = [...new Set(part.map((r) => String(r.value)))];
@@ -223,6 +234,16 @@ export function comparisonView(p: BasePayload): ViewResult {
       }),
     };
   });
+  const temporal = p.temporal;
+  const years = [...new Set(temporal?.rows.map((r) => r.year) ?? [])];
+  const trend = temporal?.rows.length ? panels([{
+    title: "Selection share of the archived corpus per year (%)",
+    body: `${columns({
+      categories: years,
+      series: ["A", "B"].map((label) => ({ label, values: years.map((year) => 100 * (temporal.rows.find((r) => r.selection === label && r.year === year)?.share ?? 0)) })),
+      mode: "grouped", ariaLabel: "Two selections as a share of the archived corpus per year (%)",
+    })}<details><summary>Yearly counts and denominators</summary>${table(["Selection", "Year", "Count", "Archived corpus", "Share"], temporal.rows.map((r) => [r.selection, r.year, r.count, r.denominator, r.share]))}</details>`,
+  }]) : "";
   return {
     title: "Compare two selections",
     subtitle: `${fmtInt(Number(p.overlap))} items belong to both selections`,
@@ -231,10 +252,12 @@ export function comparisonView(p: BasePayload): ViewResult {
         ["Selection", "Items", "Body text", "Embedded", "Scored"],
         selections.map((s) => [s.label, s.total, s.fulltext, s.embedded, s.scored]),
       ) +
-      panels(plots) +
+      panels(plots) + trend +
       detailTable(p, ["selection", "field", "value", "count", "share"]),
     notes: [
       p.note,
+      temporal?.note,
+      temporal && temporal.omitted_years > 0 ? `${temporal.omitted_years} corpus year buckets omitted from the timeline.` : undefined,
       Number(p.omitted_cells) > 0
         ? `${p.omitted_cells} category cells omitted. Shares still use each full base.`
         : undefined,
@@ -250,7 +273,8 @@ export function comparisonView(p: BasePayload): ViewResult {
   };
 }
 
-export function attentionView(p: BasePayload, options: Row): ViewResult {
+export function attentionView(payload: BasePayload, options: Row): ViewResult {
+  const p = payload as unknown as AttentionPayload;
   const rows = data(p),
     origins = [...new Set(rows.map((r) => String(r.origin)))].sort(),
     destinations = [...new Set(rows.map((r) => String(r.destination)))].sort(),

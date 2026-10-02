@@ -4,8 +4,9 @@ import { structuredResult, viewResult } from "./results.js";
 /** Check known chart fields at construction without changing the wire schema. */
 export function chartResult<K extends ViewName>(
   payload: { view: K } & NoInfer<ChartPayload<K>> & Record<string, unknown>,
+  options?: { preserveNulls?: boolean },
 ) {
-  return structuredResult(payload);
+  return structuredResult(payload, options);
 }
 
 /** Model summaries cannot accidentally include the chart-only fields. */

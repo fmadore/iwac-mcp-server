@@ -21,11 +21,6 @@ const EXPECTED = {
   audiovisualFloor: 1700,
   imagesTotal: 30, // images subset added in the July 2026 refresh
   nigerArticles: 1061,
-  // 27 -> 32 in v0.13.0: get_topic_distribution, get_field_distribution,
-  // get_cooccurrence, get_lexical_metrics, get_place_distribution, get_semantic_map,
-  // get_similar_items.
-  toolsCore: 34, // semantic disabled (3 semantic tools are dropped entirely)
-  toolsWithSemantic: 37,
   subsets: 7, // + images
   // Full text is masked per row in the PUBLIC dataset (OCR_is_public). These are
   // the July 2026 ratios; a change here means the upstream publication policy
@@ -92,7 +87,7 @@ if (!instructions) {
 } else {
   if (instructions.includes("as one phrase returns little"))
     fail("instructions still describe `search` as single-substring (multi-word now tokenizes/ANDs)");
-  for (const needle of ["valid_values", "mentioned in records from", "requested_limit", "get_temporal_distribution"]) {
+  for (const needle of ["mentioned by records from", "pagination, caps", "provenance", "get_temporal_distribution"]) {
     if (!instructions.includes(needle)) fail(`instructions missing guidance: "${needle}"`);
   }
   // (the semantic guidance is checked against actual registration below, once
@@ -100,15 +95,15 @@ if (!instructions) {
 }
 
 const tools = await client.listTools();
+const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
 console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
 // The semantic_search_* tools register only when IWAC_SEMANTIC_SEARCH_ENABLED=true;
 // the live HTTP endpoint runs with it off, so they are dropped there entirely.
-const expectedTools = semanticOn ? EXPECTED.toolsWithSemantic : EXPECTED.toolsCore;
+const expectedTools = manifest.tools.filter((tool) => semanticOn || !tool.name.startsWith("semantic_search_")).length;
 if (tools.tools.length !== expectedTools) fail(`expected ${expectedTools} tools, got ${tools.tools.length}`);
 
 // The manifest's advertised tool list must track what the server registers
 // (the optional semantic tools are always advertised in the manifest).
-const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
 checkManifestParity(fail, manifest, new Set(tools.tools.map((t) => t.name)));
 
 // DERIVED from the manifest, never hardcoded: the manifest is the full

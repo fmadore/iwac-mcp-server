@@ -11,6 +11,7 @@ import { registerDocumentTools } from "./documents.js";
 import { registerAudiovisualTools } from "./audiovisual.js";
 import { registerImageTools } from "./images.js";
 import { registerAggregateTools } from "./aggregates.js";
+import { registerDiscoveryResource } from "./discovery.js";
 import { registerResearchTools } from "./research.js";
 import { registerSearchTools } from "./search.js";
 import { registerAppResources } from "./appUi.js";
@@ -27,6 +28,7 @@ function registerAll(server: Server): void {
   // catalogue: the research workflow, served alongside the tools it documents
   // so remote-HTTP callers need no separate download.
   registerSkillResources(server);
+  registerDiscoveryResource(server);
   // Unified search/fetch first: they satisfy the OpenAI Deep Research contract and
   // are the entry point for skill-less clients (see INSTRUCTIONS in index.ts).
   registerSearchTools(server);

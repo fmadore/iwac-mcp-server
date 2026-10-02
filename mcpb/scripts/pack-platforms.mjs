@@ -35,7 +35,7 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ROOT, ensureBindings, supportedBindings } from "./duckdb-bindings.mjs";
+import { ROOT, bindingFiles, ensureBindings, supportedBindings } from "./duckdb-bindings.mjs";
 
 // The mcpb CLI from our own devDependencies, invoked by path so the script
 // works under plain `node scripts/pack-platforms.mjs`, not only via npm run
@@ -140,7 +140,7 @@ function verifyBundle(outfile, target) {
     const required = [
       "server/index.js",
       "node_modules/@duckdb/node-api/package.json",
-      ...target.bindings.map((name) => `node_modules/${name}/duckdb.node`),
+      ...target.bindings.flatMap((name) => bindingFiles(name).map((file) => `node_modules/${name}/${file}`)),
     ];
     const missing = required.filter((file) => !fs.existsSync(path.join(dir, file)));
     if (missing.length) throw new Error(`${path.basename(outfile)} is missing ${missing.join(", ")}`);

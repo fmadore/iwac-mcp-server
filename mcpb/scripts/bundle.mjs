@@ -12,6 +12,7 @@
 //                    external preserves its exact current runtime behaviour.
 import * as esbuild from "esbuild";
 import { readFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectSkills } from "./collect-skills.mjs";
@@ -98,8 +99,35 @@ const ui = await esbuild.build({
   legalComments: "none",
   plugins: [stubZodLocales],
   write: false,
+  metafile: true,
 });
+if (process.env.IWAC_BUNDLE_ANALYZE === "1") console.log(await esbuild.analyzeMetafile(ui.metafile));
 const uiScript = ui.outputFiles[0].text;
+// The v2 Apps SDK and Zod's runtime validators are deliberately kept intact.
+// Ship their minified code once, gzip-compressed inside the HTML, then expand it
+// with the browser's standard streaming decoder. No network, eval, blob URL or
+// CSP relaxation is needed: the decoded source becomes an ordinary inline
+// script, under the same script-src unsafe-inline policy as the original UI.
+// Base64 cannot contain a closing script tag, so embedded source cannot break
+// out of its inert data element. Current MCP Apps hosts provide DecompressionStream.
+const uiCompressed = gzipSync(uiScript, { level: 9 });
+const uiBootstrap = `(async()=>{
+  const root=document.getElementById("root");
+  try {
+    if(typeof DecompressionStream!=="function") throw new Error("This host does not support gzip decoding");
+    const data=document.getElementById("iwac-chart-bundle");
+    const bytes=Uint8Array.from(atob(data.textContent.trim()),c=>c.charCodeAt(0));
+    const source=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+    const script=document.createElement("script");
+    script.textContent=source;
+    document.body.appendChild(script);
+    data.remove();
+  } catch(error) {
+    root.textContent="IWAC charts could not start in this host. The tool's text results remain available; try an updated app to view the chart.";
+    root.setAttribute("role","alert");
+    console.error("[iwac] chart startup failed",error);
+  }
+})()`;
 const uiHtml = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -164,13 +192,14 @@ svg{display:block;width:100%;height:auto}
 button{font:inherit;font-size:13px;padding:5px 11px;border:1px solid var(--line);border-radius:6px;background:var(--btn);color:var(--fg);cursor:pointer}
 button:disabled{opacity:.6;cursor:default}
 </style></head>
-<body><div id="root"></div><script>${uiScript}</script></body></html>`;
+<body><div id="root">Loading IWAC charts…</div><script id="iwac-chart-bundle" type="application/gzip">${uiCompressed.toString("base64")}</script><script>${uiBootstrap}</script></body></html>`;
 
 // Report it: the UI is inlined into the server bundle as a string constant, so
 // esbuild's own output summary hides it, and it is the one artifact whose size
 // a new chart can quietly double. test/fixture-server.test.mjs enforces a hard
 // budget; this line is so the number is visible while iterating.
-console.log(`  ui resource   ${(Buffer.byteLength(uiHtml) / 1024).toFixed(1)}kb`);
+console.log(`  ui resource   ${(Buffer.byteLength(uiHtml) / 1024).toFixed(1)}kb (self-contained HTML)`);
+console.log(`  ui JavaScript ${(Buffer.byteLength(uiScript) / 1024).toFixed(1)}kb decoded; ${(uiCompressed.length / 1024).toFixed(1)}kb gzip`);
 
 // --- Agent Skills ----------------------------------------------------------
 // The repo's skill tree, inlined as `skill://` resources (see src/tools/skills.ts
@@ -205,9 +234,8 @@ await esbuild.build({
   bundle: true,
   platform: "node",
   format: "esm",
-  // Deliberately below the Node 24 build baseline. The emitted target is
-  // derived from the manifest's runtime floor, and CI executes the finished
-  // bundle on that same floor. MCP SDK v2 currently makes Node 20 the minimum.
+  // Derive the emitted target from the manifest runtime floor. Package engines,
+  // release smoke tests and this target must describe the same Node baseline.
   target: nodeTarget,
   // No banner shebang: src/index.ts already starts with `#!/usr/bin/env node`,
   // and esbuild hoists the entry point's shebang to line 1 of the bundle.

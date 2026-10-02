@@ -1,62 +1,17 @@
-// Skills over MCP: serve the repo's Agent Skill from the server itself.
+// Skills over MCP: serve the bundled Agent Skill through the finalized
+// io.modelcontextprotocol/skills extension (SEP-2640, September 2026).
 //
-// STATUS: PROTOTYPE. This tracks a spec proposal that has NOT been accepted
-// (SEP-2640, see below). The `skill://` URIs and the catalogue shape are not a
-// supported interface and may change or be withdrawn without a major version
-// bump. The `.zip` on the GitHub release remains the supported way to install
-// the skill. Nothing else in the server depends on this module, so it can be
-// removed by deleting one call in register.ts. TODO.md tracks the decision.
+// skills/list and skills/get expose the same complete file manifest, including
+// byte lengths and SHA-256 digests of the bytes returned by resources/read.
+// Cache hints describe freshness; the manifest lets a host verify content.
+// Both methods use the final extension's required response fields, rather than
+// accepting an arbitrary record that can silently drift from the contract.
 //
-// WHY. The `iwac-mcp` skill is what turns 34 raw tools into a research
-// workflow, but it has always shipped out-of-band: a `.zip` on the GitHub
-// release that the user downloads and unpacks into `~/.claude/skills/`. Two
-// consequences: the install is a manual, per-client ritual, and anyone reaching
-// this server over remote HTTP (islam.zmo.de/mcp, added as a custom connector)
-// cannot get the skill at all, because there is no release artifact in that
-// path. Serving the skill from the server puts the manual next to the tools it
-// documents, for every transport, with no second download.
-//
-// SHAPE. This follows SEP-2640 ("Skills over MCP"): a skill directory with a
-// `SKILL.md` carrying `name`/`description` frontmatter, addressed as
-// `skill://<name>/<path>`, with a catalogue that gives a SHA-256 digest per file
-// so a host can verify what it loaded.
-//
-// THE METHODS. SEP-2640 also defines `skills/list` and `skills/get` behind an
-// `io.modelcontextprotocol/skills` capability, and both are now served: the thin
-// adapter over this same catalogue that an earlier revision of this comment
-// predicted. That adapter was deferred on the reading that
-// `@modelcontextprotocol/server` 2.0.0 "has no support for it: no
-// `registerSkill`, no capability, nothing" — half right, and worth correcting
-// here so the conclusion is not re-derived from the wrong premise. There is
-// indeed no `registerSkill` and no dedicated skills capability. But
-// `ServerCapabilities` models `extensions` as a generic record, and
-// `setRequestHandler` takes arbitrary method names against a Standard Schema.
-// Declaring the capability is therefore type-safe, and it MERGES with the
-// tools/resources capabilities McpServer derives rather than replacing them.
-//
-// The `resources/*` path is unchanged, and is not a fallback for the methods:
-// it is what every client speaks today, while `skills/*` is what a host
-// implementing the draft looks for. Both read one catalogue, so they cannot
-// disagree.
-//
-// WHAT IS DELIBERATELY NOT DONE. `resources/directory/read`, the extension's one
-// OPTIONAL method, gated behind `directoryRead: true`. It cannot be added
-// without breaking the namespace split below: the method enumerates directory
-// resources, whose root here would be the bare `skill://<name>` — which is
-// already the catalogue document. One URI cannot be both an `application/json`
-// resource and an `inode/directory`. The capability is therefore declared as
-// `{}` ("supported, no optional features"), which the SEP allows and which
-// forbids a conformant host from calling the method. Nothing is lost:
-// `skills/list` carries the complete file manifest, so directory walking is a
-// convenience, not a discovery route. (The sibling amira-mcp-server makes the
-// opposite trade: no catalogue document, bare URI as a directory, directoryRead
-// on. Same SEP, one URI, two meanings — deliberate on both sides.)
-//
-// COST. Nothing here is pushed at the model. Resources are pull-only and the
-// methods are called only by a host that asked, so an unused skill costs its
-// `resources/list` metadata and not one token more,
-// which is also the SEP's own position: the SDK "does not inject skill text into
-// server instructions or tool descriptions", the host decides when to disclose.
+// Older clients can still discover and read the ordinary skill:// resources.
+// Directory reading is optional and is not advertised: the bare skill://name
+// URI remains our JSON catalogue for backwards compatibility. Every file has
+// its own URI, so clients can load supporting references on demand.
+// Specification: https://modelcontextprotocol.io/extensions/skills/overview
 import { INVALID_PARAMS, ProtocolError } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Server } from "./_shared.js";
@@ -110,7 +65,7 @@ function parseCatalogue(): Skill[] {
   }
 }
 
-/** Capability id negotiated for the draft extension. */
+/** Capability id for the finalized Skills extension. */
 export const SKILLS_EXTENSION_ID = "io.modelcontextprotocol/skills";
 
 /**
@@ -140,19 +95,35 @@ export function servesSkills(): boolean {
 const SKILLS_CACHE_HINT = { ttlMs: 3_600_000, cacheScope: "public" } as const;
 
 /** One SEP-2640 catalogue entry: what `skills/list` and `skills/get` both return. */
-function skillEntry(skill: Skill): Record<string, unknown> {
+function skillEntry(skill: Skill): z.infer<typeof skillSchema> {
   return {
     uri: skill.entry,
-    frontmatter: skill.frontmatter,
+    frontmatter: { ...skill.frontmatter, name: skill.name, description: skill.description },
     // Complete manifest, SKILL.md included: a host verifies every file it reads
     // against these digests and treats an unlisted file as a failure.
-    resources: skill.files.map(({ uri, digest }) => ({ uri, digest })),
+    resources: skill.files.map(({ uri, digest, bytes }) => ({ uri, digest, size: bytes })),
   };
 }
 
 const listParams = z.object({ cursor: z.string().optional() }).loose();
 const uriParams = z.object({ uri: z.string() }).loose();
-const anyResult = z.record(z.string(), z.unknown());
+// Unknown future metadata is permitted, but required contract fields are not.
+const skillSchema = z.looseObject({
+  uri: z.string(),
+  frontmatter: z.looseObject({ name: z.string(), description: z.string() }),
+  resources: z.array(z.looseObject({
+    uri: z.string(),
+    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    size: z.number().int().nonnegative(),
+  })),
+});
+const cacheFields = {
+  resultType: z.literal("complete"),
+  ttlMs: z.number().int().nonnegative(),
+  cacheScope: z.enum(["public", "private"]),
+};
+const listResult = z.looseObject({ ...cacheFields, skills: z.array(skillSchema) });
+const getResult = z.looseObject({ ...cacheFields, skill: skillSchema });
 
 /**
  * Register the two mandatory SEP-2640 methods over the same catalogue the
@@ -165,18 +136,19 @@ function registerSkillMethods(server: Server): void {
   if (skills.length === 0) return;
   const byUri = new Map(skills.map((skill) => [skill.entry, skill]));
 
-  server.server.setRequestHandler("skills/list", { params: listParams, result: anyResult }, async () => ({
+  server.server.setRequestHandler("skills/list", { params: listParams, result: listResult }, async () => ({
+    resultType: "complete" as const,
     skills: skills.map(skillEntry),
     ...SKILLS_CACHE_HINT,
   }));
 
-  server.server.setRequestHandler("skills/get", { params: uriParams, result: anyResult }, async ({ uri }) => {
+  server.server.setRequestHandler("skills/get", { params: uriParams, result: getResult }, async ({ uri }) => {
     const skill = byUri.get(uri);
     // The SEP names -32602 for a URI that identifies no served skill. A typo
     // must not resolve to something plausible-looking, the same contract
     // resources/read already holds.
     if (skill === undefined) throw new ProtocolError(INVALID_PARAMS, `Unknown skill: ${uri}`);
-    return { skill: skillEntry(skill) };
+    return { resultType: "complete" as const, skill: skillEntry(skill), ...SKILLS_CACHE_HINT };
   });
 }
 

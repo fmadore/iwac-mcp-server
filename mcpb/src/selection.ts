@@ -20,6 +20,7 @@ export const EXACT_FIELDS = [
   "author",
   "language",
   "country",
+  "country_raw",
   "newspaper",
   "topic_id",
   "min_prob",

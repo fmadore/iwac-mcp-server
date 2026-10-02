@@ -1,5 +1,5 @@
-import { embeddingContract, validateEmbeddingContract } from "./embeddingContract.js";
-import { requestSignal, WorkQueue } from "./request.js";
+import { embeddingContract, validateEmbeddingContract, type EmbeddingContract } from "./embeddingContract.js";
+import { requestSignal, requestSnapshots, runSharedWork, waitForSharedWork, WorkQueue } from "./request.js";
 import { isFiniteVector, normalizeVector } from "./vectors.js";
 import { config, type Subset } from "./config.js";
 import { ensureView, q, query, viewGeneration, viewName } from "./db.js";
@@ -24,6 +24,7 @@ let _genaiClient: import("@google/genai").GoogleGenAI | null = null;
 const EMBED_TIMEOUT_MS = 30_000;
 const embeddingQueue = new WorkQueue(4, 16);
 const queryCache = new Map<string, Float32Array>();
+const pendingQueries = new Map<string, Promise<Float32Array>>();
 
 function requireApiKey(): string {
   if (!config.googleApiKey) {
@@ -53,13 +54,13 @@ async function loadIndex(subset: Subset, embeddingColumn: string): Promise<Embed
   const cacheKey = `${subset}:${embeddingColumn}`;
   const generation = viewGeneration(subset);
   const cached = _indexCache.get(cacheKey);
-  if (cached?.generation === generation) return cached.index;
-  const index = buildIndex(subset, embeddingColumn);
+  if (cached?.generation === generation) return waitForSharedWork(cached.index);
+  const index = runSharedWork(() => buildIndex(subset, embeddingColumn), requestSnapshots());
   index.catch(() => {
     if (_indexCache.get(cacheKey)?.index === index) _indexCache.delete(cacheKey); // allow retry after a failed build
   });
   _indexCache.set(cacheKey, { generation, index });
-  return index;
+  return waitForSharedWork(index);
 }
 
 async function buildIndex(subset: Subset, embeddingColumn: string): Promise<EmbeddingIndex> {
@@ -101,10 +102,38 @@ async function buildIndex(subset: Subset, embeddingColumn: string): Promise<Embe
 }
 
 async function embedQuery(text: string): Promise<Float32Array> {
+  requestSignal()?.throwIfAborted();
   const contract = embeddingContract();
-  const cacheKey = JSON.stringify([contract.model, contract.revision, contract.dimension, text]);
+  const cacheKey = JSON.stringify([
+    config.embeddingProvider,
+    config.localEmbeddingUrl,
+    contract,
+    text,
+  ]);
   const cached = queryCache.get(cacheKey);
   if (cached) return cached;
+  let job = pendingQueries.get(cacheKey);
+  if (!job) {
+    job = runSharedWork(async () => {
+      try {
+        const vector = await embedUncachedQuery(text, contract);
+        queryCache.set(cacheKey, vector);
+        if (queryCache.size > 128)
+          queryCache.delete(queryCache.keys().next().value as string);
+        return vector;
+      } finally {
+        pendingQueries.delete(cacheKey);
+      }
+    });
+    pendingQueries.set(cacheKey, job);
+  }
+  return waitForSharedWork(job);
+}
+
+async function embedUncachedQuery(
+  text: string,
+  contract: EmbeddingContract,
+): Promise<Float32Array> {
   const release = await embeddingQueue.acquire(requestSignal());
   try {
     const deadline = AbortSignal.timeout(EMBED_TIMEOUT_MS),
@@ -113,34 +142,51 @@ async function embedQuery(text: string): Promise<Float32Array> {
     let values: unknown;
     if (config.embeddingProvider === "local") {
       const url = new URL(config.localEmbeddingUrl);
-      if (!["http:", "https:"].includes(url.protocol)) throw new Error("Local embedding endpoint must use HTTP(S)");
+      if (!["http:", "https:"].includes(url.protocol))
+        throw new Error("Local embedding endpoint must use HTTP(S)");
       const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(config.localEmbeddingApiKey ? { Authorization: `Bearer ${config.localEmbeddingApiKey}` } : {}),
+          ...(config.localEmbeddingApiKey
+            ? { Authorization: `Bearer ${config.localEmbeddingApiKey}` }
+            : {}),
         },
-        body: JSON.stringify({ model: contract.model, input: [contract.query_prefix + text] }),
+        body: JSON.stringify({
+          model: contract.model,
+          input: [contract.query_prefix + text],
+        }),
         signal,
       });
-      if (!response.ok) throw new Error(`Local embedding provider returned HTTP ${response.status}`);
-      const data = (await response.json()) as { data?: { embedding?: unknown }[] };
+      if (!response.ok)
+        throw new Error(
+          `Local embedding provider returned HTTP ${response.status}`,
+        );
+      const data = (await response.json()) as {
+        data?: { embedding?: unknown }[];
+      };
       values = data.data?.[0]?.embedding;
     } else {
       const client = await getClient();
       const response = await client.models.embedContent({
         model: contract.model,
         contents: [contract.query_prefix + text],
-        config: { taskType: "RETRIEVAL_QUERY", outputDimensionality: contract.dimension, abortSignal: signal },
+        config: {
+          taskType: "RETRIEVAL_QUERY",
+          outputDimensionality: contract.dimension,
+          abortSignal: signal,
+        },
       });
       values = response.embeddings?.[0]?.values;
     }
-    if (!isFiniteVector(values, contract.dimension) || !values.some((v) => v !== 0))
-      throw new Error("Provider returned an invalid, zero or incompatible embedding");
-    const vector = normalizeVector(values);
-    queryCache.set(cacheKey, vector);
-    if (queryCache.size > 128) queryCache.delete(queryCache.keys().next().value as string);
-    return vector;
+    if (
+      !isFiniteVector(values, contract.dimension) ||
+      !values.some((v) => v !== 0)
+    )
+      throw new Error(
+        "Provider returned an invalid, zero or incompatible embedding",
+      );
+    return normalizeVector(values);
   } finally {
     release();
   }
@@ -170,6 +216,7 @@ export async function semanticSearch(opts: {
     embedQuery(opts.query),
     opts.candidateIds,
   ]);
+  requestSignal()?.throwIfAborted();
   if (q.length !== idx.dim) {
     throw new Error(
       `Query embedding dim ${q.length} does not match index dim ${idx.dim}. Check IWAC_EMBEDDING_MODEL / IWAC_EMBEDDING_DIMENSIONALITY.`,

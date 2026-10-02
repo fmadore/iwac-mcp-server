@@ -2,7 +2,7 @@ import { chartResult, chartViewResult } from "../shared/chartResults.js";
 import { sentimentCols } from "../shared/sentiment.js";
 import { isFiniteVector } from "../../vectors.js";
 import { z } from "zod";
-import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../../db.js";
+import { ensureView, q, query, queryOne, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
 import { projectAsync } from "../../projection.js";
 import { createHash } from "node:crypto";
@@ -153,44 +153,47 @@ export function registerSemanticTools(server: Server): void {
       const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
       if (filters.err) return errorResult(filters.err);
       const { where, params, echo } = filters;
-      const whereSql = [...where, `${q(embeddingCol)} IS NOT NULL`].join(" AND ");
-      const total = Number(
-        (await queryScalarSingle<number | bigint>(
-          `SELECT COUNT(*) FROM ${viewName(subset)} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
-          params,
-        )) ?? 0,
-      );
-
-      // Deterministic ordering, so the same filter always projects the same
-      // items — an arbitrary LIMIT would redraw a different map each call.
-      const titleCol = TITLE_COL[subset];
-      const rows = await query(
-        `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title,
-                ${colorBy ? `${q(colorCol as string)} AS grp,` : ""} ${q(embeddingCol)} AS emb
-         FROM ${viewName(subset)} WHERE ${whereSql}
-         ORDER BY md5(CAST("o:id" AS VARCHAR) || 'iwac-pca-v1'), "o:id"`,
+      const embCol = q(embeddingCol);
+      // Validate/count in DuckDB before crossing the native/JS boundary. A tiny
+      // display limit previously still materialised the entire vector corpus.
+      // Avoid sum-of-squares: finite extreme values can overflow when squared.
+      const validVector = `coalesce(
+        len(${embCol}) > 0 AND list_count(${embCol}) = len(${embCol})
+        AND list_sum(list_transform(${embCol}, x -> CASE WHEN isfinite(x) THEN 0 ELSE 1 END)) = 0
+        AND list_sum(list_transform(${embCol}, x -> CASE WHEN x <> 0 THEN 1 ELSE 0 END)) > 0,
+        FALSE)`;
+      const counts = await query(
+        `SELECT len(${embCol}) AS dim, ${embCol} IS NULL AS missing, ${validVector} AS valid, COUNT(*) AS n
+         FROM ${viewName(subset)} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         GROUP BY 1, 2, 3`,
         params,
       );
+      const total = counts.reduce((n, r) => n + Number(r.n), 0);
+      const missing = counts.filter((r) => r.missing).reduce((n, r) => n + Number(r.n), 0);
+      // Keep the established modal-dimension rule and its smaller-dimension tie
+      // break, independently of sample ordering or invalid first vectors.
+      const modal = counts.filter((r) => r.valid).sort((a, b) => Number(b.n) - Number(a.n) || Number(a.dim) - Number(b.dim))[0];
+      const dim = Number(modal?.dim ?? 0);
+      const eligible = Number(modal?.n ?? 0);
+      const invalid = total - missing - eligible;
+
+      // Deterministic ordering, so the same filter always projects the same
+      // items. Only the bounded valid sample is decoded into JS number arrays.
+      const titleCol = TITLE_COL[subset];
+      const rows = eligible ? await query(
+        `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title,
+                ${colorBy ? `${q(colorCol as string)} AS grp,` : ""} ${embCol} AS emb
+         FROM ${viewName(subset)} WHERE ${[...where, validVector, `len(${embCol}) = ?`].join(" AND ")}
+         ORDER BY md5(CAST("o:id" AS VARCHAR) || 'iwac-pca-v1'), "o:id" LIMIT ?`,
+        [...params, dim, limit],
+      ) : [];
 
       const kept: Record<string, unknown>[] = [];
       const vectors: number[][] = [];
-      let dim = 0;
-      let eligible = 0;
-      let invalid = 0;
-      // Modal dimension is stable even if the first stored vector is corrupt.
-      const dimensions = new Map<number, number>();
-      for (const r of rows)
-        if (isFiniteVector(r.emb) && r.emb.some((v) => v !== 0))
-          dimensions.set(r.emb.length, (dimensions.get(r.emb.length) ?? 0) + 1);
-      dim = [...dimensions].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? 0;
       for (const r of rows) {
         const emb = r.emb;
-        if (!isFiniteVector(emb, dim || undefined) || !emb.some((v) => v !== 0)) {
-          invalid++;
-          continue;
-        }
-        eligible++;
-        if (kept.length >= limit) continue;
+        if (!isFiniteVector(emb, dim) || !emb.some((v) => v !== 0))
+          return errorResult({ error: "Stored embedding validation disagreed with the selected snapshot" });
         vectors.push(emb);
         kept.push({
           id: String(r.id),
@@ -203,7 +206,7 @@ export function registerSemanticTools(server: Server): void {
       const sampling = {
         eligible_embeddings: eligible,
         invalid_embeddings: invalid,
-        missing_embeddings: total - rows.length,
+        missing_embeddings: missing,
         omitted_by_limit: eligible - kept.length,
         sampling: "stable_hash",
         seed: "iwac-pca-v1",
@@ -265,7 +268,7 @@ export function registerSemanticTools(server: Server): void {
             `published on islam.zmo.de and will not look like it. ` +
             `The ${kept.length} plotted points are rendered in the chart; their coordinates are not repeated here, ` +
             `so cite items from search results rather than from this map. ` +
-            `${eligible - kept.length} eligible items omitted by the display limit; ${total - rows.length} lack embeddings; ` +
+            `${eligible - kept.length} eligible items omitted by the display limit; ${missing} lack embeddings; ` +
             `${invalid} have invalid embeddings. Group counts describe the stable-hash sample, not the entire selection.`,
         },
         { points: plotted },

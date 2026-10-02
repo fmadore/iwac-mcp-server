@@ -645,7 +645,7 @@ export function bubbleMap(o: BubbleMapOptions): string {
   const bubbles = [...inFrame]
     .sort((a, b) => b.value - a.value)
     .map((p) => {
-      const r = 3 + 19 * Math.sqrt(p.value / peak);
+      const r = 22 * Math.sqrt(p.value / peak);
       return (
         `<circle cx="${n(x(p.lng))}" cy="${n(y(p.lat))}" r="${n(r)}" class="bubble"` +
         `${o.clickable ? ` data-key="${esc(p.key ?? p.label)}"` : ""}>` +

@@ -44,13 +44,72 @@ function checkAccess(res: Response): void {
 }
 
 async function listTree(subset: Subset): Promise<TreeEntry[]> {
-  const url = `https://huggingface.co/api/datasets/${config.datasetRepo}/tree/${encodeURIComponent(config.datasetRevision)}/${subset}`;
-  const res = await fetch(url, { headers: authHeaders(), signal: networkSignal(30_000) });
-  checkAccess(res);
-  if (!res.ok) {
-    throw new Error(`Failed to list ${subset} tree: HTTP ${res.status}`);
+  const first = new URL(
+    `https://huggingface.co/api/datasets/${config.datasetRepo}/tree/${encodeURIComponent(config.datasetRevision)}/${subset}`,
+  );
+  let url: URL | undefined = first;
+  const visited = new Set<string>();
+  const seenPaths = new Set<string>();
+  const entries: TreeEntry[] = [];
+  while (url) {
+    if (visited.has(url.href) || visited.size >= 100)
+      throw new Error("Invalid Hugging Face tree pagination loop or limit");
+    visited.add(url.href);
+    const res = await fetch(url, {
+      headers: authHeaders(),
+      signal: networkSignal(30_000),
+    });
+    checkAccess(res);
+    if (!res.ok)
+      throw new Error(`Failed to list ${subset} tree: HTTP ${res.status}`);
+    const page: unknown = await res.json();
+    if (!Array.isArray(page))
+      throw new Error(`Invalid Hugging Face ${subset} tree response`);
+    for (const entry of page) {
+      if (
+        !entry ||
+        typeof entry !== "object" ||
+        !["file", "directory"].includes(entry.type) ||
+        typeof entry.path !== "string" ||
+        !entry.path.startsWith(`${subset}/`) ||
+        entry.path.includes("\\") ||
+        entry.path
+          .split("/")
+          .some((part: string) => part === ".." || part === "." || !part) ||
+        seenPaths.has(entry.path)
+      )
+        throw new Error(
+          `Invalid or duplicate Hugging Face ${subset} tree entry`,
+        );
+      seenPaths.add(entry.path);
+      entries.push(entry as TreeEntry);
+    }
+    url = nextTreePage(res.headers.get("link"), first);
   }
-  return (await res.json()) as TreeEntry[];
+  return entries;
+}
+
+/** Never forward a private Hub token to an arbitrary pagination target. */
+function nextTreePage(link: string | null, first: URL): URL | undefined {
+  if (!link) return undefined;
+  for (const match of link.matchAll(/<([^>]+)>([^,]*)/g)) {
+    const relation = /(?:^|;)\s*rel\s*=\s*(?:"([^"]+)"|([^;\s]+))/i.exec(
+      match[2],
+    );
+    if (!(relation?.[1] ?? relation?.[2] ?? "").split(/\s+/).includes("next"))
+      continue;
+    const next = new URL(match[1], first);
+    if (
+      next.origin !== first.origin ||
+      next.pathname !== first.pathname ||
+      next.username ||
+      next.password ||
+      next.hash
+    )
+      throw new Error("Invalid Hugging Face tree pagination target");
+    return next;
+  }
+  return undefined;
 }
 
 /**
@@ -263,13 +322,16 @@ async function describeFiles(subset: Subset, files: string[], freshness: string)
       };
     }),
   );
+  const now = new Date().toISOString();
   return {
     repository: config.datasetRepo,
     revision: config.datasetRevision,
     access: config.privateDataset ? "private" : "public",
     files: identities,
     freshness,
-    loaded_at: new Date().toISOString(),
+    loaded_at: now,
+    ...(freshness !== "offline" ? { last_checked_at: now } : {}),
+    ...(freshness === "verified against Hub file identities" ? { last_verified_at: now } : {}),
   };
 }
 

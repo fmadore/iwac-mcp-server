@@ -1,3 +1,5 @@
+import { aggregateFilters, filterInputs } from "./aggregates/shared.js";
+import { agreementMetrics } from "./shared/agreement.js";
 import type { ChartPayload, ModelBlock } from "../viewContract.js";
 import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
@@ -15,7 +17,6 @@ import {
   DISPUTE_FIELDS,
   errorResult,
   foldedEquals,
-  likeFilterIfExists,
   pipeValueEquals,
   pipeValueFilterIfExists,
   POLARITY_VALUES,
@@ -187,40 +188,26 @@ export function registerSentimentTools(server: Server): void {
     {
       ...toolMeta("Aggregate AI sentiment"),
       description:
-        `Aggregate AI polarity, centrality and subjectivity across a filter set. ${SENTIMENT_MODEL_IDS.length} ` +
-        `models scored the corpus independently — ${SENTIMENT_MODEL_IDS.join(", ")} — so model:"all" returns ` +
-        "each one's distribution plus how often they AGREE. Treat disagreement as a fact about the judgement " +
-        "rather than noise: corpus-wide the panel is unanimous on polarity for only ~32% of articles, so in a " +
-        "set where the models split no single one's number should be quoted alone. All three scales are ordinal " +
-        "French labels; subjectivity is much the weakest and ships a caveat " +
-        "to quote with it. Articles were scored whether or not their full text ships, so these shares are not " +
-        "subject to the OCR coverage limit. The models do NOT all cover the same articles, so read each one's " +
-        "`coverage` before comparing counts: ~51 non-francophone articles are unscored by design, and " +
-        "qwen3-8-27b is 200 further short on articles peripheral to Islam.",
+        'Aggregate AI labels over a shared selection. model:"all" compares independent annotators and their coverage; ' +
+        'model:"consensus" reads the stored panel majority. Choose compare_models and agreement_field for pairwise ' +
+        "Cohen's kappa and quadratic weighted kappa, with explicit denominators. Labels are interpretations, not ground truth; " +
+        "subjectivity is weak evidence and its caveat must accompany findings.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
-        country: countryParam(),
-        newspaper: z.string().optional(),
-        subject: z.string().optional(),
-        model: z
-          .string()
-          .optional()
-          .describe(
-            `${SENTIMENT_MODEL_IDS.join(" | ")} | all | consensus — default ${DEFAULT_SENTIMENT_MODEL.id}; ` +
-              '"all" adds the cross-model agreement, "consensus" returns the panel\'s precomputed majority ' +
-              "(no annotator produced it, so it is never attributed to a model). The vendor shorthands " +
-              `${SENTIMENT_MODELS.map((m) => m.aliases[0]).join("/")} also resolve to the model that ran. The ` +
-              "generation-1 models (gemini-3-flash-preview, gpt-5-mini, ministral-14b-2512) are no longer served " +
-              "and return an error rather than a substitute — and 'gemini' is refused rather than read as " +
-              "gemma-4-31b-it, which is a different model line.",
-          ),
+        ...filterInputs(),
+        model: z.string().optional().describe(
+          `${SENTIMENT_MODEL_IDS.join(" | ")} | all | consensus; default ${DEFAULT_SENTIMENT_MODEL.id}. Vendor aliases accepted; retired models rejected.`,
+        ),
+        compare_models: z.tuple([z.string(), z.string()]).optional().describe('Pair of model IDs or aliases; requires model:"all"'),
+        agreement_field: z.enum(["polarity", "centrality", "subjectivity"]).optional(),
       }),
       outputSchema: SENTIMENT_DISTRIBUTION_OUTPUT,
     },
     async (args) => {
       const schema = await ensureView("articles");
-      const country = validateEnum(args.country, COUNTRIES, "country");
-      if (country.err) return errorResult(country.err);
+      const filtered = aggregateFilters("articles", schema, args);
+      if (filtered.err) return errorResult(filtered.err);
+      const { where, params, echo } = filtered;
 
       // Not validateEnum: the vendor shorthands are accepted but are not part of
       // the canonical vocabulary, so resolution and the valid_values list differ.
@@ -247,11 +234,9 @@ export function registerSentimentTools(server: Server): void {
         });
       }
       const requested = wantsAll ? "all" : wantsConsensus ? "consensus" : (resolved as SentimentModel).id;
-      const where: string[] = [];
-      const params: Bindable[] = [];
-      pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
-      likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
-      pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
+      if ((args.compare_models || args.agreement_field) && !wantsAll) {
+        return errorResult({ error: 'compare_models and agreement_field require model:"all"' });
+      }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
       // Only the models this revision actually carries. Asking for a missing
@@ -267,6 +252,11 @@ export function registerSentimentTools(server: Server): void {
         });
       }
       const models: SentimentModel[] = wantsAll || wantsConsensus ? [...available] : [resolved as SentimentModel];
+      const selectedPair = args.compare_models?.map(resolveSentimentModel) ?? available.slice(0, 2);
+      if (wantsAll && (args.compare_models || args.agreement_field) &&
+          (selectedPair.length !== 2 || selectedPair.some((m) => !m || !available.includes(m)) || selectedPair[0]?.id === selectedPair[1]?.id)) {
+        return errorResult({ error: "Comparison requires two distinct available models", valid_values: available.map((m) => m.id) });
+      }
 
       const total = Number(
         (await queryScalarSingle<number | bigint>(
@@ -278,11 +268,7 @@ export function registerSentimentTools(server: Server): void {
         view: VIEW.sentiment,
         model: requested,
         total_articles: total,
-        filters: {
-          country: country.canonical ?? null,
-          newspaper: args.newspaper ?? null,
-          subject: args.subject ?? null,
-        },
+        filters: echo,
       };
 
       /** Polarity, centrality and subjectivity for one model, under this filter. */
@@ -529,23 +515,39 @@ export function registerSentimentTools(server: Server): void {
             : {}),
         };
 
-        // Where the disagreement actually goes: how the first model's label
-        // maps onto the second's. "They disagree 46% of the time" is much less
-        // useful than "mistral-small-2603 reads as Très positif what Luna calls Positif".
-        const [a, b] = models;
+        const field = args.agreement_field ?? "polarity";
+        const [a, b] = selectedPair;
+        if (!a || !b || a.id === b.id || !available.includes(a) || !available.includes(b)) {
+          return errorResult({ error: "compare_models must name two distinct available models", valid_values: available.map((m) => m.id) });
+        }
+        if (!schema.has(sentimentCols(a)[field]) || !schema.has(sentimentCols(b)[field])) {
+          return errorResult({ error: `Both selected models must have ${field} columns in this dataset revision` });
+        }
+        const labels = field === "polarity" ? POLARITY_VALUES : field === "centrality" ? CENTRALITY_VALUES : SUBJECTIVITY_VALUES;
         const cells = await query(
-          `SELECT ${q(sentimentCols(a).polarity)} AS ra, ${q(sentimentCols(b).polarity)} AS rb, COUNT(*) AS c
+          `SELECT ${q(sentimentCols(a)[field])} AS ra, ${q(sentimentCols(b)[field])} AS rb, COUNT(*) AS c
            FROM ${viewName("articles")} ${whereSql} GROUP BY 1, 2 ORDER BY 1, 2`,
           params,
         );
         const counts: Record<string, Record<string, number>> = {};
         for (const r of cells) {
-          const ka = r.ra == null || String(r.ra).trim() === "" ? "(unscored)" : String(r.ra);
-          const kb = r.rb == null || String(r.rb).trim() === "" ? "(unscored)" : String(r.rb);
+          const ka = String(r.ra ?? "");
+          const kb = String(r.rb ?? "");
+          if (!(labels as readonly string[]).includes(ka) || !(labels as readonly string[]).includes(kb)) continue;
           counts[ka] ??= {};
           counts[ka][kb] = Number(r.c);
         }
-        payload.agreement_matrix = { rows: a.id, cols: b.id, counts };
+        const ordinal = labels.filter((label) => label !== "Non applicable");
+        const metrics = agreementMetrics(counts, ordinal);
+        payload.agreement_matrix = {
+          rows: a.id, cols: b.id, field, counts, matched_articles: total, ...metrics,
+          excluded_articles: total - metrics.common_scored,
+          notes: [
+            "Pair statistics use only articles with recognized labels from BOTH selected models; missing or unknown labels are excluded. The panel agreement above uses the all-model intersection.",
+            "Cohen's kappa includes Non applicable; quadratic weighted kappa excludes it and uses weighted_n. Null means undefined (empty population or degenerate marginals). Agreement is not accuracy or calibrated confidence.",
+            ...(field === "subjectivity" ? [SUBJECTIVITY_CAVEAT] : []),
+          ],
+        };
       }
 
       // "How often do they concur" is only half the question; the other half is
@@ -553,7 +555,7 @@ export function registerSentimentTools(server: Server): void {
       // readings does not have to know a second call exists.
       if (schema.has(CONSENSUS_COLS.polarity)) payload.consensus = await consensusBlock();
 
-      return chartResult(payload);
+      return chartResult(payload, { preserveNulls: true });
     },
   );
 }

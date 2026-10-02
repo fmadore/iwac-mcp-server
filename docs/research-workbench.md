@@ -9,6 +9,8 @@ only new tool. No external chart service is required.
 
 `explore_corpus` accepts `subset`, `mode`, and a nested `selection`. It defaults
 to article items, with 20 records per page. `limit` is 1–50; `offset` starts at 0.
+Concordance applies a maximum of 20 records and echoes the applied `limit`;
+advance by that returned size so no records are skipped.
 The same filter fields are available directly on the aggregate tools and on
 article/publication search.
 
@@ -34,19 +36,21 @@ article/publication search.
   historical substring semantics. Use `exact.newspaper` for a complete title.
 - `exact` intersects fields **and values within each field**. For example,
   `spatial: ["Cotonou", "Lomé"]` requires both tags. Supported fields are
-  subject, spatial, author, language, country, newspaper, topic_id and min_prob.
+  subject, spatial, author, language, country, country_raw, newspaper, topic_id and min_prob.
+  `country_raw` matches a whole pipe-joined cell for coverage/comparison drilldowns;
+  `country` requires individual pipe-separated country tags.
   Numeric topic/probability values are represented as strings in this map.
 - `exact["polarity:<model>"]` selects an exact model label. Centrality and
   subjectivity accept the same syntax. `exact.scored_by` requires a polarity
-  annotation from every listed model; disagreement-cell navigation preserves
-  the comparison's common scored base.
+  annotation from every listed model. Pairwise matrix navigation preserves the
+  two selected model labels; the panel intersection remains separately reported.
 - A filter absent from the chosen subset returns an error. No filter is silently
   ignored. Topic clicks use stable topic IDs, including when shortened labels
   collide. Place mentions and publication-country shading use separate keys.
 - Date bounds must be complete, calendar-valid years, months, days or timestamps.
-  Reversed bounds fail. Article dates with year/month precision denote intervals;
-  filtering includes intervals that overlap the requested dates. Other workbench
-  subsets retain the existing year-level boundary semantics. `hijri_month` and
+  Reversed bounds fail. Source dates with year/month precision denote intervals; shared workbench
+  and aggregate filtering includes intervals that overlap the requested dates
+  on every supported subset. Slash-separated source date ranges use the same rule. `hijri_month` and
   `hijri_year` use the corpus's precomputed calendar fields and reject unsupported
   subsets.
 
@@ -65,7 +69,8 @@ restores the original literal query.
 | `compare` | Selection A and B on common category axes; source-reading buttons | Requires `comparison`; shares use each full base, including missing metadata; overlap is explicit; 40 combined categories |
 | `attention` | Publication country × mentioned place | Articles/publications only; optional share of the origin's selected items; 200 populated pairs |
 | `get_temporal_distribution` | Raw or normalized Gregorian/Hijri trends | `normalize_by: "scope"` uses archived items; `"searchable"` restricts numerator and denominator to available body text |
-| `get_sentiment_distribution` | Existing model comparison with clickable disputed cells | Preserves both labels and the common scored base; AI labels are annotations |
+| `get_sentiment_distribution` | Shared filters, chosen pair/scale, clickable agreement cells | Pair and panel populations are explicit; AI labels are annotations |
+| `manifest`, `csl_json`, `bibtex` | Pageable corpus/citation exports through `explore_corpus` | 1–50 items per page, selected IDs/URLs and source provenance; missing bibliographic fields are not invented |
 | `get_similar_items` | Cosine ranking and candidate chronology | Source plus its returned neighbours; a similarity score is not proof of a reprint |
 
 Coverage's annotation count means at least one model has a polarity label.
@@ -84,7 +89,10 @@ percentages. Grouped shares use separate bars rather than stacking unrelated
 percentages. Grouped lunar counts use one panel per group.
 
 Comparisons currently show country, newspaper and topic distributions where
-those columns exist, plus text/embedding/scoring coverage. Pipe-joined country
+those columns exist, plus text/embedding/scoring coverage. Their temporal
+comparison uses one common archived-corpus denominator over the union of the
+two date windows; it returns raw counts, denominators, shares, and the disclosed
+year cap. Missing, invalid and multiyear dates are labelled separately. Pipe-joined country
 strings remain one category in comparison distributions. Attention splits country
 and spatial tags and counts each item once per pair; its cells may therefore sum
 to more than the number of items. Reference subject-country tags are deliberately
@@ -100,11 +108,12 @@ attention and temporal views provide data tables.
 
 Hosts advertising downloads receive CSV, JSON, and standalone SVG export actions.
 CSV/SVG exports include a companion provenance JSON file. SVG exports include
-all chart panels and their styles; JSON includes the reconstructed view data,
+all chart panels, legends, scope captions, caveats and their styles; JSON includes the reconstructed view data,
 filters and interpretation notes. Hosts without download support still receive
 normal tool results. Actual MCP-host rendering and download dialogs remain a
 release acceptance check; the repository tests exercise the host protocol and
-real DOM selectors, not a native host installation.
+real DOM selectors and a narrow-viewport Chromium host harness, not a native host installation. Hosts
+without open-link capability display a selectable canonical URL.
 
 ## Dataset provenance and cache behavior
 
@@ -145,13 +154,52 @@ Database concurrency is 16 active / 128 queued queries. PCA runs in worker threa
 with two active / eight queued projections and an eight-entry generation-keyed
 cache. Embedding requests allow four active / 16 queued calls and retain at most
 128 completed query vectors in process memory. Queued waits have a 30-second
-limit; tool requests have a 120-second deadline. Cancellation removes queued work,
-interrupts DuckDB calls and terminates a projection worker.
+limit; tool requests have a 120-second deadline. Cancellation removes per-request queued work,
+interrupts DuckDB calls and terminates a projection worker. Shared cache/index builds
+and background refresh, including shared embedding provider requests, have a separate 15-minute deadline; cancelling one caller
+stops its wait without cancelling work needed by other callers. Normal shutdown cancels
+shared work and waits for lock/temporary-file cleanup; HTTP shutdown retains an
+eight-second hard deadline. Freshness checks update
+status even when the dataset content is unchanged. Identical in-flight embedding
+queries share one provider request.
 
 Authenticated `GET /metrics` reports active/queued database queries and p50/p95
 latency over the last 256 tool calls, plus completed-call count. The existing
 unauthenticated `/health` remains unchanged. Metrics describe the running process,
 not an externally measured deployment latency guarantee.
+
+## Precise dates, agreement and exports
+
+Monthly Gregorian series exclude records without month precision. `dated_count`,
+`imprecise_date_count`, `invalid_date_count` and `undated_count` disclose the
+population instead of mixing bare years into month keys. Read counts and notes
+before interpreting a sparse month as an absence.
+
+`get_sentiment_distribution` accepts keyword, dates and exact selection filters.
+With `model:"all"`, set `compare_models:["luna","qwen"]` and
+`agreement_field:"polarity"|"centrality"|"subjectivity"`. The panel summary keeps
+its all-model polarity intersection; the selected pair matrix includes only
+articles with recognized labels from both models. Cohen's kappa includes the
+non-ordinal `Non applicable` category; quadratic weighted kappa excludes it and
+reports a separate `weighted_n`. Empty or degenerate marginal distributions have
+undefined kappa. Agreement measures consistency, not accuracy or confidence.
+Inline article labels carry `sentiment_model` so their scorer stays identifiable.
+
+`mode:"concordance"` returns separate left/match/right contexts and body-field
+provenance. Original character offsets are included only when normalization has
+not changed source positions. Metadata-only matches are identified. JSON/CSV
+exports retain these contexts; a context cap is not a count of all occurrences.
+
+For exports, call `explore_corpus` with `mode:"manifest"`, `"csl_json"` or
+`"bibtex"` and the same selection/limit/offset. Each bounded page includes record
+IDs, canonical URLs, pagination and source provenance. Iterate explicitly and
+compare snapshots; a single page is not the whole selected corpus. Bibliographic
+exports use stored facts, leave unknown fields absent, and preserve uncertain
+source dates rather than assigning invented precision.
+
+`resources/read` on `iwac://datasets` lists subsets. The templated resource
+`iwac://datasets/{subset}` returns the current schema, availability and provenance;
+its cache TTL is zero because a live dataset can refresh independently of a build.
 
 ## Local embedding migration
 

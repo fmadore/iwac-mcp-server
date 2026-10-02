@@ -139,7 +139,7 @@ via GitHub OIDC (no secret needed). The entry lists the two `.mcpb` packages
 plus the public remote at `https://islam.zmo.de/mcp/`.
 
 Registry versions are **immutable** — to fix a published entry, bump the
-version and tag again; re-running the workflow for the same tag fails at the
+version and tag again; the workflow rejects existing versions before the
 publish step by design.
 
 Manual fallback from the repo root (after `npm run release`):
@@ -313,32 +313,13 @@ Environment variables (all transports unless noted):
   `get_temporal_distribution` spends 99% of its payload on `distribution` and
   `get_field_distribution` 79% on `values`, but there the dense field *is* the
   answer. See [`../docs/mcp-apps-roadmap.md`](../docs/mcp-apps-roadmap.md) §2.4.
-- Skills over MCP (**prototype**): `scripts/collect-skills.mjs` walks
-  `../.agents/skills/` at build time (parsing each `SKILL.md` frontmatter,
-  hashing every file, deriving a one-line summary from each document's own lede),
-  and `scripts/bundle.mjs` inlines the tree as `__IWAC_SKILLS__` (92 kb), under
-  the same single-file constraint as the chart HTML.
-  `src/tools/skills.ts` then registers `skill://iwac-mcp` (a catalogue with
-  SHA-256 digests) plus one resource per file, and serves the extension's
-  `skills/list` / `skills/get` over that same catalogue. The point is the remote
-  HTTP endpoint, where there is no release artifact to download.
-
-  This tracks [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
-  **an open draft PR against the spec, not an accepted extension**. The SDK has
-  no dedicated support — there is no `registerSkill` and no skills capability —
-  but `ServerCapabilities` models `extensions` as a generic record and
-  `setRequestHandler` takes arbitrary method names, so the two mandatory methods
-  are a thin, type-safe adapter over data the collector already produced. What is
-  *not* served is the optional `resources/directory/read`: its root would be the
-  bare `skill://iwac-mcp`, which is already the catalogue document, and one URI
-  cannot be both `application/json` and `inode/directory`. The capability is
-  declared as `{}` accordingly, which forbids a conformant host from calling it.
-  Treat the URIs as unstable: if the SEP changes or is
-  rejected, this follows. The `.zip` on the GitHub release remains the supported
-  way to install the skill. Nothing is injected into instructions or tool
-  descriptions. Resources are pull-only, which is the SEP's own position that
-  the host decides when to disclose. Discovery costs one paragraph in
-  `INSTRUCTIONS` (+105 always-on tokens).
+- Skills over MCP: `scripts/collect-skills.mjs` embeds `../.agents/skills/`
+  at build time. Missing or empty skill sources fail the build. Ordinary
+  `skill://` resources and the finalized [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
+  share one catalogue with UTF-8 byte sizes and SHA-256 digests. `skills/list`
+  and `skills/get` have cache metadata; the optional directory-read capability
+  is not advertised. Rebuild after changing skill sources. Docker builds use
+  the repository root as context so the same skill ships on both transports.
 - Prompts: `iwac_research` (brief/extended) and `iwac_overview` in
   `src/prompts.ts` carry the skill's workflow to clients that cannot install the
   skill (ChatGPT via the remote connector). They mirror
@@ -399,3 +380,33 @@ only from a complete backup, never from a glob of mixed generations. Writers hol
 Authenticated `GET /metrics` exposes active/queued database work and a bounded
 p50/p95 tool-latency window. `/health` remains unauthenticated. Query and projection
 queues have limits, deadlines and cancellation; PCA executes in worker threads.
+
+## October 2026 compatibility and build notes
+
+The next release requires Node.js >=24.0.0 (build, Docker and desktop runtime).
+This removes the old Node 20 compatibility claim because that release is end of
+life. Update desktop hosts carrying older embedded Node versions before upgrading.
+The runtime-floor CI job tests the exact declared minimum. This compatibility
+change must be called out when selecting and documenting the next release version.
+
+MCP Apps 2 and Zod 4.6 retain their full protocol schemas. To stay within the 300 KB
+resource budget, the self-contained UI carries gzip/base64 JavaScript decoded by
+`DecompressionStream` and inserted as inline script under the host's existing
+inline-script CSP. No eval, remote script, blob URL or network request is needed.
+A visible loading failure is shown if decompression is unavailable. Tests measure
+both resource bytes and decoded JavaScript (500 KB ceiling), and the Chromium
+smoke executes the actual bootstrap.
+
+Build the container from the repository root:
+
+```sh
+docker build -f mcpb/Dockerfile -t iwac-mcp-server .
+```
+
+The Debian/glibc runtime matches DuckDB's native Linux binary. The build context
+must include `.agents/skills`; absent skill content fails packaging. Releases
+validate the exact desktop archives on native macOS/Windows runners and execute
+fixture SQL plus authenticated skill reads in the image before publication.
+Existing GitHub or Registry versions are rejected before publication. A failed
+partial release requires controlled recovery using its original verified bytes
+or a new version; reruns never replace already uploaded release assets.

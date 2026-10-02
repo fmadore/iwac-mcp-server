@@ -7,7 +7,6 @@ import { q } from "../../db.js";
 import { foldedEquals, pipeValueEquals } from "../shared/filters.js";
 import { hijriFilter, requireHijriColumns, resolveHijriMonth } from "../shared/calendar.js";
 import {
-  countryParam,
   COUNTRIES,
   validateEnum,
   dateRangeFilter,
@@ -16,7 +15,6 @@ import {
   pipeValueFilterIfExists,
   TEXT_COLS,
   validateDateBounds,
-  yearRangeFilter,
 } from "../_shared.js";
 
 /** Subsets these aggregates accept. `index` has no pub_date or subject. */
@@ -56,6 +54,12 @@ export function aggregateFilters(
   if (country.err) return { where, params, echo, err: country.err };
   const dates = validateDateBounds(args.date_from, args.date_to);
   if (dates.err) return { where, params, echo, err: dates.err };
+  if (args.keyword !== undefined && !args.keyword.trim())
+    return { where, params, echo, err: { error: "keyword must contain a non-whitespace search term" } };
+  if (args.keyword_mode === "all_terms" && !args.keyword?.trim())
+    return { where, params, echo, err: { error: "all_terms requires a nonempty keyword" } };
+  if (args.keyword_aliases?.some((term) => !term.trim()))
+    return { where, params, echo, err: { error: "Keyword aliases must contain non-whitespace search terms" } };
   const unavailable = (field: string) => ({
     where,
     params,
@@ -86,7 +90,9 @@ export function aggregateFilters(
           ? "lda_topic_id"
           : field === "min_prob"
             ? "lda_topic_prob"
-            : field;
+            : field === "country_raw"
+              ? "country"
+              : field;
     if (!schema.has(col)) return unavailable(field);
     if (!Array.isArray(values) || !values.length || values.some((v) => typeof v !== "string" || !v.trim()))
       return { where, params, echo, err: { error: `Exact filter '${field}' needs nonempty values` } };
@@ -98,7 +104,7 @@ export function aggregateFilters(
         where.push(`${q(col)} ${field === "min_prob" ? ">=" : "="} ?`);
         params.push(n);
       } else {
-        where.push(field === "newspaper" ? foldedEquals(q(col)) : pipeValueEquals(q(col)));
+        where.push(field === "newspaper" || field === "country_raw" ? foldedEquals(q(col)) : pipeValueEquals(q(col)));
         params.push(value);
       }
     }
@@ -157,20 +163,21 @@ export function aggregateFilters(
   pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
   likeFilterIfExists(schema, where, params, "newspaper", args.newspaper);
   pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
-  if (subset === "articles") dateRangeFilter(schema, where, params, args.date_from, args.date_to);
-  else yearRangeFilter(schema, where, params, args.date_from, args.date_to);
+  dateRangeFilter(schema, where, params, args.date_from, args.date_to);
   return { where, params, echo };
 }
 
 /** Shared input shape, so aggregate tools stay interchangeable to callers. */
 export function filterInputs() {
   return {
-    keyword: z.string().optional().describe("ONE French concept keyword; substring over the subset's text fields"),
-    country: countryParam({ nigeria: true }),
-    newspaper: z.string().optional().describe("Newspaper (articles) or periodical/series title (publications)"),
-    subject: z.string().optional().describe("Exact subject tag (pipe-aware)"),
-    date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
-    date_to: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),
+    keyword: z.string().trim().min(1).optional(),
+    country: z.string().optional().describe("Exact country name (accents optional)"),
+    newspaper: z.string().optional().describe("Newspaper/periodical substring"),
+    subject: z.string().optional().describe("Exact tag"),
+    date_from: z.string().optional().describe("Inclusive date bounds: YYYY[-MM[-DD]]"),
+    date_to: z.string().optional(),
+    hijri_month: z.string().optional(),
+    hijri_year: z.number().int().optional(),
     ...exactInput(),
   };
 }
@@ -178,16 +185,12 @@ export function filterInputs() {
 export function exactInput() {
   return {
     keyword_mode: z.enum(["literal", "all_terms"]).optional(),
-    keyword_aliases: z
-      .array(z.string().trim().min(1))
-      .max(12)
-      .optional()
-      .describe("Explicit OR alternatives to literal keyword"),
+    keyword_aliases: z.array(z.string().trim().min(1)).max(12).optional(),
     exact: z
       .record(z.string(), z.array(z.string()).min(1).max(20))
       .optional()
       .describe(
-        "AND values: subject/spatial/author/language/country/newspaper/topic_id/min_prob; polarity:<model>; scored_by:[models].",
+        "AND values. Fields: subject/spatial/author/language/country/newspaper/topic_id/min_prob/scored_by; country_raw=whole cell; polarity:<model>.",
       ),
   };
 }

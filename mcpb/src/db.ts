@@ -1,4 +1,4 @@
-import { requestSignal, requestSnapshots, WorkQueue } from "./request.js";
+import { requestSignal, requestSnapshots, runSharedWork, waitForSharedWork, WorkQueue } from "./request.js";
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
 import { ensureSubset, parquetList } from "./hf.js";
 import { config, type Subset } from "./config.js";
@@ -9,6 +9,7 @@ const _schemas: Map<Subset, Promise<Set<string>>> = new Map();
 /** What a loaded subset's view reads, and when that was last checked. */
 interface ViewState {
   files: string[];
+  schema: Set<string>;
   provenance: Record<string, unknown>;
   checkedAt: number;
   /** Bumped each time the view is rebuilt over new files, so caches derived
@@ -118,7 +119,7 @@ export async function ensureView(subset: Subset): Promise<Set<string>> {
   if (pinned) return pinned.schema;
   let p = _schemas.get(subset);
   if (!p) {
-    const build = buildView(subset);
+    const build = runSharedWork(() => buildView(subset));
     build.catch(() => {
       if (_schemas.get(subset) === build) _schemas.delete(subset); // allow retry after a failed download
     });
@@ -127,8 +128,11 @@ export async function ensureView(subset: Subset): Promise<Set<string>> {
   } else {
     maybeRefresh(subset);
   }
-  const schema = await p;
+  const loadedSchema = await waitForSharedWork(p);
   const state = _views.get(subset);
+  // A refresh may finish while this waiter resumes. Keep schema and files
+  // from the same committed generation.
+  const schema = state?.schema ?? loadedSchema;
   if (state && !requestSnapshots()?.has(subset))
     requestSnapshots()?.set(subset, {
       files: [...state.files],
@@ -153,7 +157,7 @@ export function pendingRefresh(subset: Subset): Promise<void> | undefined {
 async function buildView(subset: Subset): Promise<Set<string>> {
   const { files, provenance } = await ensureSubset(subset);
   const schema = await createView(subset, files);
-  _views.set(subset, { files, provenance, checkedAt: Date.now(), generation: 1 });
+  _views.set(subset, { files, schema, provenance, checkedAt: Date.now(), generation: 1 });
   return schema;
 }
 
@@ -174,10 +178,13 @@ function maybeRefresh(subset: Subset): void {
   const interval = config.refreshIntervalMs;
   if (!state || state.refresh || config.offline || interval <= 0) return;
   if (Date.now() - state.checkedAt < interval) return;
-  state.refresh = refreshView(subset, state).finally(() => {
-    state.checkedAt = Date.now();
-    state.refresh = undefined;
-  });
+  state.refresh = runSharedWork(() => refreshView(subset, state))
+    // A shutdown can reject the shared job before refreshView begins.
+    .catch((err) => recordRefreshFailure(subset, state, err))
+    .finally(() => {
+      state.checkedAt = Date.now();
+      state.refresh = undefined;
+    });
 }
 
 /**
@@ -195,15 +202,31 @@ async function refreshView(subset: Subset, state: ViewState): Promise<void> {
       const schema = await createView(subset, files);
       _schemas.set(subset, Promise.resolve(schema));
       state.files = files;
-      state.provenance = provenance;
+      state.schema = schema;
       state.generation += 1;
       console.error(`[iwac] ${subset}: switched to the newer dataset revision`);
     }
+    // Verification changes even when the corpus does not. Replace the object
+    // so already-pinned requests retain their original provenance.
+    state.provenance = {
+      ...(!changed ? state.provenance : {}),
+      ...provenance,
+      ...(!changed ? { loaded_at: state.provenance.loaded_at } : {}),
+    };
   } catch (err) {
-    console.error(
-      `[iwac] warning: could not refresh ${subset}; still serving the data loaded earlier. ${(err as Error).message}`,
-    );
+    recordRefreshFailure(subset, state, err);
   }
+}
+
+function recordRefreshFailure(subset: Subset, state: ViewState, err: unknown): void {
+  state.provenance = {
+    ...state.provenance,
+    freshness: "cached; refresh failed",
+    last_checked_at: new Date().toISOString(),
+  };
+  console.error(
+    `[iwac] warning: could not refresh ${subset}; still serving the data loaded earlier. ${String((err as Error)?.message ?? err)}`,
+  );
 }
 
 /** Quote an identifier for SQL. */

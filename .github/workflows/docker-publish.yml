@@ -1,210 +1,131 @@
-name: Publish container image to GHCR
-
-# Builds the remote-HTTP (`node server/index.js --http`) image OFF-host on
-# GitHub-hosted runners and pushes it to GHCR, so the single-CPU IWAC-docker host
-# only ever does a lightweight `docker pull` (no on-host build contention).
-#
-# Triggers on a version tag (v*), or manually. Version tags also publish the
-# Claude Desktop / stdio .mcpb bundles and the .agents research skill zip as
-# GitHub release assets, then publish the server to the official MCP Registry
-# (registry.modelcontextprotocol.io) as io.github.fmadore/iwac-mcp-server.
-#
-# Ordering is deliberate: typecheck + lint + the full hermetic test suite run
-# FIRST, then the release assets are packed, then the image is smoke-tested in a
-# container, and only THEN is anything pushed. A red test or a broken pack
-# script can no longer ship an image (previously the image — including
-# `latest` — was pushed before any verification ran, and no tests ran on the
-# tag path at all).
+name: Publish verified release artifacts
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
   workflow_dispatch:
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }} # fmadore/iwac-mcp-server
-  # Single source of truth for the Node major used to build and test releases.
-  # Keep in step with ci.yml, mcpb/Dockerfile and mcpb/package.json `engines`.
-  # NOTE: this is the BUILD baseline only. scripts/bundle.mjs derives the
-  # shipped target from manifest.json's `runtimes.node` floor (currently Node
-  # 20, matching MCP SDK v2), and ci.yml executes the artifact on that floor.
-  NODE_VERSION: 24
-  # Pin a specific mcp-publisher release (e.g. "v1.4.0") for reproducible,
-  # supply-chain-safer publishes; "latest" keeps the old auto-tracking
-  # behaviour. TODO: set a concrete version after checking
-  # https://github.com/modelcontextprotocol/registry/releases.
-  MCP_PUBLISHER_VERSION: latest
+# Build/install/test jobs cannot publish or mint OIDC credentials.
+permissions:
+  contents: read
+
+# Serialize publications, including manual dispatches, so guards and the
+# `latest` update cannot race another run of this workflow.
+concurrency:
+  group: iwac-release-publish
+  cancel-in-progress: false
 
 jobs:
-  build-and-push:
+  preflight:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-      id-token: write # MCP Registry publish via GitHub OIDC (no secret needed)
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: mcpb/package-lock.json
-
-      - name: Install dependencies
-        working-directory: mcpb
-        run: npm ci
-
-      # Release gate: the same hermetic suite ci.yml runs on PRs. Nothing below
-      # (image push, release assets, registry publish) happens if this fails.
-      - name: Typecheck, lint, build, and test
-        working-directory: mcpb
-        run: |
-          npm run typecheck
-          npm run lint
-          npm run build
-          npm test
-
-      - name: Check tag matches package.json/manifest.json versions
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Refuse already-published versions before building
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           TAG: ${{ github.ref_name }}
-        run: |
-          node -e '
-            const fs = require("fs");
-            const tag = process.env.TAG.replace(/^v/, "");
-            const pkg = JSON.parse(fs.readFileSync("mcpb/package.json", "utf8")).version;
-            const man = JSON.parse(fs.readFileSync("mcpb/manifest.json", "utf8")).version;
-            if (tag !== pkg || tag !== man) {
-              console.error(`version mismatch: tag ${tag}, package.json ${pkg}, manifest.json ${man}`);
-              process.exit(1);
-            }
-            console.log(`versions consistent: ${tag}`);
-          '
+          GH_TOKEN: ${{ github.token }}
+        run: node mcpb/scripts/release-guard.mjs
 
-      - name: Build MCPB and skill release assets
+  validate:
+    needs: preflight
+    uses: ./.github/workflows/package-validation.yml
+    with:
+      run-tests: true
+      retain-image: true
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+      # Official v1.8.1 linux_amd64 artifact digest from the upstream release.
+      MCP_PUBLISHER_VERSION: v1.8.1
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      # No npm install, build, or package scripts run in this privileged job.
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: desktop-bundles
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: container-image
+      - name: Verify the bytes passed by validation jobs
+        run: |
+          sha256sum -c release-checksums.sha256
+          sha256sum -c image.sha256
+      - name: Repeat read-only release guard immediately before publication
         if: startsWith(github.ref, 'refs/tags/v')
-        working-directory: mcpb
-        run: npm run release
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4.6.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Derive image tags and labels
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # `latest` only moves on version tags — a manual workflow_dispatch
-          # from a branch must not repoint it.
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,format=short
-
-      - name: Build image (local, for smoke test)
-        uses: docker/build-push-action@v7
-        with:
-          context: mcpb
-          file: mcpb/Dockerfile
-          platforms: linux/amd64
-          load: true
-          tags: iwac-mcp-smoke:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # The Dockerfile's own comment says "a missing binding is a runtime crash,
-      # not a build error" — so actually boot the container before pushing:
-      # /health must come up, and /mcp must enforce the bearer token.
-      - name: Container smoke test
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: node mcpb/scripts/release-guard.mjs
+      - name: Install the pinned, verified Registry publisher
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          docker run -d --rm --name iwac-smoke \
-            -e IWAC_MCP_BEARER_TOKEN=ci-smoke -p 8000:8000 iwac-mcp-smoke:ci
-          ok=""
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then ok=1; break; fi
-            sleep 1
-          done
-          if [ -z "$ok" ]; then
-            echo "container never became healthy"; docker logs iwac-smoke || true; exit 1
-          fi
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8000/mcp)
-          if [ "$code" != "401" ]; then
-            echo "expected 401 without bearer token, got $code"; exit 1
-          fi
-          docker stop iwac-smoke
-
-      - name: Push image (linux/amd64)
-        uses: docker/build-push-action@v7
-        with:
-          context: mcpb
-          file: mcpb/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Upload GitHub release assets
+          curl -fL --retry 3 "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" -o mcp-publisher.tar.gz
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+      - name: Reserve a new release and upload immutable assets
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # Publish the notes committed for this tag (docs/releases/<tag>.md)
-          # when there are any; the one-line body is only a fallback. An
-          # existing release is left as it is, so hand edits survive a re-run.
           notes="docs/releases/${TAG}.md"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            if [ -f "$notes" ]; then
-              gh release create "$TAG" --title "$TAG" --notes-file "$notes"
-            else
-              gh release create "$TAG" --title "$TAG" --notes "Release $TAG"
-            fi
+          if [ -f "$notes" ]; then
+            gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file "$notes"
+          else
+            gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes "Release $TAG"
           fi
-          gh release upload "$TAG" \
-            mcpb/iwac-mcp-server-windows.mcpb \
-            mcpb/iwac-mcp-server-macos.mcpb \
-            iwac-mcp-skill.zip \
-            --clobber
-
-      # MCP Registry publish. server.json is generated HERE, in the same job
-      # that packed and uploaded the .mcpb assets, so the embedded fileSha256
-      # hashes always match the exact uploaded bytes. Registry versions are
-      # immutable: re-running this workflow for an already-published tag fails
-      # at this step by design (re-packed zips hash differently) — bump the
-      # version instead of re-publishing.
-      - name: Generate server.json
+          gh release upload "$TAG" mcpb/iwac-mcp-server-windows.mcpb mcpb/iwac-mcp-server-macos.mcpb iwac-mcp-skill.zip server.json release-checksums.sha256
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,format=short
+      - name: Publish the tested image unchanged
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          docker load -i image.tar
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker tag iwac-mcp-smoke:ci "$tag"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"
+      - name: Make verified release assets public
         if: startsWith(github.ref, 'refs/tags/v')
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: node mcpb/scripts/make-server-json.mjs "$TAG"
-
-      - name: Install mcp-publisher
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          os=$(uname -s | tr '[:upper:]' '[:lower:]')
-          arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-          if [ "$MCP_PUBLISHER_VERSION" = "latest" ]; then
-            url="https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz"
-          else
-            url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_${os}_${arch}.tar.gz"
-          fi
-          curl -fL "$url" | tar xz mcp-publisher
-
-      - name: Publish to MCP Registry
+        run: gh release edit "$TAG" --draft=false
+      - name: Publish the matching hashes to MCP Registry
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           ./mcp-publisher login github-oidc

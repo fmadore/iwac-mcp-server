@@ -106,15 +106,13 @@ a `skill://iwac-mcp` catalogue listing them with SHA-256 digests. A client that
 has not installed the skill can read it from the server instead. Nothing is
 loaded until something asks for it.
 
-A host that implements the draft extension can also discover the same catalogue
+A host that implements the finalized Skills extension can also discover the same catalogue
 through its `skills/list` / `skills/get` methods, which the server declares via
 the `io.modelcontextprotocol/skills` capability.
 
-**This is a prototype and may change or disappear.** It tracks
-[SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
-a draft proposal that has not been accepted. Nothing about it is guaranteed
-between releases. Install the `.zip` above and treat this as a fallback, not a
-feature.
+The server implements the [finalized Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
+with manifest byte sizes, SHA-256 digests and cache metadata. Extension-aware
+clients can use `skills/*`; other clients can read the ordinary resources.
 
 </details>
 
@@ -187,7 +185,7 @@ install in ChatGPT. Two things carry the same guidance to a connector:
 
 - **Prompts.** The server publishes `iwac_research` and `iwac_overview`, which
   mirror the skill's workflow. Use these; they are the supported route.
-- **`skill://` resources (prototype).** The server also exposes the skill itself
+- **`skill://` resources.** The server also exposes the skill itself
   as MCP resources. Whether you can reach them depends on the client's support
   for reading resources, and the interface is experimental. See the note under
   [Add the research skill](#2-add-the-research-skill--strongly-recommended).
