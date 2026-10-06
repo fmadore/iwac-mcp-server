@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { ensureView, getById, q, type Bindable } from "../db.js";
+import { ensureView, q, type Bindable } from "../db.js";
 import {
   capOffset,
-  COUNTRIES,
   colsFor,
+  COUNTRIES,
   countryParam,
+  detailResult,
   errorResult,
   foldedEquals,
   keywordFilter,
@@ -156,14 +157,17 @@ export function registerAudiovisualTools(server: Server): void {
     {
       ...toolMeta("Get audiovisual details"),
       description:
-        "Get one audiovisual record by id: full description and transcription (where one exists), creator/publishing channel, duration, medium, subjects, places, language, rights, source, and three distinct links — `url` (the IWAC page, the one to cite), `external_url` (where a harvested video plays) and `media_url` (a deposited file). `source_type` says which to expect.",
-      inputSchema: z.object({ audiovisual_id: z.number().int() }),
+        "Get one audiovisual record by id: full description and transcription (where one exists), creator/publishing channel, duration, medium, subjects, places, language, rights, source, and three distinct links — `url` (the IWAC page, the one to cite), `external_url` (where a harvested video plays) and `media_url` (a deposited file). `source_type` says which to expect. Pass `keyword` for excerpts instead of the full (capped) transcription.",
+      // Only `keyword`: the always-on tool footprint sits just under its
+      // ceiling, so the excerpt window keeps get_document's defaults rather
+      // than spending two more parameters on tuning it.
+      inputSchema: z.object({ audiovisual_id: z.number().int(), keyword: z.string().optional() }),
     },
-    async ({ audiovisual_id }) => {
-      const schema = await ensureView("audiovisual");
-      const row = await getById("audiovisual", colsFor("audiovisual", schema, "detail"), audiovisual_id);
-      if (!row) return errorResult({ error: `Audiovisual item ${audiovisual_id} not found` });
-      return textResult(row);
-    },
+    // A recorded sermon transcribes to hundreds of thousands of characters (the
+    // longest public one is ~470k, ~120k tokens), and the uncapped body got the
+    // whole result discarded by the client. Same cap and excerpt path as an
+    // article's OCR.
+    ({ audiovisual_id, keyword }) =>
+      detailResult("audiovisual", "Audiovisual item", audiovisual_id, { key: "transcription", keyword }),
   );
 }

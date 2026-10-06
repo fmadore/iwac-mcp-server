@@ -152,7 +152,10 @@ function sentimentKey(input: string): string {
  */
 export function resolveSentimentModel(input: string): SentimentModel | undefined {
   const key = sentimentKey(input);
-  return SENTIMENT_MODELS.find((m) => m.id === key || m.aliases.includes(key));
+  // The prefix is compared in its own right rather than trusted to equal the
+  // id once `_` becomes `-`: that holds for every model today, and nothing
+  // would catch the first one for which it did not.
+  return SENTIMENT_MODELS.find((m) => m.id === key || m.aliases.includes(key) || sentimentKey(m.prefix) === key);
 }
 
 /** Why a retired handle is refused, or undefined if it was never one. */

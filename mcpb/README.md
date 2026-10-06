@@ -186,6 +186,8 @@ Environment variables (all transports unless noted):
 | `IWAC_MCP_BEARER_TOKEN` | — | HTTP mode only: the bearer token clients must send |
 | `IWAC_MCP_TOKEN_FILE` | `/run/secrets/iwac_mcp_token` | HTTP mode only: read the token from a mounted secret file instead |
 | `IWAC_MCP_ALLOWED_ORIGINS` | — | HTTP mode only: comma-separated exact HTTP(S) origins permitted when a request carries `Origin`; origin-less server clients remain allowed |
+| `IWAC_PRIVATE_DATASET` | `false` | Read the private full mirror instead of the public dataset (needs `IWAC_HF_TOKEN` or `HF_TOKEN`) |
+| `IWAC_ALLOW_PRIVATE_HTTP` | `false` | HTTP mode only: permit serving the private mirror; without it, HTTP mode refuses to start in private mode |
 
 ## Layout
 
@@ -380,7 +382,9 @@ may use that mode's cache. Explicit `IWAC_OFFLINE=true` uses downloaded files
 without authentication; removing a token does not erase private files.
 
 Keep the shared hosted endpoint public. This setting applies to the whole instance:
-everyone who can query a private instance can access its full text.
+everyone who can query a private instance can access its full text. HTTP mode
+therefore refuses to start in private mode unless `IWAC_ALLOW_PRIVATE_HTTP=true`
+is also set, and both transports log which dataset they serve at startup.
 
 ## Research workbench and operational changes
 

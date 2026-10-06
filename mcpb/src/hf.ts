@@ -19,6 +19,16 @@ import {
 } from "./hfCache.js";
 
 class HuggingFaceAccessError extends Error {}
+
+/**
+ * True for a refused private-dataset request: no token configured, or one the
+ * mirror rejects. Callers that degrade gracefully on network failures check
+ * this first, because retrying or reporting an outage cannot fix it.
+ */
+export function isDatasetAccessError(err: unknown): err is Error {
+  return err instanceof HuggingFaceAccessError;
+}
+
 function networkSignal(timeout: number): AbortSignal {
   const parent = requestSignal(),
     deadline = AbortSignal.timeout(timeout);

@@ -8,7 +8,7 @@
 // 768-dim space as the text embeddings, so a French text query retrieves photos
 // directly (semantic_search_images) without any caption to match against.
 import { z } from "zod";
-import { ensureView, getById, type Bindable } from "../db.js";
+import { ensureView, type Bindable } from "../db.js";
 import { config } from "../config.js";
 import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
 import {
@@ -17,6 +17,7 @@ import {
   COUNTRIES,
   countryParam,
   dateRangeFilter,
+  detailResult,
   errorResult,
   keywordFilter,
   likeFilterIfExists,
@@ -102,12 +103,7 @@ export function registerImageTools(server: Server): void {
         "the IIIF manifest, and the full-resolution `image_url`. The server returns URLs, not image bytes.",
       inputSchema: z.object({ image_id: z.number().int() }),
     },
-    async ({ image_id }) => {
-      const schema = await ensureView("images");
-      const row = await getById("images", colsFor("images", schema, "detail"), image_id);
-      if (!row) return errorResult({ error: `Image ${image_id} not found` });
-      return textResult(row);
-    },
+    ({ image_id }) => detailResult("images", "Image", image_id),
   );
 
   // Semantic search is dropped entirely when disabled (e.g. the public HTTP

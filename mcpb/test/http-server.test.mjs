@@ -51,6 +51,22 @@ function fail(msg) {
   if (!stderr.includes("bearer token")) fail(`tokenless --http should explain the missing token, got: ${stderr.slice(0, 200)}`);
 }
 
+// --- 1b. The private mirror is never served over HTTP by accident ------------
+// The shared deployment is public, so IWAC_PRIVATE_DATASET alone must refuse to
+// start; the explicit second opt-in is what lets it through.
+{
+  const env = { ...baseEnv, IWAC_MCP_BEARER_TOKEN: TOKEN, IWAC_PRIVATE_DATASET: "true" };
+  delete env.IWAC_ALLOW_PRIVATE_HTTP;
+  const child = spawn(process.execPath, [serverJs, "--http"], { env, stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", (d) => (stderr += d));
+  const code = await new Promise((resolve) => child.on("exit", resolve));
+  if (code !== 1) fail(`--http in private mode without the opt-in should exit 1, exited ${code}`);
+  if (!stderr.includes("IWAC_ALLOW_PRIVATE_HTTP")) {
+    fail(`private --http should name the opt-in it needs, got: ${stderr.slice(0, 200)}`);
+  }
+}
+
 // --- 2. Start the real server and wait for /health -----------------------------
 const server = spawn(process.execPath, [serverJs, "--http"], {
   env: { ...baseEnv, IWAC_MCP_BEARER_TOKEN: TOKEN },

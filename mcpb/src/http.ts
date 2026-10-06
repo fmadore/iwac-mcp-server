@@ -104,6 +104,17 @@ export function startHttpServer(createServer: () => McpServer): void {
     );
     process.exit(1);
   }
+  // Everyone who can reach this endpoint can read whatever it serves, and the
+  // shared deployment is public. One stray IWAC_PRIVATE_DATASET in a compose
+  // file must not publish the restricted full text, so it takes a second flag.
+  if (config.privateDataset && !config.allowPrivateHttp) {
+    console.error(
+      `[iwac] FATAL: IWAC_PRIVATE_DATASET is set, which would serve the restricted full text of ` +
+        `${config.datasetRepo} to every client of this endpoint. Set IWAC_ALLOW_PRIVATE_HTTP=true ` +
+        "as well if that is intended.",
+    );
+    process.exit(1);
+  }
   // Compare SHA-256 digests so the check is constant-time regardless of how
   // much of the token an attacker guessed (timingSafeEqual needs equal lengths).
   const expectedDigest = createHash("sha256").update(`Bearer ${token}`).digest();
@@ -221,7 +232,7 @@ export function startHttpServer(createServer: () => McpServer): void {
   server.listen(port, () => {
     console.error(
       `[iwac] IWAC MCP server running on http://0.0.0.0:${port}/mcp ` +
-        `(cache: ${config.cacheDir}, semantic: ${config.semanticSearchEnabled})`,
+        `(dataset: ${config.datasetRepo}, cache: ${config.cacheDir}, semantic: ${config.semanticSearchEnabled})`,
     );
   });
 }

@@ -6,6 +6,7 @@ import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import { config, ALL_SUBSETS, type Subset } from "../config.js";
+import { isDatasetAccessError } from "../hf.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   COUNTRIES,
@@ -105,7 +106,7 @@ export function registerStatsTools(server: Server): void {
       ...toolMeta("Collection statistics"),
       description:
         "Overall statistics for every IWAC subset, including `fulltext_coverage` — how many items in each " +
-        "subset actually carry searchable full text in this public dataset. Read that before treating any " +
+        "subset actually carry searchable full text in this dataset. Read that before treating any " +
         "keyword count as a full-text census.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({}),
@@ -132,12 +133,25 @@ export function registerStatsTools(server: Server): void {
             );
             const n = Number(row?.n ?? 0);
             const ft = hasFlag ? Number(row?.ft ?? 0) : null;
-            return [s, n, schema, ft] as const;
-          } catch {
-            return [s, null, null, null] as const;
+            return [s, n, schema, ft, null] as const;
+          } catch (err) {
+            console.error(`[iwac] get_collection_stats: subset ${s} unavailable: ${(err as Error).message}`);
+            return [s, null, null, null, err] as const;
           }
         }),
       );
+      // Nothing loaded is a failure, not an empty collection: a payload of
+      // zero counts would read as "the archive is empty". A refused
+      // private-dataset token says what to fix; anything else is an outage.
+      if (entries.every(([, n]) => n === null)) {
+        const access = entries.map(([, , , , err]) => err).find(isDatasetAccessError);
+        return errorResult({
+          error:
+            access?.message ??
+            "No IWAC subset could be loaded: the dataset cache is unavailable and Hugging Face could not be reached.",
+          failed_subsets: entries.map(([s]) => s),
+        });
+      }
       const counts: Record<string, number> = {};
       const failed: string[] = [];
       const coverage: Record<string, Coverage> = {};
@@ -364,7 +378,7 @@ export function registerStatsTools(server: Server): void {
         subset: z
           .string()
           .optional()
-          .describe("articles (default) | publications | references | documents | audiovisual"),
+          .describe("articles (default) | publications | references | documents | audiovisual | images"),
         granularity: z
           .string()
           .optional()

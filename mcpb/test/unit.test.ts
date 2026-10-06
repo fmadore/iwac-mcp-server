@@ -38,6 +38,7 @@ import {
   resolveHijriMonth,
   resolveLimit,
   resolveSentimentModel,
+  SENTIMENT_MODELS,
   CONSENSUS_COLS,
   CONSENSUS_DISPUTE_COL,
   DISPUTE_FIELDS,
@@ -58,7 +59,7 @@ import { interleave, tokenize, tokenizedWhere } from "../src/tools/search.js";
 import { activeQueries, MAX_ACTIVE_QUERIES, q, query, selectList, type Bindable } from "../src/db.js";
 import { memoizeJsonSchema } from "../src/tools/register.js";
 import { z } from "zod";
-import { ALL_SUBSETS, parseAllowedOrigins, parsePositiveInt, parseRefreshHours } from "../src/config.js";
+import { ALL_SUBSETS, envString, parseAllowedOrigins, parsePositiveInt, parseRefreshHours } from "../src/config.js";
 
 describe("configuration parsing", () => {
   it("accepts only complete positive decimal integers", () => {
@@ -86,6 +87,24 @@ describe("configuration parsing", () => {
     );
     assert.deepEqual([...parsed.allowed], ["https://chatgpt.com", "http://localhost:3000"]);
     assert.deepEqual(parsed.invalid, ["*", "https://example.com/path", "file:///tmp"]);
+  });
+
+  // An optional extension setting left blank arrives as its literal template.
+  it("treats blank values and unexpanded launcher templates as unset", () => {
+    const name = "IWAC_TEST_ENV_STRING";
+    // The literal `${…}` text is the input under test, not a missed template.
+    const templates = ["$" + "{user_config.hf_token}", "$" + "{HOME}/.iwac-mcp/cache"];
+    try {
+      for (const unset of [undefined, "", "   ", ...templates]) {
+        if (unset === undefined) delete process.env[name];
+        else process.env[name] = unset;
+        assert.equal(envString(name), undefined, `${String(unset)} should read as unset`);
+      }
+      process.env[name] = "  hf_abc123  ";
+      assert.equal(envString(name), "hf_abc123");
+    } finally {
+      delete process.env[name];
+    }
   });
 });
 
@@ -591,6 +610,12 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
 // these guard the invariant that survives the next campaign: a handle either
 // names a model this server serves, or fails loudly. Nothing in between.
 describe("sentiment model registry (generation 2)", () => {
+  it("resolves a model by its raw column prefix as documented", () => {
+    for (const m of SENTIMENT_MODELS) {
+      assert.equal(resolveSentimentModel(m.prefix)?.id, m.id, `${m.prefix} should resolve`);
+    }
+  });
+
   it("serves the five generation-2 models and builds their column names", () => {
     assert.deepEqual(SENTIMENT_MODEL_IDS, [
       "gpt-5-6-luna",

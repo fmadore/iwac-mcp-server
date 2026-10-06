@@ -18,14 +18,27 @@ export const ALL_SUBSETS: Subset[] = [
   "references",
 ];
 
+/**
+ * A trimmed environment value, or undefined when it is unset, blank, or an
+ * unexpanded launcher template. The extension loader substitutes
+ * `${user_config.x}` only for settings that have a value or a default, so an
+ * optional setting the user left empty (the Hugging Face token, the Google key)
+ * reaches this process as that literal string. It is truthy: as a token it
+ * earned a misleading 401 and, read first, it hid a valid `HF_TOKEN` or
+ * `GOOGLE_API_KEY` from the environment. A manifest default such as
+ * "${HOME}/.iwac-mcp/cache" can arrive unexpanded the same way.
+ */
+export function envString(name: string): string | undefined {
+  const v = process.env[name]?.trim();
+  return v && !v.includes("${") ? v : undefined;
+}
+
 function resolveCacheDir(): string {
-  const raw = process.env.IWAC_CACHE_DIR?.trim();
-  // Ignore an unexpanded launcher template (e.g. a manifest default of
-  // "${HOME}/.iwac-mcp/cache" passed through literally). path.resolve() would
-  // otherwise turn "${HOME}/..." into "<cwd>/${HOME}/..." and crash with EPERM
-  // when cwd is a protected dir (e.g. C:\Windows\system32). Fall back to $HOME.
-  if (raw && raw.length > 0 && !raw.includes("${")) return path.resolve(raw);
-  return path.join(os.homedir(), ".iwac-mcp", "cache");
+  // path.resolve() would turn an unexpanded "${HOME}/..." into
+  // "<cwd>/${HOME}/..." and crash with EPERM when cwd is a protected dir (e.g.
+  // C:\Windows\system32); envString drops it, and we fall back to $HOME.
+  const raw = envString("IWAC_CACHE_DIR");
+  return raw ? path.resolve(raw) : path.join(os.homedir(), ".iwac-mcp", "cache");
 }
 
 function parseBool(v: string | undefined, fallback: boolean): boolean {
@@ -94,18 +107,18 @@ export function parseAllowedOrigins(v: string | undefined): ParsedOrigins {
  * (Claude Desktop) never needs it, and the HTTP server refuses to start without it.
  */
 function readBearerToken(): string | undefined {
-  const file = process.env.IWAC_MCP_TOKEN_FILE?.trim() || "/run/secrets/iwac_mcp_token";
+  const file = envString("IWAC_MCP_TOKEN_FILE") ?? "/run/secrets/iwac_mcp_token";
   try {
     const v = fs.readFileSync(file, "utf8").trim();
     if (v) return v;
   } catch {
     // file absent/unreadable — fall through to the env var
   }
-  return process.env.IWAC_MCP_BEARER_TOKEN?.trim() || undefined;
+  return envString("IWAC_MCP_BEARER_TOKEN");
 }
 
-const httpOrigins = parseAllowedOrigins(process.env.IWAC_MCP_ALLOWED_ORIGINS);
-const privateDataset = parseBool(process.env.IWAC_PRIVATE_DATASET, false);
+const httpOrigins = parseAllowedOrigins(envString("IWAC_MCP_ALLOWED_ORIGINS"));
+const privateDataset = parseBool(envString("IWAC_PRIVATE_DATASET"), false);
 
 export function datasetCacheDir(base: string, usePrivate: boolean): string {
   return usePrivate ? path.join(base, "private-full") : base;
@@ -114,30 +127,31 @@ export function datasetCacheDir(base: string, usePrivate: boolean): string {
 export const config = {
   datasetRepo: privateDataset ? PRIVATE_DATASET_REPO : DATASET_REPO,
   privateDataset,
-  hfToken: process.env.IWAC_HF_TOKEN?.trim() || process.env.HF_TOKEN?.trim() || undefined,
-  datasetRevision: process.env.IWAC_DATASET_REVISION?.trim() || DATASET_REVISION,
+  hfToken: envString("IWAC_HF_TOKEN") ?? envString("HF_TOKEN"),
+  datasetRevision: envString("IWAC_DATASET_REVISION") ?? DATASET_REVISION,
   cacheDir: datasetCacheDir(resolveCacheDir(), privateDataset),
   // Offline mode: trust whatever parquet is cached, never touch the network.
   // Used by the hermetic fixture tests and useful on flaky links.
-  offline: parseBool(process.env.IWAC_OFFLINE, false),
+  offline: parseBool(envString("IWAC_OFFLINE"), false),
   // How long a loaded subset is trusted before the next tool call that touches
   // it checks the Hub for a newer revision in the background (db.ts). A
   // long-running server (the HTTP endpoint, a desktop session left open)
   // otherwise serves the data it started with until it is restarted.
-  refreshIntervalMs: parseRefreshHours(process.env.IWAC_REFRESH_HOURS) * 3_600_000,
-  semanticSearchEnabled: parseBool(process.env.IWAC_SEMANTIC_SEARCH_ENABLED, false),
-  embeddingProvider: process.env.IWAC_EMBEDDING_PROVIDER === "local" ? "local" : "gemini",
-  localEmbeddingUrl: process.env.IWAC_LOCAL_EMBEDDING_URL?.trim() || "http://127.0.0.1:8080/v1/embeddings",
-  localEmbeddingApiKey: process.env.IWAC_LOCAL_EMBEDDING_API_KEY?.trim() || undefined,
-  embeddingModel: process.env.IWAC_EMBEDDING_MODEL?.trim() || "gemini-embedding-2",
-  embeddingDimensionality: parsePositiveInt(process.env.IWAC_EMBEDDING_DIMENSIONALITY, 768),
+  refreshIntervalMs: parseRefreshHours(envString("IWAC_REFRESH_HOURS")) * 3_600_000,
+  semanticSearchEnabled: parseBool(envString("IWAC_SEMANTIC_SEARCH_ENABLED"), false),
+  embeddingProvider: envString("IWAC_EMBEDDING_PROVIDER") === "local" ? "local" : "gemini",
+  localEmbeddingUrl: envString("IWAC_LOCAL_EMBEDDING_URL") ?? "http://127.0.0.1:8080/v1/embeddings",
+  localEmbeddingApiKey: envString("IWAC_LOCAL_EMBEDDING_API_KEY"),
+  embeddingModel: envString("IWAC_EMBEDDING_MODEL") ?? "gemini-embedding-2",
+  embeddingDimensionality: parsePositiveInt(envString("IWAC_EMBEDDING_DIMENSIONALITY"), 768),
   googleApiKey:
-    process.env.IWAC_GOOGLE_API_KEY?.trim() ||
-    process.env.GOOGLE_API_KEY?.trim() ||
-    process.env.GEMINI_API_KEY?.trim() ||
-    undefined,
+    envString("IWAC_GOOGLE_API_KEY") ?? envString("GOOGLE_API_KEY") ?? envString("GEMINI_API_KEY"),
   // Remote HTTP transport (node server/index.js --http). Unused by stdio mode.
-  httpPort: parsePositiveInt(process.env.PORT, 8000, 65_535),
+  httpPort: parsePositiveInt(envString("PORT"), 8000, 65_535),
+  // The private mirror holds restricted full text. HTTP mode is how the shared
+  // public endpoint runs, so serving the mirror over it takes a second,
+  // explicit opt-in rather than one stray variable in a compose file.
+  allowPrivateHttp: parseBool(envString("IWAC_ALLOW_PRIVATE_HTTP"), false),
   bearerToken: readBearerToken(),
   httpAllowedOrigins: httpOrigins.allowed,
   invalidHttpOrigins: httpOrigins.invalid,

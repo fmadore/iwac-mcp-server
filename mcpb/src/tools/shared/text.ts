@@ -208,7 +208,7 @@ export function keywordExcerpts(
 /**
  * Attach a long OCR body to a detail row: with a keyword, replace the raw text
  * with keyword-in-context excerpts; without one, cap it and flag truncation.
- * Shared by get_article and get_document (get_publication_fulltext keeps its
+ * Shared by get_article, get_document and get_audiovisual (get_publication_fulltext keeps its
  * own flow — different response keys: fulltext, char_count, tableOfContents).
  */
 export function attachOcrOrExcerpts(

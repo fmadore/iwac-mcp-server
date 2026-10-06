@@ -81,7 +81,9 @@ may use that mode's cache. Explicit `IWAC_OFFLINE=true` uses downloaded files
 without authentication; removing a token does not erase private files.
 
 Keep the shared hosted endpoint public. This setting applies to the whole instance:
-everyone who can query a private instance can access its full text.
+everyone who can query a private instance can access its full text. HTTP mode
+therefore refuses to start in private mode unless `IWAC_ALLOW_PRIVATE_HTTP=true`
+is also set, and both transports log which dataset they serve at startup.
 
 ### 2. The research skill — `iwac-mcp-skill.zip` (strongly recommended)
 

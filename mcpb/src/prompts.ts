@@ -12,6 +12,7 @@
 // citation rule). When one changes, change the other, the same rule the
 // INSTRUCTIONS block carries.
 import { z } from "zod";
+import { FULLTEXT_PROMPT_RULE } from "./coverage.js";
 import type { Server } from "./tools/_shared.js";
 
 const CITATION_RULE =
@@ -27,9 +28,7 @@ const LANGUAGE_RULE =
 const COVERAGE_RULE =
   "Disclose coverage limits in the write-up: Niger is thin (one newspaper, 2018 on), Nigeria has no press " +
   "articles at all (audiovisual and photographs only), the press is ~96% francophone, AI sentiment is " +
-  "model-derived rather than editorial ground truth, and this public dataset carries OCR full text only for " +
-  "the items whose content is public (~56% of articles) — check `fulltext_coverage` in get_collection_stats " +
-  "and present keyword counts as a floor, not a census.";
+  `model-derived rather than editorial ground truth, and ${FULLTEXT_PROMPT_RULE}`;
 
 // Hosts stop a turn after ~20 tool calls ("Claude reached its tool-use limit"),
 // and the cap counts turns of the tool loop rather than individual calls. That

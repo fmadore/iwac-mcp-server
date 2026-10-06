@@ -28,6 +28,8 @@ await withFixtureScope(async (fixtures) => {
     fail("instructions mention semantic_search_* although semantic search is disabled (conditional block regressed)");
   if (!instructions.includes("get_temporal_distribution"))
     fail("instructions do not mention get_temporal_distribution");
+  if (!instructions.includes("The public dataset omits restricted OCR") || instructions.includes("{{"))
+    fail("public-mode instructions lost their coverage sentence or left a placeholder unfilled");
 
   // Prompts are the only workflow channel a skill-less client (ChatGPT) gets.
   const prompts = await client.listPrompts();
@@ -1166,6 +1168,16 @@ await withFixtureScope(async (fixtures) => {
   // The record #20 was opened for: three links with three meanings. The IWAC page
   // is the citable one, the watch URL is where the video plays, and media_url —
   // absent here — is a file. Inferring "every PDF is a file" was the old contract.
+  // A transcription can run to ~470k characters, so it takes the same
+  // keyword-excerpt path as an article's OCR instead of shipping whole.
+  await call("get_audiovisual", { audiovisual_id: 601, keyword: "ramadan" }, {
+    check: (p) => {
+      if (p.transcription) return "with a keyword, the transcription should be replaced by excerpts";
+      if (!(p.match_count >= 1) || !p.excerpts?.[0]?.includes("Ramadan")) return "expected an excerpt around 'Ramadan'";
+      if (!p.description) return "the rest of the record should still come back";
+      return null;
+    },
+  });
   await call("get_audiovisual", { audiovisual_id: 603 }, {
     check: (p) => {
       if (!p.url?.includes("/item/603")) return "get_audiovisual should return the IWAC catalogue page";

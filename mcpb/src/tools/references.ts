@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { ensureView, getById, type Bindable } from "../db.js";
+import { ensureView, type Bindable } from "../db.js";
 import {
   capOffset,
-  COUNTRIES,
   colsFor,
+  COUNTRIES,
   countryParam,
+  detailResult,
   errorResult,
   keywordFilter,
   likeFilterIfExists,
@@ -96,11 +97,6 @@ export function registerReferenceTools(server: Server): void {
         "(present for ~51% of references), subjects, DOI/URL, and host-work details (book, volume, issue, pages).",
       inputSchema: z.object({ reference_id: z.number().int() }),
     },
-    async ({ reference_id }) => {
-      const schema = await ensureView("references");
-      const row = await getById("references", colsFor("references", schema, "detail"), reference_id);
-      if (!row) return errorResult({ error: `Reference ${reference_id} not found` });
-      return textResult(row);
-    },
+    ({ reference_id }) => detailResult("references", "Reference", reference_id),
   );
 }

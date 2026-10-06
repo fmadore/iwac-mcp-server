@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { ensureView, getById, type Bindable } from "../db.js";
+import { ensureView, type Bindable } from "../db.js";
 import {
-  attachOcrOrExcerpts,
   capOffset,
-  COUNTRIES,
   colsFor,
+  COUNTRIES,
   countryParam,
+  detailResult,
   errorResult,
   keywordFilter,
   pipeValueFilterIfExists,
@@ -80,12 +80,12 @@ export function registerDocumentTools(server: Server): void {
         max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
       }),
     },
-    async ({ document_id, keyword, context_chars, max_excerpts }) => {
-      const schema = await ensureView("documents");
-      const row = await getById("documents", colsFor("documents", schema, "detail"), document_id);
-      if (!row) return errorResult({ error: `Document ${document_id} not found` });
-      attachOcrOrExcerpts(row, "ocr_text", keyword, { contextChars: context_chars, maxExcerpts: max_excerpts });
-      return textResult(row);
-    },
+    ({ document_id, keyword, context_chars, max_excerpts }) =>
+      detailResult("documents", "Document", document_id, {
+        key: "ocr_text",
+        keyword,
+        contextChars: context_chars,
+        maxExcerpts: max_excerpts,
+      }),
   );
 }

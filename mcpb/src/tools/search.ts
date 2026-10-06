@@ -12,6 +12,7 @@
 import { z } from "zod";
 import { ensureView, getById, q, query, viewName, type Bindable } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
+import { isDatasetAccessError } from "../hf.js";
 import {
   capText,
   colsFor,
@@ -235,6 +236,7 @@ const FULLTEXT_TOOL: Partial<Record<Subset, { tool: string; idParam: string }>> 
   articles: { tool: "get_article", idParam: "article_id" },
   publications: { tool: "get_publication_fulltext", idParam: "publication_id" },
   documents: { tool: "get_document", idParam: "document_id" },
+  audiovisual: { tool: "get_audiovisual", idParam: "audiovisual_id" },
 };
 
 // Output schemas for the ChatGPT (apps / deep research) contract: the result
@@ -339,7 +341,7 @@ export function registerSearchTools(server: Server): void {
               return { subset, hits, ok: true, searchable };
             } catch (err) {
               console.error(`[iwac] search: subset ${subset} unavailable — ${(err as Error).message}`);
-              return { subset, hits: [] as Hit[], ok: false, searchable: false };
+              return { subset, hits: [] as Hit[], ok: false, searchable: false, err };
             }
           }),
         );
@@ -350,8 +352,13 @@ export function registerSearchTools(server: Server): void {
       // Every subset down is a failure, not an empty result set: returning
       // {count: 0} there would present a total outage as "no matches found".
       if (unavailable.length === SEARCH_SUBSETS.length) {
+        // A refused private-dataset token is a configuration error with a
+        // specific fix, not an outage: pass its message on instead of telling
+        // the user Hugging Face is down.
+        const access = fast.map((r) => ("err" in r ? r.err : undefined)).find(isDatasetAccessError);
         return errorResult({
           error:
+            access?.message ??
             "No IWAC subset could be loaded — the dataset cache is unavailable and Hugging Face could not be reached.",
           unavailable_categories: unavailable,
         });

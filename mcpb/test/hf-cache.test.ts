@@ -8,7 +8,7 @@ import { describe, it } from "node:test";
 import { config, datasetCacheDir, PRIVATE_DATASET_REPO } from "../src/config.js";
 import { withRequest } from "../src/request.js";
 import { ensureView, pendingRefresh, query, viewGeneration, viewName } from "../src/db.js";
-import { downloadName, ensureSubset } from "../src/hf.js";
+import { downloadName, ensureSubset, isDatasetAccessError } from "../src/hf.js";
 import { CACHE_MANIFEST_FILE, parseCacheManifest, remoteIdentity } from "../src/hfCache.js";
 
 function sha256(value: string | Buffer): string {
@@ -187,7 +187,11 @@ describe("private dataset access", () => {
       assert.ok(requests.every((r) => r.auth === "Bearer hf_test_only" && r.url.includes(PRIVATE_DATASET_REPO)));
       // Even with cached text, invalid/missing credentials must fail online.
       config.hfToken = undefined;
-      await assert.rejects(ensureSubset("articles"), /requires IWAC_HF_TOKEN/);
+      // Tools tell this apart from an outage, so it must stay recognisable.
+      await assert.rejects(
+        ensureSubset("articles"),
+        (err: unknown) => isDatasetAccessError(err) && /requires IWAC_HF_TOKEN/.test(err.message),
+      );
       config.hfToken = "hf_test_only";
       for (const status of [401, 403, 404]) {
         globalThis.fetch = (async () => new Response(null, { status })) as typeof fetch;

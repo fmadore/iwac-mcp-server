@@ -1,15 +1,15 @@
 import { aggregateFilters, exactInput } from "./aggregates/shared.js";
 import { z } from "zod";
-import { ensureView, getById } from "../db.js";
+import { ensureView, } from "../db.js";
 import { config } from "../config.js";
 import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
 import {
-  attachOcrOrExcerpts,
   capOffset,
-  COUNTRIES,
   colsFor,
+  COUNTRIES,
   countryParam,
   dateRangeFilter,
+  detailResult,
   errorResult,
   likeFilterIfExists,
   pipeValueFilterIfExists,
@@ -132,13 +132,13 @@ export function registerArticleTools(server: Server): void {
         max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
       }),
     },
-    async ({ article_id, keyword, context_chars, max_excerpts }) => {
-      const schema = await ensureView("articles");
-      const row = await getById("articles", colsFor("articles", schema, "detail"), article_id);
-      if (!row) return errorResult({ error: `Article ${article_id} not found` });
-      attachOcrOrExcerpts(row, "ocr_text", keyword, { contextChars: context_chars, maxExcerpts: max_excerpts });
-      return textResult(row);
-    },
+    ({ article_id, keyword, context_chars, max_excerpts }) =>
+      detailResult("articles", "Article", article_id, {
+        key: "ocr_text",
+        keyword,
+        contextChars: context_chars,
+        maxExcerpts: max_excerpts,
+      }),
   );
 
   // Semantic search is dropped entirely when disabled (e.g. the public HTTP

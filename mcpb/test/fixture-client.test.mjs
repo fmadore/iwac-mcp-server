@@ -43,6 +43,15 @@ test("private mode reports its repository and actual OCR coverage", async () => 
       equal(payload.dataset_url, "https://huggingface.co/datasets/fmadore/islam-west-africa-collection-full");
       equal(payload.fulltext_note.startsWith("PRIVATE full mirror"), true);
       equal(payload.fulltext_coverage.articles.with_fulltext > 0, true);
+      // The handshake and the research prompt must describe the mirror this
+      // instance actually reads, not repeat the public dataset's masking.
+      const instructions = client.getInstructions?.() ?? "";
+      equal(instructions.includes("PRIVATE full mirror"), true);
+      equal(instructions.includes("The public dataset omits restricted OCR"), false);
+      const prompt = await client.getPrompt({ name: "iwac_research", arguments: { question: "q" } });
+      const text = prompt.messages.map((m) => m.content.text ?? "").join("\n");
+      equal(text.includes("private full mirror"), true);
+      equal(text.includes("public dataset"), false);
     });
   } finally {
     if (previous === undefined) delete process.env.IWAC_PRIVATE_DATASET;
