@@ -8,7 +8,15 @@ import { bindingIsCurrent, lockedBinding, verifyIntegrity } from "../scripts/duc
 import { collectSkills } from "../scripts/collect-skills.mjs";
 import { assertUnpublished } from "../scripts/release-guard.mjs";
 
-const release = { tag: "v1.2.3", repository: "fmadore/iwac-mcp-server", version: "1.2.3", manifestVersion: "1.2.3", token: "test-token" };
+const release = { tag: "v1.2.3", repository: "fmadore/iwac-mcp-server", version: "1.2.3", manifestVersion: "1.2.3", token: "test-token", sleep: async () => {} };
+
+/** Answers in order, then repeats the last one: an outage keeps answering 503. */
+const answering = (...outcomes) => async () => {
+  const next = outcomes.length > 1 ? outcomes.shift() : outcomes[0];
+  if (next instanceof Error) throw next;
+  return new Response(null, { status: next });
+};
+const timeout = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
 
 test("release guard permits two explicit 404s and never sends GitHub token to Registry", async () => {
   const requests = [];
@@ -23,11 +31,32 @@ test("release guard permits two explicit 404s and never sends GitHub token to Re
   assert.match(requests[1].url, /versions\/1.2.3\?include_deleted=true$/);
 });
 
-for (const [name, statuses] of [["GitHub release", [200]], ["MCP Registry version", [404, 200]], ["GitHub outage", [503]], ["Registry outage", [404, 503]], ["GitHub permission error", [403]]]) {
+for (const [name, outcomes, expected] of [
+  ["GitHub release", [200], /GitHub release v1.2.3 already exists/],
+  ["MCP Registry version", [404, 200], /MCP Registry version 1.2.3 already exists/],
+  ["GitHub outage", [503], /GitHub release v1.2.3 preflight failed \(HTTP 503, 4 attempts\); refusing publication/],
+  ["Registry outage", [404, 503], /MCP Registry version 1.2.3 preflight failed \(HTTP 503/],
+  ["Registry that never answers", [404, timeout()], /MCP Registry version 1.2.3 preflight failed \(timed out after 20s, 4 attempts\)/],
+  ["GitHub permission error", [403], /GitHub release v1.2.3 preflight failed \(HTTP 403, 1 attempt\)/],
+]) {
   test(`release guard blocks ${name} before publication`, async () => {
-    await assert.rejects(assertUnpublished({ ...release, fetchImpl: async () => new Response(null, { status: statuses.shift() }) }), /already exists|refusing publication/);
+    await assert.rejects(assertUnpublished({ ...release, fetchImpl: answering(...outcomes) }), expected);
   });
 }
+
+// v3.8.0 stopped here on one Registry timeout while the Registry was answering
+// again minutes later. A lookup that says nothing about the version is retried.
+test("release guard retries timeouts and 5xx, then trusts a definite 404", async () => {
+  const waits = [];
+  await assertUnpublished({ ...release, sleep: async (ms) => { waits.push(ms); }, fetchImpl: answering(404, timeout(), 502, 429, 404) });
+  assert.deepEqual(waits, [5_000, 10_000, 20_000]);
+});
+
+test("release guard does not retry an answer that will not change", async () => {
+  let calls = 0;
+  await assert.rejects(assertUnpublished({ ...release, fetchImpl: async () => { calls++; return new Response(null, { status: 403 }); } }), /HTTP 403/);
+  assert.equal(calls, 1);
+});
 
 test("release guard fails closed on network failure and version mismatch", async () => {
   await assert.rejects(assertUnpublished({ ...release, fetchImpl: async () => { throw new Error("network down"); } }), /network down/);
