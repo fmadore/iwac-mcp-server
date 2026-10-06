@@ -23,7 +23,6 @@ import {
   pubDateOrder,
   resolveLimit,
   resolveSentimentModel,
-  rowsToMap,
   runListQuery,
   retiredSentimentModel,
   SENTIMENT_MODEL_IDS,
@@ -78,6 +77,39 @@ const SENTIMENT_DISTRIBUTION_OUTPUT = z.object({
   disputed: z.looseObject({}).optional(),
   note: z.string().optional(),
 });
+
+/**
+ * Count every label of every listed column in ONE scan. Each label column used
+ * to be read by its own GROUP BY, so `model:"all"` ran some fifteen scans,
+ * each re-evaluating the filter per row; with a pipe-split, accent-folded
+ * `subject` filter that was ~400 ms even with the scans side by side. UNPIVOT
+ * turns the columns into (column, label) pairs and counts them together. Each
+ * column is cast to VARCHAR first because UNPIVOT needs one type, and rows come
+ * back count-descending then label, the order the per-column tallies used.
+ * Empty labels are dropped, as rowsToMap drops them.
+ */
+async function labelDistributions(
+  columns: string[],
+  whereSql: string,
+  params: Bindable[],
+): Promise<Map<string, Record<string, number>>> {
+  const out = new Map<string, Record<string, number>>(columns.map((c) => [c, {}]));
+  if (!columns.length) return out;
+  const rows = await query(
+    `SELECT f, k, COUNT(*) AS c FROM (
+       UNPIVOT (SELECT ${columns.map((c) => `CAST(${q(c)} AS VARCHAR) AS ${q(c)}`).join(", ")}
+                FROM ${viewName("articles")} ${whereSql})
+       ON ${columns.map(q).join(", ")} INTO NAME f VALUE k
+     ) GROUP BY ALL ORDER BY f, c DESC, k`,
+    params,
+  );
+  for (const r of rows) {
+    if (r.k == null || String(r.k).trim() === "") continue;
+    const bucket = out.get(String(r.f));
+    if (bucket) bucket[String(r.k)] = Number(r.c);
+  }
+  return out;
+}
 
 export function registerSentimentTools(server: Server): void {
   // === search_by_sentiment =================================================
@@ -258,12 +290,17 @@ export function registerSentimentTools(server: Server): void {
         return errorResult({ error: "Comparison requires two distinct available models", valid_values: available.map((m) => m.id) });
       }
 
-      const total = Number(
-        (await queryScalarSingle<number | bigint>(
-          `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`,
-          params,
-        )) ?? 0,
-      );
+      // Every label column this call reports, counted in ONE pass beside the
+      // total (see labelDistributions).
+      const labelCols = [
+        ...(wantsConsensus ? [] : models.flatMap((m) => Object.values(sentimentCols(m)))),
+        ...(wantsConsensus || wantsAll ? [CONSENSUS_COLS.polarity, CONSENSUS_COLS.centrality] : []),
+      ].filter((c) => schema.has(c));
+      const [totalRaw, labels] = await Promise.all([
+        queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`, params),
+        labelDistributions(labelCols, whereSql, params),
+      ]);
+      const total = Number(totalRaw ?? 0);
       const payload: ChartPayload<"sentiment"> & Record<string, unknown> = {
         view: VIEW.sentiment,
         model: requested,
@@ -275,19 +312,11 @@ export function registerSentimentTools(server: Server): void {
       const distributionsFor = async (model: SentimentModel): Promise<ModelBlock> => {
         const cols = sentimentCols(model);
         const out: ModelBlock = {};
-        // Three independent tallies of one filter, so they run side by side.
-        const tally = (col: string) =>
-          schema.has(col)
-            ? query(
-                `SELECT ${q(col)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
-                params,
-              ).then(rowsToMap)
-            : Promise.resolve(undefined);
-        const [polarity, centrality, subjectivity] = await Promise.all([
-          tally(cols.polarity),
-          tally(cols.centrality),
-          tally(cols.subjectivity),
-        ]);
+        // Read from the one counting pass rather than a GROUP BY per column.
+        const tally = (col: string) => (schema.has(col) ? (labels.get(col) ?? {}) : undefined);
+        const polarity = tally(cols.polarity);
+        const centrality = tally(cols.centrality);
+        const subjectivity = tally(cols.subjectivity);
         if (polarity) out.polarity_distribution = polarity;
         if (centrality) out.centrality_distribution = centrality;
         // Subjectivity is an ordinal LABEL, so the distribution is the answer and
@@ -368,12 +397,7 @@ export function registerSentimentTools(server: Server): void {
           ["centrality", CONSENSUS_COLS.centrality],
         ] as const) {
           if (!schema.has(col)) continue;
-          const dist = rowsToMap(
-            await query(
-              `SELECT ${q(col)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql} GROUP BY 1 ORDER BY 2 DESC, 1`,
-              params,
-            ),
-          );
+          const dist = labels.get(col) ?? {};
           out[`${field}_distribution`] = dist;
           coverage[field] = Object.values(dist).reduce((a, b) => a + b, 0);
         }

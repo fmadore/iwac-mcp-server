@@ -5,7 +5,7 @@ import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../
 import type { Subset } from "../../config.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
-import { AGG_SUBSETS, aggregateFilters, filterInputs } from "./shared.js";
+import { AGG_SUBSETS, aggregateFilters, filterInputs, withScope } from "./shared.js";
 
 /**
  * Columns worth ranking. An allowlist rather than an arbitrary column name:
@@ -87,63 +87,64 @@ export function registerDistributionsTools(server: Server): void {
 
       const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
       if (filters.err) return errorResult(filters.err);
-      const { where, params, echo } = filters;
-      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-      const totals = await queryOne(
-        `SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE NULLIF(trim(${q(field)}), '') IS NOT NULL) AS filled
-         FROM ${viewName(subset)} ${whereSql}`,
-        params,
-      );
-      const total = Number(totals?.n ?? 0);
-      const filled = Number(totals?.filled ?? 0);
-
-      // One row per (item, value) pair, then count. `item_count` and `count`
-      // differ only for a field that repeats a value within one item, which the
-      // parquet does not do — but counting DISTINCT items keeps it true anyway.
-      const exploded = `
-        SELECT trim(raw) AS value, COUNT(DISTINCT "o:id") AS count
-        FROM (SELECT "o:id", ${explode(field)} FROM ${viewName(subset)} ${whereSql})
-        WHERE NULLIF(trim(raw), '') IS NOT NULL
-        GROUP BY 1`;
-      const rows = await query(`${exploded} ORDER BY count DESC, value LIMIT ${topN}`, params);
-      const distinct = Number(
-        (await queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM (${exploded})`, params)) ?? 0,
-      );
-
-      const payload: ChartPayload<"field"> & Record<string, unknown> = {
-        view: VIEW.field,
-        subset,
-        field,
-        filters: echo,
-        total_matches: total,
-        items_with_value: filled,
-        distinct_values: distinct,
-        values: rows.map((r) => ({ value: String(r.value), count: Number(r.count) })),
-      };
-      if (distinct > rows.length) payload.other_values = distinct - rows.length;
-
-      if (args.over_time && schema.has("pub_date")) {
-        const perYear = await query(
-          `SELECT NULLIF(substr(CAST(pub_date AS VARCHAR), 1, 4), '') AS bucket, COUNT(*) AS total,
-                  COUNT(*) FILTER (WHERE NULLIF(trim(${q(field)}), '') IS NOT NULL) AS with_value
-           FROM ${viewName(subset)} ${whereSql}
-           GROUP BY 1 ORDER BY 1`,
+      const { echo } = filters;
+      return withScope(subset, filters, Boolean(args.keyword), async ({ params, whereSql }) => {
+        const totals = await queryOne(
+          `SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE NULLIF(trim(${q(field)}), '') IS NOT NULL) AS filled
+           FROM ${viewName(subset)} ${whereSql}`,
           params,
         );
-        const coverage: NonNullable<ChartPayload<"field">["coverage_by_year"]> = {};
-        for (const r of perYear) {
-          if (r.bucket == null) continue;
-          coverage[String(r.bucket)] = { total: Number(r.total), with_value: Number(r.with_value) };
-        }
-        payload.coverage_by_year = coverage;
-      }
+        const total = Number(totals?.n ?? 0);
+        const filled = Number(totals?.filled ?? 0);
 
-      if (PIPE_FIELDS.has(field) && filled) {
-        payload.note =
-          `'${field}' is multi-valued: counts sum to more than ${filled} because an item with several values ` +
-          `is counted under each.`;
-      }
-      return chartResult(payload);
+        // One row per (item, value) pair, then count. `item_count` and `count`
+        // differ only for a field that repeats a value within one item, which the
+        // parquet does not do — but counting DISTINCT items keeps it true anyway.
+        const exploded = `
+          SELECT trim(raw) AS value, COUNT(DISTINCT "o:id") AS count
+          FROM (SELECT "o:id", ${explode(field)} FROM ${viewName(subset)} ${whereSql})
+          WHERE NULLIF(trim(raw), '') IS NOT NULL
+          GROUP BY 1`;
+        const rows = await query(`${exploded} ORDER BY count DESC, value LIMIT ${topN}`, params);
+        const distinct = Number(
+          (await queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM (${exploded})`, params)) ?? 0,
+        );
+
+        const payload: ChartPayload<"field"> & Record<string, unknown> = {
+          view: VIEW.field,
+          subset,
+          field,
+          filters: echo,
+          total_matches: total,
+          items_with_value: filled,
+          distinct_values: distinct,
+          values: rows.map((r) => ({ value: String(r.value), count: Number(r.count) })),
+        };
+        if (distinct > rows.length) payload.other_values = distinct - rows.length;
+
+        if (args.over_time && schema.has("pub_date")) {
+          const perYear = await query(
+            `SELECT NULLIF(substr(CAST(pub_date AS VARCHAR), 1, 4), '') AS bucket, COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE NULLIF(trim(${q(field)}), '') IS NOT NULL) AS with_value
+             FROM ${viewName(subset)} ${whereSql}
+             GROUP BY 1 ORDER BY 1`,
+            params,
+          );
+          const coverage: NonNullable<ChartPayload<"field">["coverage_by_year"]> = {};
+          for (const r of perYear) {
+            if (r.bucket == null) continue;
+            coverage[String(r.bucket)] = { total: Number(r.total), with_value: Number(r.with_value) };
+          }
+          payload.coverage_by_year = coverage;
+        }
+
+        if (PIPE_FIELDS.has(field) && filled) {
+          payload.note =
+            `'${field}' is multi-valued: counts sum to more than ${filled} because an item with several values ` +
+            `is counted under each.`;
+        }
+        return chartResult(payload);
+      });
     },
   );
 
@@ -183,66 +184,67 @@ export function registerDistributionsTools(server: Server): void {
 
       const filters = aggregateFilters(subset, schema, { ...args, country: country.canonical });
       if (filters.err) return errorResult(filters.err);
-      const { where, params, echo } = filters;
-      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-      const total = Number(
-        (await queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName(subset)} ${whereSql}`, params)) ?? 0,
-      );
+      const { echo } = filters;
+      return withScope(subset, filters, Boolean(args.keyword), async ({ params, whereSql }) => {
+        const total = Number(
+          (await queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName(subset)} ${whereSql}`, params)) ?? 0,
+        );
 
-      // Explode once into (item, value), then self-join on the item. Restricting
-      // to the top-N values BEFORE the join keeps it a 900-cell problem instead
-      // of a 214x214 one.
-      const pairs = `
-        WITH v AS (
-          SELECT "o:id" AS id, trim(raw) AS value
-          FROM (SELECT "o:id", ${explode(field)} FROM ${viewName(subset)} ${whereSql})
-          WHERE NULLIF(trim(raw), '') IS NOT NULL
-        ),
-        top AS (SELECT value, COUNT(DISTINCT id) AS n FROM v GROUP BY 1 ORDER BY n DESC, value LIMIT ${topN}),
-        f AS (SELECT v.id, v.value FROM v JOIN top USING (value))
-        SELECT a.value AS a, b.value AS b, COUNT(DISTINCT a.id) AS c
-        FROM f a JOIN f b ON a.id = b.id
-        GROUP BY 1, 2`;
-      const [topRows, pairRows] = await Promise.all([
-        query(
-          `SELECT value, COUNT(DISTINCT id) AS n FROM (
-             SELECT "o:id" AS id, trim(raw) AS value
-             FROM (SELECT "o:id", ${explode(field)} FROM ${viewName(subset)} ${whereSql})
-             WHERE NULLIF(trim(raw), '') IS NOT NULL
-           ) GROUP BY 1 ORDER BY n DESC, value LIMIT ${topN}`,
-          params,
-        ),
-        query(pairs, params),
-      ]);
+        // Explode once into (item, value), then self-join on the item. Restricting
+        // to the top-N values BEFORE the join keeps it a 900-cell problem instead
+        // of a 214x214 one.
+        const pairs = `
+          WITH v AS (
+            SELECT "o:id" AS id, trim(raw) AS value
+            FROM (SELECT "o:id", ${explode(field)} FROM ${viewName(subset)} ${whereSql})
+            WHERE NULLIF(trim(raw), '') IS NOT NULL
+          ),
+          top AS (SELECT value, COUNT(DISTINCT id) AS n FROM v GROUP BY 1 ORDER BY n DESC, value LIMIT ${topN}),
+          f AS (SELECT v.id, v.value FROM v JOIN top USING (value))
+          SELECT a.value AS a, b.value AS b, COUNT(DISTINCT a.id) AS c
+          FROM f a JOIN f b ON a.id = b.id
+          GROUP BY 1, 2`;
+        const [topRows, pairRows] = await Promise.all([
+          query(
+            `SELECT value, COUNT(DISTINCT id) AS n FROM (
+               SELECT "o:id" AS id, trim(raw) AS value
+               FROM (SELECT "o:id", ${explode(field)} FROM ${viewName(subset)} ${whereSql})
+               WHERE NULLIF(trim(raw), '') IS NOT NULL
+             ) GROUP BY 1 ORDER BY n DESC, value LIMIT ${topN}`,
+            params,
+          ),
+          query(pairs, params),
+        ]);
 
-      const values = topRows.map((r) => String(r.value));
-      const index = new Map(values.map((v, i) => [v, i]));
-      const matrix: number[][] = values.map(() => values.map(() => 0));
-      for (const r of pairRows) {
-        const i = index.get(String(r.a));
-        const j = index.get(String(r.b));
-        if (i !== undefined && j !== undefined) matrix[i][j] = Number(r.c);
-      }
-      // Strongest pairs, upper triangle only — the matrix is symmetric, so
-      // listing both halves would just repeat every pair.
-      const topPairs = values
-        .flatMap((a, i) => values.slice(i + 1).map((b, k) => ({ a, b, count: matrix[i][i + 1 + k] })))
-        .filter((p) => p.count > 0)
-        .sort((x, y) => y.count - x.count)
-        .slice(0, 15);
+        const values = topRows.map((r) => String(r.value));
+        const index = new Map(values.map((v, i) => [v, i]));
+        const matrix: number[][] = values.map(() => values.map(() => 0));
+        for (const r of pairRows) {
+          const i = index.get(String(r.a));
+          const j = index.get(String(r.b));
+          if (i !== undefined && j !== undefined) matrix[i][j] = Number(r.c);
+        }
+        // Strongest pairs, upper triangle only — the matrix is symmetric, so
+        // listing both halves would just repeat every pair.
+        const topPairs = values
+          .flatMap((a, i) => values.slice(i + 1).map((b, k) => ({ a, b, count: matrix[i][i + 1 + k] })))
+          .filter((p) => p.count > 0)
+          .sort((x, y) => y.count - x.count)
+          .slice(0, 15);
 
-      return chartResult({
-        view: VIEW.cooccurrence,
-        subset,
-        field,
-        filters: echo,
-        total_matches: total,
-        values: topRows.map((r) => ({ value: String(r.value), count: Number(r.n) })),
-        matrix,
-        top_pairs: topPairs,
-        note:
-          `Matrix covers the ${values.length} most frequent '${field}' values only; pairs outside that set are ` +
-          `not counted. The diagonal is each value's own item count.`,
+        return chartResult({
+          view: VIEW.cooccurrence,
+          subset,
+          field,
+          filters: echo,
+          total_matches: total,
+          values: topRows.map((r) => ({ value: String(r.value), count: Number(r.n) })),
+          matrix,
+          top_pairs: topPairs,
+          note:
+            `Matrix covers the ${values.length} most frequent '${field}' values only; pairs outside that set are ` +
+            `not counted. The diagonal is each value's own item count.`,
+        });
       });
     },
   );

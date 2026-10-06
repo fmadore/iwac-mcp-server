@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ensureView, q, query, queryScalarSingle, viewName } from "../../db.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
-import { aggregateFilters, filterInputs } from "./shared.js";
+import { aggregateFilters, filterInputs, withScope } from "./shared.js";
 
 const GROUP_FIELDS = ["year", "newspaper", "country"] as const;
 
@@ -62,83 +62,84 @@ export function registerLexicalTools(server: Server): void {
 
       const filters = aggregateFilters("articles", schema, { ...args, country: country.canonical });
       if (filters.err) return errorResult(filters.err);
-      const { where, params, echo } = filters;
-      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-      const groupExpr =
-        groupBy === "year" ? `NULLIF(substr(CAST(pub_date AS VARCHAR), 1, 4), '')` : `NULLIF(trim(${q(groupBy)}), '')`;
+      const { echo } = filters;
+      return withScope("articles", filters, Boolean(args.keyword), async ({ params, whereSql }) => {
+        const groupExpr =
+          groupBy === "year" ? `NULLIF(substr(CAST(pub_date AS VARCHAR), 1, 4), '')` : `NULLIF(trim(${q(groupBy)}), '')`;
 
-      // Readability is French-lexicon based, so a Dendi or English item scores
-      // as "hard" for reasons that have nothing to do with its prose. Excluding
-      // it from THAT metric only is the honest fix: MATTR is a type-token ratio
-      // and needs no lexicon, so it stays valid for every language.
-      const frenchOnly = schema.has("language")
-        ? `CASE WHEN coalesce(NULLIF(trim(language), ''), 'Français') ILIKE '%français%' THEN "Lisibilite_OCR" END`
-        : `"Lisibilite_OCR"`;
+        // Readability is French-lexicon based, so a Dendi or English item scores
+        // as "hard" for reasons that have nothing to do with its prose. Excluding
+        // it from THAT metric only is the honest fix: MATTR is a type-token ratio
+        // and needs no lexicon, so it stays valid for every language.
+        const frenchOnly = schema.has("language")
+          ? `CASE WHEN coalesce(NULLIF(trim(language), ''), 'Français') ILIKE '%français%' THEN "Lisibilite_OCR" END`
+          : `"Lisibilite_OCR"`;
 
-      const selects = present
-        .map(([col, name]) =>
-          name === "readability"
-            ? `ROUND(AVG(${frenchOnly}), 2) AS ${name}_avg, ROUND(median(${frenchOnly}), 2) AS ${name}_median, ` +
-              `COUNT(${frenchOnly}) AS ${name}_n`
-            : `ROUND(AVG(${q(col)}), ${name === "words" ? 0 : 3}) AS ${name}_avg, ` +
-              `ROUND(median(${q(col)}), ${name === "words" ? 0 : 3}) AS ${name}_median, ` +
-              `COUNT(${q(col)}) AS ${name}_n`,
-        )
-        .join(", ");
+        const selects = present
+          .map(([col, name]) =>
+            name === "readability"
+              ? `ROUND(AVG(${frenchOnly}), 2) AS ${name}_avg, ROUND(median(${frenchOnly}), 2) AS ${name}_median, ` +
+                `COUNT(${frenchOnly}) AS ${name}_n`
+              : `ROUND(AVG(${q(col)}), ${name === "words" ? 0 : 3}) AS ${name}_avg, ` +
+                `ROUND(median(${q(col)}), ${name === "words" ? 0 : 3}) AS ${name}_median, ` +
+                `COUNT(${q(col)}) AS ${name}_n`,
+          )
+          .join(", ");
 
-      const order = groupBy === "year" ? "ORDER BY grp" : `ORDER BY items DESC, grp LIMIT ${topN}`;
-      // Three independent scans of the same filter, run side by side.
-      const [rows, rawTotal, rawExcluded] = await Promise.all([
-        query(
-          `SELECT ${groupExpr} AS grp, COUNT(*) AS items, ${selects}
-           FROM ${viewName("articles")} ${whereSql}
-           GROUP BY 1 HAVING ${groupExpr} IS NOT NULL ${order}`,
-          params,
-        ),
-        queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`, params),
-        schema.has("language") && schema.has("Lisibilite_OCR")
-          ? queryScalarSingle<number | bigint>(
-              `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}${whereSql ? " AND" : " WHERE"} ` +
-                `"Lisibilite_OCR" IS NOT NULL AND NULLIF(trim(language), '') IS NOT NULL ` +
-                `AND language NOT ILIKE '%français%'`,
-              params,
-            )
-          : 0,
-      ]);
-      const total = Number(rawTotal ?? 0);
-      const excluded = Number(rawExcluded ?? 0);
+        const order = groupBy === "year" ? "ORDER BY grp" : `ORDER BY items DESC, grp LIMIT ${topN}`;
+        // Three independent scans of the same filter, run side by side.
+        const [rows, rawTotal, rawExcluded] = await Promise.all([
+          query(
+            `SELECT ${groupExpr} AS grp, COUNT(*) AS items, ${selects}
+             FROM ${viewName("articles")} ${whereSql}
+             GROUP BY 1 HAVING ${groupExpr} IS NOT NULL ${order}`,
+            params,
+          ),
+          queryScalarSingle<number | bigint>(`SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}`, params),
+          schema.has("language") && schema.has("Lisibilite_OCR")
+            ? queryScalarSingle<number | bigint>(
+                `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}${whereSql ? " AND" : " WHERE"} ` +
+                  `"Lisibilite_OCR" IS NOT NULL AND NULLIF(trim(language), '') IS NOT NULL ` +
+                  `AND language NOT ILIKE '%français%'`,
+                params,
+              )
+            : 0,
+        ]);
+        const total = Number(rawTotal ?? 0);
+        const excluded = Number(rawExcluded ?? 0);
 
-      const payload: ChartPayload<"lexical"> & Record<string, unknown> = {
-        view: VIEW.lexical,
-        group_by: groupBy,
-        filters: echo,
-        total_matches: total,
-        groups: rows.map((r) => {
-          const rec: Record<string, unknown> = { group: String(r.grp), items: Number(r.items) };
-          for (const [, name] of present) {
-            if (r[`${name}_avg`] != null) rec[`${name}_avg`] = Number(r[`${name}_avg`]);
-            if (r[`${name}_median`] != null) rec[`${name}_median`] = Number(r[`${name}_median`]);
-            rec[`${name}_n`] = Number(r[`${name}_n`] ?? 0);
-          }
-          return rec;
-        }),
-        metrics: {
-          ...(present.some(([, n]) => n === "readability")
-            ? { readability: { label: "Readability (French)", higher_is: "easier", range: "0-100" } }
-            : {}),
-          ...(present.some(([, n]) => n === "mattr")
-            ? { mattr: { label: "Lexical richness (MATTR)", higher_is: "more varied", range: "0-1" } }
-            : {}),
-          ...(present.some(([, n]) => n === "words")
-            ? { words: { label: "Words per item", higher_is: "longer" } }
-            : {}),
-        },
-      };
-      if (excluded) payload.readability_excluded = excluded;
-      if (groupBy === "newspaper" && rows.length >= topN) {
-        payload.note = `Showing the ${topN} newspapers with the most matching items.`;
-      }
-      return chartResult(payload);
+        const payload: ChartPayload<"lexical"> & Record<string, unknown> = {
+          view: VIEW.lexical,
+          group_by: groupBy,
+          filters: echo,
+          total_matches: total,
+          groups: rows.map((r) => {
+            const rec: Record<string, unknown> = { group: String(r.grp), items: Number(r.items) };
+            for (const [, name] of present) {
+              if (r[`${name}_avg`] != null) rec[`${name}_avg`] = Number(r[`${name}_avg`]);
+              if (r[`${name}_median`] != null) rec[`${name}_median`] = Number(r[`${name}_median`]);
+              rec[`${name}_n`] = Number(r[`${name}_n`] ?? 0);
+            }
+            return rec;
+          }),
+          metrics: {
+            ...(present.some(([, n]) => n === "readability")
+              ? { readability: { label: "Readability (French)", higher_is: "easier", range: "0-100" } }
+              : {}),
+            ...(present.some(([, n]) => n === "mattr")
+              ? { mattr: { label: "Lexical richness (MATTR)", higher_is: "more varied", range: "0-1" } }
+              : {}),
+            ...(present.some(([, n]) => n === "words")
+              ? { words: { label: "Words per item", higher_is: "longer" } }
+              : {}),
+          },
+        };
+        if (excluded) payload.readability_excluded = excluded;
+        if (groupBy === "newspaper" && rows.length >= topN) {
+          payload.note = `Showing the ${topN} newspapers with the most matching items.`;
+        }
+        return chartResult(payload);
+      });
     },
   );
 }

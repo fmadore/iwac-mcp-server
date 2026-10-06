@@ -3,7 +3,7 @@ import type { Bindable } from "../../db.js";
 import type { Subset } from "../../config.js";
 import { EXACT_FIELDS, type Selection } from "../../selection.js";
 import { resolveSentimentModel, sentimentCols } from "../shared/sentiment.js";
-import { q } from "../../db.js";
+import { q, query, viewName } from "../../db.js";
 import { foldedEquals, pipeValueEquals } from "../shared/filters.js";
 import { hijriFilter, requireHijriColumns, resolveHijriMonth } from "../shared/calendar.js";
 import {
@@ -193,4 +193,56 @@ export function exactInput() {
         "AND values. Fields: subject/spatial/author/language/country/newspaper/topic_id/min_prob/scored_by; country_raw=whole cell; polarity:<model>.",
       ),
   };
+}
+
+/** The filtered set as an aggregate's queries see it. */
+export interface FilterScope {
+  where: string[];
+  params: Bindable[];
+  /** `WHERE …`, or "" for an unfiltered call. */
+  whereSql: string;
+}
+
+let scopeSeq = 0;
+/** Scope tables whose DROP failed (a cancelled request); retried by the next scope. */
+const orphanScopes = new Set<string>();
+
+/**
+ * Run an aggregate's queries over its filtered set with a keyword filter
+ * evaluated ONCE.
+ *
+ * Every aggregate issues several queries over the same set (a total, the
+ * distribution, a distinct count, a per-year series), and each re-ran the WHERE
+ * clause. That is free for a country or subject filter and not for a keyword:
+ * an accent-folded LIKE over the articles' OCR costs ~0.6 s a pass, so
+ * get_field_distribution with a keyword and `over_time` took ~2.2 s for four
+ * passes over the same rows. With a keyword, the matching ids go into a table
+ * first and every query filters on that instead. Cheap filters skip the detour.
+ *
+ * An ordinary table in the shared in-memory catalog rather than a TEMP one:
+ * connections carry no per-connection state, and any pooled connection must be
+ * able to read it. `viewName()` already resolves to this request's pinned
+ * snapshot, so the ids and the later queries see the same files.
+ */
+export async function withScope<T>(
+  subset: Subset,
+  filters: { where: string[]; params: Bindable[] },
+  heavy: boolean,
+  body: (scope: FilterScope) => Promise<T>,
+): Promise<T> {
+  const { where, params } = filters;
+  if (!heavy || !where.length) {
+    return body({ where, params, whereSql: where.length ? `WHERE ${where.join(" AND ")}` : "" });
+  }
+  for (const orphan of orphanScopes) {
+    await query(`DROP TABLE IF EXISTS ${orphan}`).then(() => orphanScopes.delete(orphan), () => {});
+  }
+  const table = `__scope_${process.pid}_${++scopeSeq}`;
+  await query(`CREATE TABLE ${table} AS SELECT "o:id" AS __id FROM ${viewName(subset)} WHERE ${where.join(" AND ")}`, params);
+  try {
+    const scoped = `"o:id" IN (SELECT __id FROM ${table})`;
+    return await body({ where: [scoped], params: [], whereSql: `WHERE ${scoped}` });
+  } finally {
+    await query(`DROP TABLE IF EXISTS ${table}`).catch(() => orphanScopes.add(table));
+  }
 }
