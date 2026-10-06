@@ -45,7 +45,7 @@ export function registerTopicsTools(server: Server): void {
     async (args) => {
       const subsetV = validateEnum(args.subset, ["articles", "references"] as const, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
-      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const subset: Subset = subsetV.canonical ?? "articles";
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
 

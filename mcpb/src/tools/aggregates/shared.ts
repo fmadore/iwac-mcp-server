@@ -20,6 +20,14 @@ import {
 /** Subsets these aggregates accept. `index` has no pub_date or subject. */
 export const AGG_SUBSETS = ["articles", "publications", "references"] as const;
 
+/** Multi-value columns are pipe-joined; ranking or mapping one means exploding it first. */
+export const PIPE_FIELDS: ReadonlySet<string> = new Set(["subject", "spatial", "author", "language", "country"]);
+
+/** `unnest`-based explode of a column into one row per value, as `raw` (trim it and drop blanks after). */
+export function explode(field: string): string {
+  return PIPE_FIELDS.has(field) ? `unnest(str_split(coalesce(${q(field)}, ''), '|')) AS raw` : `${q(field)} AS raw`;
+}
+
 /**
  * The filter set every aggregate here accepts, applied identically to all of
  * them so a user can move between the charts without re-learning the inputs.

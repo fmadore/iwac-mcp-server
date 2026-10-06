@@ -224,8 +224,3 @@ export function registerSkillResources(server: Server): void {
     }
   }
 }
-
-/** Names of the skills this build serves, for the instructions block and tests. */
-export function servedSkillNames(): string[] {
-  return loadCatalogue().map((s) => s.name);
-}

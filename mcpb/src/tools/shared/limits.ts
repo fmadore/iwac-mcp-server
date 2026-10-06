@@ -7,10 +7,6 @@ export const CHARACTER_LIMIT = 25000;
 // Input capping (lenient clamp, not rejection)
 // -----------------------------------------------------------------------------
 
-export function capLimit(v: number | undefined, def: number, max: number): number {
-  return Math.max(1, Math.min(v ?? def, max));
-}
-
 export function capOffset(v: number | undefined): number {
   return Math.max(0, v ?? 0);
 }

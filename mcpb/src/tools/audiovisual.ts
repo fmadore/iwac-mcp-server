@@ -1,13 +1,13 @@
 import { z } from "zod";
-import { ensureView, q, type Bindable } from "../db.js";
+import { ensureView, type Bindable } from "../db.js";
 import {
   capOffset,
   colsFor,
   COUNTRIES,
   countryParam,
   detailResult,
+  equalsFilterIfExists,
   errorResult,
-  foldedEquals,
   keywordFilter,
   likeFilterIfExists,
   MEDIUM_VALUES,
@@ -74,14 +74,8 @@ export function registerAudiovisualTools(server: Server): void {
       pipeValueFilterIfExists(schema, where, params, "language", args.language);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       likeFilterIfExists(schema, where, params, "publisher", args.publisher);
-      if (medium.canonical && schema.has("medium")) {
-        where.push(foldedEquals(q("medium")));
-        params.push(medium.canonical);
-      }
-      if (sourceType.canonical && schema.has("source_type")) {
-        where.push(foldedEquals(q("source_type")));
-        params.push(sourceType.canonical);
-      }
+      equalsFilterIfExists(schema, where, params, "medium", medium.canonical);
+      equalsFilterIfExists(schema, where, params, "source_type", sourceType.canonical);
 
       return textResult(
         await runListQuery({
@@ -132,10 +126,7 @@ export function registerAudiovisualTools(server: Server): void {
       const params: Bindable[] = [];
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       likeFilterIfExists(schema, where, params, "publisher", args.publisher);
-      if (sourceType.canonical && schema.has("source_type")) {
-        where.push(foldedEquals(q("source_type")));
-        params.push(sourceType.canonical);
-      }
+      equalsFilterIfExists(schema, where, params, "source_type", sourceType.canonical);
 
       return textResult(
         await runListQuery({

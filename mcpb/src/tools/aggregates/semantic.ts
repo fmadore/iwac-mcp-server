@@ -121,7 +121,7 @@ export function registerSemanticTools(server: Server): void {
     async (args) => {
       const subsetV = validateEnum(args.subset, AGG_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
-      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const subset: Subset = subsetV.canonical ?? "articles";
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
       const colorRaw = args.color_by?.trim();
@@ -309,7 +309,7 @@ export function registerSemanticTools(server: Server): void {
       if (askedV.err) return errorResult(askedV.err);
       const subsetV = askedV.canonical ? askedV : validateEnum(subsetFromId, AGG_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
-      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const subset: Subset = subsetV.canonical ?? "articles";
       if (subsetFromId && askedV.canonical && askedV.canonical !== subsetFromId) {
         return errorResult({
           error: `id '${rawId}' names subset '${subsetFromId}' but subset '${args.subset}' was also given`,

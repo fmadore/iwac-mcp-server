@@ -128,16 +128,21 @@ async function searchSubset(subset: Subset, queryStr: string, limit: number, col
   );
   const hits = rows.map((r) => {
     const localId = String(r.id);
-    const title = typeof r.title === "string" ? r.title.trim() : String(r.title ?? "").trim();
-    const url = typeof r.url === "string" ? r.url.trim() : "";
-    return {
-      id: `${subset}:${localId}`,
-      title: title || `Untitled ${subset} item ${localId}`,
-      url: url || itemUrl(localId),
-      category: subset,
-    };
+    return { id: `${subset}:${localId}`, ...citable(subset, localId, r.title, r.url), category: subset };
   });
   return { hits, searchable: true };
+}
+
+/**
+ * A title and url that are never blank. ChatGPT only builds a citation when
+ * `url` is a non-empty string, and the result compaction drops empty strings,
+ * so an item with a blank `iwac_url` would come back uncitable for no good
+ * reason: fall back to the derivable canonical page and a stable placeholder.
+ */
+function citable(subset: Subset, localId: string, title: unknown, url: unknown): { title: string; url: string } {
+  const t = typeof title === "string" ? title.trim() : String(title ?? "").trim();
+  const u = typeof url === "string" ? url.trim() : "";
+  return { title: t || `Untitled ${subset} item ${localId}`, url: u || itemUrl(localId) };
 }
 
 /** Round-robin interleave so every subset is represented, not just the largest.
@@ -461,14 +466,7 @@ export function registerSearchTools(server: Server): void {
         });
       }
 
-      // Fall back to the derivable canonical page and a stable placeholder
-      // title: ChatGPT only builds a citation when `url` is a non-empty string,
-      // and the result compaction drops empty strings, so an item with a blank
-      // `iwac_url` would come back uncitable for no good reason.
-      const rawTitle = typeof row.title === "string" ? row.title.trim() : String(row.title ?? "").trim();
-      const rawUrl = typeof row.url === "string" ? row.url.trim() : "";
-      const title = rawTitle || `Untitled ${subset} item ${localId}`;
-      const url = rawUrl || itemUrl(localId);
+      const { title, url } = citable(subset, localId, row.title, row.url);
       // When the body column is empty, fall back to the item's own description
       // rather than declaring the item textless. Audiovisual is the case that
       // matters: its body is the transcription, which ships for 50 of 1,771

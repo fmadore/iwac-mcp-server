@@ -1,4 +1,4 @@
-import { CHARACTER_LIMIT, capLimit } from "./limits.js";
+import { CHARACTER_LIMIT, resolveLimit } from "./limits.js";
 
 // -----------------------------------------------------------------------------
 // Aggregation / text helpers
@@ -140,7 +140,7 @@ export function keywordExcerpts(
   opts: { contextChars?: number; maxExcerpts?: number } = {},
 ): ExcerptResult {
   const contextChars = Math.max(200, Math.min(opts.contextChars ?? 2000, 5000));
-  const maxExcerpts = capLimit(opts.maxExcerpts, 10, 25);
+  const maxExcerpts = resolveLimit(opts.maxExcerpts, 10, 25).value;
   const half = Math.floor(contextChars / 2);
   ocr = ocr.normalize("NFC"); // keep fold offsets valid in the sliced text
   const haystack = foldText(ocr);

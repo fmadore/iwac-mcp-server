@@ -59,6 +59,19 @@ export function foldedEquals(colExpr: string): string {
   return `strip_accents(lower(trim(${colExpr}))) = strip_accents(lower(trim(?)))`;
 }
 
+/** Append an accent-insensitive whole-value `col = value` to a WHERE list, if the column exists. */
+export function equalsFilterIfExists(
+  schema: Set<string>,
+  where: string[],
+  params: Bindable[],
+  column: string,
+  value: string | undefined,
+): void {
+  if (!value || !schema.has(column)) return;
+  where.push(foldedEquals(q(column)));
+  params.push(value);
+}
+
 /** Append an accent-insensitive `col LIKE %value%` to a WHERE list, if the column exists. */
 export function likeFilterIfExists(
   schema: Set<string>,

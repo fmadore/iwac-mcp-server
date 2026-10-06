@@ -5,7 +5,7 @@ import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../
 import type { Subset } from "../../config.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
-import { AGG_SUBSETS, aggregateFilters, filterInputs, withScope } from "./shared.js";
+import { AGG_SUBSETS, aggregateFilters, filterInputs, withScope, explode, PIPE_FIELDS } from "./shared.js";
 
 /**
  * Columns worth ranking. An allowlist rather than an arbitrary column name:
@@ -13,14 +13,6 @@ import { AGG_SUBSETS, aggregateFilters, filterInputs, withScope } from "./shared
  * and keeps the tool from being pointed at OCR or an embedding.
  */
 const RANKABLE_FIELDS = ["subject", "spatial", "author", "language", "newspaper", "country"] as const;
-
-/** Multi-value columns are pipe-joined; ranking one means exploding it first. */
-const PIPE_FIELDS = new Set(["subject", "spatial", "author", "language", "country"]);
-
-/** `unnest`-based explode of a pipe column into one trimmed, non-empty row per value. */
-function explode(field: string): string {
-  return PIPE_FIELDS.has(field) ? `unnest(str_split(coalesce(${q(field)}, ''), '|')) AS raw` : `${q(field)} AS raw`;
-}
 
 const FIELD_OUTPUT = z.object({
   view: z.string(),
@@ -69,10 +61,13 @@ export function registerDistributionsTools(server: Server): void {
     async (args) => {
       const subsetV = validateEnum(args.subset, AGG_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
-      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const subset: Subset = subsetV.canonical ?? "articles";
       const fieldV = validateEnum(args.field, RANKABLE_FIELDS, "field");
       if (fieldV.err) return errorResult(fieldV.err);
-      const field = fieldV.canonical as string;
+      // A blank field validates as "no value", which the old cast turned into
+      // the string "undefined" and a baffling "Field 'undefined'" error.
+      const field = fieldV.canonical;
+      if (!field) return errorResult({ error: "field is required", valid_values: [...RANKABLE_FIELDS] });
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
 
@@ -167,10 +162,10 @@ export function registerDistributionsTools(server: Server): void {
     async (args) => {
       const subsetV = validateEnum(args.subset, AGG_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
-      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const subset: Subset = subsetV.canonical ?? "articles";
       const fieldV = validateEnum(args.field, ["subject", "spatial", "author", "language"] as const, "field");
       if (fieldV.err) return errorResult(fieldV.err);
-      const field = (fieldV.canonical ?? "subject") as string;
+      const field = fieldV.canonical ?? "subject";
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
 

@@ -396,7 +396,7 @@ export function registerStatsTools(server: Server): void {
     async (args) => {
       const subsetV = validateEnum(args.subset, TEMPORAL_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
-      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const subset: Subset = subsetV.canonical ?? "articles";
       const granV = validateEnum(args.granularity, GRANULARITIES, "granularity");
       if (granV.err) return errorResult(granV.err);
       const calV = validateEnum(args.calendar, CALENDARS, "calendar");

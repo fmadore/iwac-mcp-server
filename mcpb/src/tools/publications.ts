@@ -16,13 +16,10 @@ import {
   keywordExcerpts,
   pipeValueFilterIfExists,
   pubDateOrder,
-  requireHijriColumns,
-  resolveHijriMonth,
   resolveLimit,
   runListQuery,
   textResult,
   toolMeta,
-  validateDateBounds,
   validateEnum,
   type Server,
 } from "./_shared.js";
@@ -74,20 +71,11 @@ export function registerPublicationTools(server: Server): void {
     },
     async (args) => {
       const schema = await ensureView("publications");
-      const country = validateEnum(args.country, COUNTRIES, "country");
-      if (country.err) return errorResult(country.err);
-      const dates = validateDateBounds(args.date_from, args.date_to);
-      if (dates.err) return errorResult(dates.err);
-      const hijriMonth = resolveHijriMonth(args.hijri_month);
-      if (hijriMonth.err) return errorResult(hijriMonth.err);
-      if (hijriMonth.n !== undefined || args.hijri_year !== undefined) {
-        const missing = requireHijriColumns(schema, "publications");
-        if (missing) return errorResult(missing);
-      }
+      // Country, dates and the lunar pair are validated by aggregateFilters below.
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
 
-      const selection = aggregateFilters("publications", schema, { ...args, country: country.canonical });
+      const selection = aggregateFilters("publications", schema, args);
       if (selection.err) return errorResult(selection.err);
       const { where, params } = selection;
 

@@ -88,9 +88,9 @@ export function subjectivityRank(label: string): number | undefined {
 /** Authority-index `Type` values. */
 export const INDEX_TYPES = ["Personnes", "Organisations", "Lieux", "Événements", "Sujets", "Notices d'autorité"] as const;
 
-export interface EnumValidation {
+export interface EnumValidation<T extends string = string> {
   /** Canonical spelling when the input matched (undefined when no value was given). */
-  canonical?: string;
+  canonical?: T;
   /** An `{error, valid_values}` payload to wrap in errorResult when the input is invalid. */
   err?: { error: string; valid_values: string[] };
 }
@@ -102,11 +102,11 @@ export interface EnumValidation {
  * no value was supplied (the filter is simply skipped). Folding mirrors the
  * SQL-side strip_accents(lower()) via foldText, so `cote d'ivoire` ≡ `Côte d'Ivoire`.
  */
-export function validateEnum(
+export function validateEnum<T extends string>(
   value: string | undefined,
-  vocab: readonly string[],
+  vocab: readonly T[],
   field: string,
-): EnumValidation {
+): EnumValidation<T> {
   if (value === undefined || value.trim() === "") return {};
   const folded = foldText(value).trim();
   const match = vocab.find((v) => foldText(v).trim() === folded);

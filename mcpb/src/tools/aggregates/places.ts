@@ -4,7 +4,7 @@ import { ensureView, q, query, queryOne, viewName, viewGeneration } from "../../
 import type { Subset } from "../../config.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import { COUNTRIES, errorResult, rowsToMap, toolMeta, validateEnum, type Server } from "../_shared.js";
-import { AGG_SUBSETS, aggregateFilters, filterInputs, withScope } from "./shared.js";
+import { AGG_SUBSETS, aggregateFilters, explode, filterInputs, withScope } from "./shared.js";
 
 const geoCache = new Map<number, { total: number; geocoded: number }>();
 
@@ -41,7 +41,7 @@ export function registerPlacesTools(server: Server): void {
     async (args) => {
       const subsetV = validateEnum(args.subset, AGG_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
-      const subset = (subsetV.canonical ?? "articles") as Subset;
+      const subset: Subset = subsetV.canonical ?? "articles";
       const country = validateEnum(args.country, COUNTRIES, "country");
       if (country.err) return errorResult(country.err);
 
@@ -93,7 +93,7 @@ export function registerPlacesTools(server: Server): void {
         const rows = await query(
           `WITH v AS (
              SELECT "o:id" AS id, trim(raw) AS place, strip_accents(lower(trim(raw))) AS key
-             FROM (SELECT "o:id", unnest(str_split(coalesce(spatial, ''), '|')) AS raw FROM ${viewName(subset)} ${whereSql})
+             FROM (SELECT "o:id", ${explode("spatial")} FROM ${viewName(subset)} ${whereSql})
              WHERE NULLIF(trim(raw), '') IS NOT NULL
            )
            SELECT v.place, COUNT(DISTINCT v.id) AS count${geocoded ? ", any_value(g.lat) AS lat, any_value(g.lng) AS lng" : ""}
@@ -134,7 +134,7 @@ export function registerPlacesTools(server: Server): void {
             ? rowsToMap(
                 await query(
                   `SELECT trim(raw) AS k, COUNT(DISTINCT "o:id") AS c
-                 FROM (SELECT "o:id", unnest(str_split(coalesce(country, ''), '|')) AS raw FROM ${viewName(subset)} ${whereSql})
+                 FROM (SELECT "o:id", ${explode("country")} FROM ${viewName(subset)} ${whereSql})
                  WHERE NULLIF(trim(raw), '') IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1`,
                   params,
                 ),

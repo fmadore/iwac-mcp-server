@@ -5,9 +5,9 @@ import {
   colsFor,
   COUNTRIES,
   countryParam,
+  equalsFilterIfExists,
   errorResult,
   escapeLike,
-  foldedEquals,
   foldedLike,
   INDEX_TYPES,
   indexFreqOrder,
@@ -67,10 +67,7 @@ export function registerIndexTools(server: Server): void {
         return errorResult({ error: "The index subset has no title columns in this dataset revision" });
       }
       const where: string[] = [`(${namePredicates.join(" OR ")})`];
-      if (indexType.canonical && schema.has("Type")) {
-        where.push(foldedEquals(q("Type")));
-        params.push(indexType.canonical);
-      }
+      equalsFilterIfExists(schema, where, params, "Type", indexType.canonical);
       return textResult(
         await runListQuery({
           subset: "index",
@@ -199,6 +196,6 @@ function registerIndexListTool(
       handler,
     );
   } else {
-    server.registerTool(name, { ...meta, inputSchema: commonSchema }, handler);
+    server.registerTool(name, { ...meta, inputSchema: z.object(commonSchema) }, handler);
   }
 }
