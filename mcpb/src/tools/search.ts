@@ -16,6 +16,7 @@ import { isDatasetAccessError } from "../hf.js";
 import {
   capText,
   colsFor,
+  continueMessage,
   errorResult,
   escapeLike,
   FAST_TEXT_COLS,
@@ -23,6 +24,7 @@ import {
   HAS_HEAVY_TEXT,
   itemUrl,
   limitWarning,
+  pageText,
   resolveLimit,
   structuredResult,
   TEXT_COLS,
@@ -502,6 +504,10 @@ export function registerSearchTools(server: Server): void {
         result.text_truncated = true;
         if (capped.truncation_message) metadata.truncation_message = capped.truncation_message;
         const rec = FULLTEXT_TOOL[subset];
+        // The detail tool pages the same body column `text` came from, so the
+        // rest of it is one call away. Not so for a description fallback,
+        // which those tools do not page.
+        if (rec && !usedDescription) metadata.truncation_message = continueMessage(pageText(bodyText), rec.tool);
         if (rec) {
           result.recommended_tool = rec.tool;
           result.recommended_usage = {

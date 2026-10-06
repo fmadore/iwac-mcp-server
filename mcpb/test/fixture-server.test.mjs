@@ -167,6 +167,8 @@ await withFixtureScope(async (fixtures) => {
       if (p.text_truncated !== true) return "30k-char OCR should set text_truncated";
       if (p.recommended_tool !== "get_article") return `expected recommended_tool get_article, got ${p.recommended_tool}`;
       if (p.text.length > 26_000) return `capped text still too large: ${p.text.length}`;
+      if (!String(p.metadata.truncation_message).includes("Call get_article with offset 25000"))
+        return `truncation_message should say how to read the rest: ${p.metadata.truncation_message}`;
       return null;
     },
   });
@@ -256,6 +258,29 @@ await withFixtureScope(async (fixtures) => {
     },
   });
   await call("get_article", { article_id: 99999 }, { expectError: true });
+  // The rest of a long OCR is readable by following next_offset, not just
+  // reachable through keyword excerpts.
+  let firstPart = "";
+  await call("get_article", { article_id: 105 }, {
+    check: (p) => {
+      if (p.truncated !== true || p.next_offset !== 25_000) return `first part should stop at 25000, got ${p.next_offset}`;
+      if (!(p.char_count > 25_000)) return "char_count should report the whole OCR";
+      if (!String(p.truncation_message).includes("offset 25000")) return "truncation_message should say how to read on";
+      firstPart = p.ocr_text;
+      return null;
+    },
+  });
+  await call("get_article", { article_id: 105, offset: 25_000 }, {
+    check: (p) => {
+      if (p.offset !== 25_000 || p.next_offset !== undefined || p.truncated) return "second part should be the last";
+      if (firstPart.length + p.ocr_text.length !== p.char_count) return "the two parts should add up to the whole OCR";
+      if (!p.url) return "the rest of the record should still come back";
+      return null;
+    },
+  });
+  await call("get_article", { article_id: 105, offset: 99_999 }, {
+    check: (p) => (p.ocr_text === undefined && /past the end/.test(p.note) ? null : "offset past the end should say so"),
+  });
   // A limit under the floor is clamped to 1 — say so, exactly as an over-large
   // one is. Silently returning a single row reads as "that is all there is".
   await call("search_articles", { limit: 0 }, {
@@ -1089,6 +1114,18 @@ await withFixtureScope(async (fixtures) => {
   });
   await call("get_publication_fulltext", { publication_id: 203, keyword: "pelerinage" }, {
     check: (p) => (p.match_count >= 1 ? null : "unaccented keyword found nothing in publication OCR"),
+  });
+  // The contents come with the first part only, not again with each of an
+  // issue's (up to 45) later parts.
+  await call("get_publication_fulltext", { publication_id: 203 }, {
+    check: (p) => (p.tableOfContents && p.char_count === p.fulltext.length ? null : "first part should carry the TOC and the whole short OCR"),
+  });
+  await call("get_publication_fulltext", { publication_id: 203, offset: 10 }, {
+    check: (p) => {
+      if (p.tableOfContents) return "a later part should not repeat the table of contents";
+      if (p.offset !== 10 || p.fulltext.length !== p.char_count - 10) return `expected the OCR from character 10, got offset ${p.offset}`;
+      return null;
+    },
   });
   await call("search_documents", {}, {
     check: (p) => (p.total_matches === 2 ? null : `expected 2 documents, got ${p.total_matches}`),

@@ -13,6 +13,7 @@ import {
   resolveLimit,
   runListQuery,
   TEXT_COLS,
+  textOffsetParam,
   textResult,
   toolMeta,
   validateEnum,
@@ -67,8 +68,8 @@ export function registerDocumentTools(server: Server): void {
     {
       ...toolMeta("Get document details"),
       description:
-        "Get one archival document (by id): full metadata, AI description, and OCR text. " +
-        "Pass a `keyword` to get ~2000-char excerpts around each match instead of the full (capped) OCR — " +
+        "Get one archival document (by id): full metadata, AI description, and OCR text, in 25k-char parts " +
+        "(follow `next_offset`). Pass a `keyword` to get ~2000-char excerpts around each match instead, " +
         "useful for long documents.",
       inputSchema: z.object({
         document_id: z.number().int(),
@@ -78,14 +79,16 @@ export function registerDocumentTools(server: Server): void {
           .describe("Return excerpts around matches instead of the full OCR (accent-insensitive)"),
         context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
         max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
+        offset: textOffsetParam(),
       }),
     },
-    ({ document_id, keyword, context_chars, max_excerpts }) =>
+    ({ document_id, keyword, context_chars, max_excerpts, offset }) =>
       detailResult("documents", "Document", document_id, {
         key: "ocr_text",
         keyword,
         contextChars: context_chars,
         maxExcerpts: max_excerpts,
+        offset,
       }),
   );
 }

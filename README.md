@@ -185,10 +185,13 @@ same converter the on-this-day block on islam.zmo.de uses, so the two never
 disagree; items dated only to a year or month have no lunar date and are reported
 in `imprecise_date_count` rather than plotted.
 
-The three full-text tools — `get_article`, `get_document`, and
-`get_publication_fulltext` — optionally take a `keyword` to return ~2000-char
-excerpts around each match, so Claude reads just the relevant passages of a long
-article, archival document, or periodical issue instead of the whole OCR.
+The four full-text tools (`get_article`, `get_document`,
+`get_publication_fulltext` and `get_audiovisual`) optionally take a `keyword` to
+return ~2000-char excerpts around each match, so Claude reads just the relevant
+passages of a long article, archival document, periodical issue or transcription
+instead of the whole text. When the whole text is what you want, they serve it in
+25,000-character parts: each part says where the next one starts (`next_offset`),
+and passing that back as `offset` reads on to the end.
 
 Every result object includes a `url` field pointing at the canonical IWAC record,
 e.g. `https://islam.zmo.de/s/afrique_ouest/item/28576`.
@@ -299,7 +302,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 3.8.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 3.9.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -307,7 +310,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {3.8.0},
+  version   = {3.9.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

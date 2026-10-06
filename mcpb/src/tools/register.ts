@@ -53,15 +53,35 @@ type JsonSchemaConverter = (options?: unknown) => unknown;
 const memoized = new WeakSet<object>();
 
 /**
- * Cache a schema's Standard JSON Schema conversion (`~standard.jsonSchema`).
+ * Drop the `minimum: -2^53+1` / `maximum: 2^53-1` that zod writes on every
+ * `.int()`. They tell a model nothing (no id, limit or offset comes near them)
+ * and cost ~20 tokens per integer field: ~1,200 of a 16,000-token always-on
+ * budget across 64 fields. Validation is unchanged, because the SDK parses
+ * arguments with the zod schema itself, which still enforces safe integers.
+ * Real bounds (`.min(1)`, `.max(50)`) are kept.
+ */
+export function dropSafeIntegerBounds<T>(json: T): T {
+  if (Array.isArray(json)) {
+    for (const item of json) dropSafeIntegerBounds(item);
+  } else if (json && typeof json === "object") {
+    const node = json as Record<string, unknown>;
+    if (node.minimum === Number.MIN_SAFE_INTEGER) delete node.minimum;
+    if (node.maximum === Number.MAX_SAFE_INTEGER) delete node.maximum;
+    for (const value of Object.values(node)) dropSafeIntegerBounds(value);
+  }
+  return json;
+}
+
+/**
+ * Cache a schema's Standard JSON Schema conversion (`~standard.jsonSchema`),
+ * minus the safe-integer bounds (see dropSafeIntegerBounds).
  *
  * The SDK converts a tool's schemas when it is registered and again on every
  * `tools/list`, with no cache of its own, so under the per-request factory
  * the same ~37 immutable schemas were converted twice per HTTP request. Once
  * the schema objects are shared (see recordRegistrations), a conversion
  * computed once is valid for the life of the process. Each call still gets
- * its own deep copy, so no caller can see another's mutations: the result is
- * indistinguishable from a fresh conversion, only cheaper.
+ * its own deep copy, so no caller can see another's mutations.
  */
 export function memoizeJsonSchema(schema: unknown): void {
   const converters = (schema as { "~standard"?: { jsonSchema?: Record<string, JsonSchemaConverter> } } | undefined)?.[
@@ -75,7 +95,7 @@ export function memoizeJsonSchema(schema: unknown): void {
     const cache = new Map<string, unknown>();
     converters[io] = (options) => {
       const key = JSON.stringify(options ?? null);
-      if (!cache.has(key)) cache.set(key, convert(options));
+      if (!cache.has(key)) cache.set(key, dropSafeIntegerBounds(convert(options)));
       return structuredClone(cache.get(key));
     };
   }

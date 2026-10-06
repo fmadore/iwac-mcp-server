@@ -7,17 +7,19 @@ import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   capOffset,
-  capText,
   colsFor,
   COUNTRIES,
   countryParam,
   errorResult,
   extractMatchingTocEntries,
   keywordExcerpts,
+  noteIgnoredOffset,
+  pagedBody,
   pipeValueFilterIfExists,
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  textOffsetParam,
   textResult,
   toolMeta,
   validateEnum,
@@ -152,13 +154,14 @@ export function registerPublicationTools(server: Server): void {
     {
       ...toolMeta("Get publication full text"),
       description:
-        "Full OCR text of a publication, optionally returning ~2000-char excerpts around keyword matches " +
-        "(accent-insensitive; capped — see match_count vs excerpts_returned).",
+        "Full OCR text of a publication in 25k-char parts (follow `next_offset`), or ~2000-char excerpts " +
+        "around keyword matches (accent-insensitive; capped: see match_count vs excerpts_returned).",
       inputSchema: z.object({
         publication_id: z.number().int(),
         keyword: z.string().optional(),
         context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
         max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
+        offset: textOffsetParam(),
       }),
     },
     async (args) => {
@@ -176,7 +179,10 @@ export function registerPublicationTools(server: Server): void {
         id: args.publication_id,
         title: row.title ?? "",
       };
-      if (row.tableOfContents) result.tableOfContents = row.tableOfContents;
+      // Once per issue: a reader following next_offset through a 45-part issue
+      // already has the contents from the first part.
+      const laterPart = !args.keyword && (args.offset ?? 0) > 0;
+      if (row.tableOfContents && !laterPart) result.tableOfContents = row.tableOfContents;
 
       const ocr = (row.fulltext as string | null) ?? "";
       if (!ocr.trim()) {
@@ -185,24 +191,19 @@ export function registerPublicationTools(server: Server): void {
         return textResult(result);
       }
       if (!args.keyword) {
-        // Whole-issue OCR can exceed a million characters — cap it and point at
-        // the keyword path.
-        const capped = capText(ocr, { suggestKeyword: true });
-        result.fulltext = capped.text;
-        result.char_count = ocr.length;
-        if (capped.truncated) {
-          result.truncated = true;
-          result.truncation_message = capped.truncation_message;
-        }
+        // Whole-issue OCR can exceed a million characters: serve it in parts
+        // the caller can follow to the end. char_count always comes back here,
+        // even for a one-part issue, as it did before parts existed.
+        Object.assign(result, { char_count: ocr.length }, pagedBody(ocr, "fulltext", args.offset));
         return textResult(result);
       }
 
       Object.assign(
         result,
-        keywordExcerpts(ocr, args.keyword, {
-          contextChars: args.context_chars,
-          maxExcerpts: args.max_excerpts,
-        }),
+        noteIgnoredOffset(
+          keywordExcerpts(ocr, args.keyword, { contextChars: args.context_chars, maxExcerpts: args.max_excerpts }),
+          args.offset,
+        ),
       );
       return textResult(result);
     },

@@ -16,6 +16,7 @@ import {
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  textOffsetParam,
   textResult,
   toolMeta,
   validateDateBounds,
@@ -106,8 +107,8 @@ export function registerArticleTools(server: Server): void {
     {
       ...toolMeta("Get article details"),
       description:
-        "Get one article (by id): full metadata, the AI abstract (description_ai), AI sentiment, and OCR text. " +
-        "Pass a `keyword` to get ~2000-char excerpts around each match instead of the full (capped) OCR.",
+        "Get one article (by id): full metadata, the AI abstract (description_ai), AI sentiment, and OCR text, " +
+        "in 25k-char parts (follow `next_offset`). Pass a `keyword` to get ~2000-char excerpts around each match instead.",
       inputSchema: z.object({
         article_id: z.number().int(),
         keyword: z
@@ -116,14 +117,16 @@ export function registerArticleTools(server: Server): void {
           .describe("Return excerpts around matches instead of the full OCR (accent-insensitive)"),
         context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
         max_excerpts: z.number().int().optional().describe("Default 10, max 25"),
+        offset: textOffsetParam(),
       }),
     },
-    ({ article_id, keyword, context_chars, max_excerpts }) =>
+    ({ article_id, keyword, context_chars, max_excerpts, offset }) =>
       detailResult("articles", "Article", article_id, {
         key: "ocr_text",
         keyword,
         contextChars: context_chars,
         maxExcerpts: max_excerpts,
+        offset,
       }),
   );
 

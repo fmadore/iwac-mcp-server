@@ -79,8 +79,9 @@ none is published, but the one the public MCP benchmarks use and close enough on
 French prose for a gate about *movement*:
 
 * **Always-on footprint** — the 35 default tool definitions plus the instructions block,
-  which every client loads before the user has typed anything: **~14.1k tokens**
-  today (`inputSchema` 5.5k, `outputSchema` 2.4k, descriptions 2.7k). Compared
+  which every client loads before the user has typed anything: **~14.8k tokens**
+  today (`inputSchema` 6.8k, `outputSchema` 3.0k, descriptions 2.2k; zod's implicit
+  safe-integer bounds are stripped from every integer field, ~20 tokens each). Compared
   against `test/token-baseline.json` on every PR; more than 5% growth fails, and
   clearing it means either trimming the schemas or re-baselining with
   `--update` in the same commit, where a reviewer can see the cost. A hard

@@ -16,6 +16,7 @@ import { VIEWS } from "../src/app/views/index.js";
 import { VIEW } from "../src/tools/appUi.js";
 
 import {
+  attachOcrOrExcerpts,
   capText,
   codePointBoundary,
   colsFor,
@@ -34,6 +35,8 @@ import {
   keywordExcerpts,
   keywordFilter,
   limitWarning,
+  pagedBody,
+  pageText,
   requireHijriColumns,
   resolveHijriMonth,
   resolveLimit,
@@ -57,7 +60,7 @@ import {
 } from "../src/tools/_shared.js";
 import { interleave, tokenize, tokenizedWhere } from "../src/tools/search.js";
 import { activeQueries, MAX_ACTIVE_QUERIES, q, query, selectList, type Bindable } from "../src/db.js";
-import { memoizeJsonSchema } from "../src/tools/register.js";
+import { dropSafeIntegerBounds, memoizeJsonSchema } from "../src/tools/register.js";
 import { z } from "zod";
 import { ALL_SUBSETS, envString, parseAllowedOrigins, parsePositiveInt, parseRefreshHours } from "../src/config.js";
 
@@ -237,12 +240,82 @@ describe("capText", () => {
   it("passes short text through untouched", () => {
     assert.deepEqual(capText("hello"), { text: "hello", truncated: false });
   });
-  it("caps long text and points at the keyword path when asked", () => {
-    const long = "x".repeat(30_000);
-    const capped = capText(long, { suggestKeyword: true });
+  it("caps long text and says so", () => {
+    const capped = capText("x".repeat(30_000));
     assert.equal(capped.text.length, 25_000);
     assert.equal(capped.truncated, true);
-    assert.match(String(capped.truncation_message), /keyword/);
+    assert.match(String(capped.truncation_message), /from 30000 to 25000/);
+  });
+});
+
+// The cap alone left everything past 25,000 characters reachable only through
+// keyword excerpts: most publication issues and the longest transcriptions
+// could not be read whole however the user asked.
+describe("reading a long body in parts", () => {
+  // Each character's position is recoverable, so a gap or overlap shows.
+  const body = Array.from({ length: 60_010 }, (_, i) => String.fromCharCode(0x4e00 + (i % 2000))).join("");
+
+  it("follows next_offset to the end without gaps or overlap", () => {
+    let read = "";
+    let offset: number | undefined = 0;
+    let parts = 0;
+    while (offset !== undefined) {
+      const page = pageText(body, offset);
+      assert.equal(page.offset, offset);
+      assert.equal(page.char_count, body.length);
+      read += page.text;
+      offset = page.next_offset;
+      parts++;
+    }
+    assert.equal(parts, 3);
+    assert.equal(read, body);
+  });
+
+  it("never starts or ends a part inside a surrogate pair", () => {
+    const emoji = "\u{1F54C}".repeat(20_000); // 40,000 UTF-16 units
+    const first = pageText(emoji);
+    assert.equal(first.next_offset, 25_000);
+    const odd = pageText(emoji, 25_001);
+    assert.equal(odd.offset, 25_000, "an offset on a low surrogate moves back to the pair's start");
+    assert.equal(first.text + odd.text, emoji);
+  });
+
+  it("keeps a short body exactly as before: no paging fields", () => {
+    assert.deepEqual(pagedBody("court", "ocr_text", undefined), { ocr_text: "court" });
+  });
+
+  it("says where it stopped and how to read on", () => {
+    const first = pagedBody(body, "ocr_text", undefined);
+    assert.equal(first.char_count, 60_010);
+    assert.equal(first.next_offset, 25_000);
+    assert.equal(first.offset, undefined);
+    assert.equal(first.truncated, true);
+    assert.match(String(first.truncation_message), /offset 25000/);
+    const last = pagedBody(body, "ocr_text", 50_000);
+    assert.equal(last.offset, 50_000);
+    assert.equal(last.next_offset, undefined);
+    assert.equal(last.truncated, undefined, "the last part is not truncated");
+    assert.equal(String(last.ocr_text).length, 10_010);
+  });
+
+  it("reports an offset past the end instead of an empty body", () => {
+    const past = pagedBody(body, "ocr_text", 60_010);
+    assert.equal("ocr_text" in past, false);
+    assert.match(String(past.note), /past the end .*60010 characters/);
+  });
+
+  it("keeps the body key in place on a detail row", () => {
+    const row: Record<string, unknown> = { id: 1, ocr_text: body, url: "u" };
+    attachOcrOrExcerpts(row, "ocr_text", undefined, { offset: 25_000 });
+    assert.deepEqual(Object.keys(row).slice(0, 3), ["id", "ocr_text", "url"]);
+    assert.equal(row.offset, 25_000);
+  });
+
+  it("says an offset beside a keyword changed nothing", () => {
+    const row: Record<string, unknown> = { ocr_text: `${"a ".repeat(20_000)}Maouloud` };
+    attachOcrOrExcerpts(row, "ocr_text", "maouloud", { offset: 30_000 });
+    assert.equal(row.match_count, 1);
+    assert.match(String(row.parameter_note), /offset ignored/);
   });
 });
 
@@ -739,7 +812,7 @@ describe("memoizeJsonSchema (per-request server factory)", () => {
       .jsonSchema[io]({ target: "draft-2020-12" });
   it("returns what a fresh conversion returns, as a new object every call", () => {
     const schema = z.object({ q: z.string().describe("query"), n: z.number().int().optional() });
-    const fresh = convert(schema, "input");
+    const fresh = dropSafeIntegerBounds(convert(schema, "input"));
     memoizeJsonSchema(schema);
     const a = convert(schema, "input");
     const b = convert(schema, "input");
@@ -748,7 +821,28 @@ describe("memoizeJsonSchema (per-request server factory)", () => {
     // One caller mutating its copy must not leak into the next caller's.
     (a.properties as Record<string, unknown>).q = "clobbered";
     assert.deepEqual(convert(schema, "input"), fresh);
-    assert.deepEqual(convert(schema, "output"), z.toJSONSchema(schema, { target: "draft-2020-12", io: "output" }));
+    assert.deepEqual(
+      convert(schema, "output"),
+      dropSafeIntegerBounds(z.toJSONSchema(schema, { target: "draft-2020-12", io: "output" })),
+    );
+  });
+  // ~20 tokens per integer field, 64 fields: the always-on budget paid ~1,200
+  // tokens for bounds no argument comes near.
+  it("drops only zod's implicit safe-integer bounds, at any depth", () => {
+    const schema = z.object({
+      id: z.number().int(),
+      limit: z.number().int().min(1).max(50),
+      nested: z.object({ ids: z.array(z.number().int().min(0)) }),
+    });
+    memoizeJsonSchema(schema);
+    const props = convert(schema, "input").properties as Record<string, Record<string, unknown>>;
+    assert.deepEqual(props.id, { type: "integer" });
+    assert.equal(props.limit.minimum, 1);
+    assert.equal(props.limit.maximum, 50);
+    const items = (props.nested.properties as Record<string, Record<string, unknown>>).ids.items;
+    assert.deepEqual(items, { type: "integer", minimum: 0 });
+    // Validation is the zod schema's, untouched: an unsafe integer still fails.
+    assert.equal(schema.safeParse({ id: 2 ** 60, limit: 5, nested: { ids: [] } }).success, false);
   });
   it("ignores values without a Standard JSON Schema hook and is idempotent", () => {
     memoizeJsonSchema(undefined);

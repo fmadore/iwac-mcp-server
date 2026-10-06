@@ -17,13 +17,14 @@ export async function detailResult(
   subset: Subset,
   label: string,
   id: number,
-  text?: { key: string; keyword?: string; contextChars?: number; maxExcerpts?: number },
+  text?: { key: string; keyword?: string; contextChars?: number; maxExcerpts?: number; offset?: number },
 ): Promise<ReturnType<typeof textResult> | ReturnType<typeof errorResult>> {
   const schema = await ensureView(subset);
   const row = await getById(subset, colsFor(subset, schema, "detail"), id);
   if (!row) return errorResult({ error: `${label} ${id} not found` });
   if (text) {
-    attachOcrOrExcerpts(row, text.key, text.keyword, { contextChars: text.contextChars, maxExcerpts: text.maxExcerpts });
+    const { key, keyword, ...opts } = text;
+    attachOcrOrExcerpts(row, key, keyword, opts);
   }
   return textResult(row);
 }

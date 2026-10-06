@@ -1,4 +1,9 @@
+import { z } from "zod";
 import { CHARACTER_LIMIT, resolveLimit } from "./limits.js";
+
+/** The `offset` input of the four full-text tools; see pageText. */
+export const textOffsetParam = () =>
+  z.number().int().optional().describe("Read from this character on: the previous part's next_offset");
 
 // -----------------------------------------------------------------------------
 // Aggregation / text helpers
@@ -36,23 +41,56 @@ export interface CappedText {
 
 /**
  * Cap a free-text field at `CHARACTER_LIMIT` so a single OCR blob can't flood the
- * model's context. When truncated, returns a message; `suggestKeyword` tailors it
- * toward the keyword-excerpt path on full-text tools.
+ * model's context. The full-text tools page instead (pageText), so the rest
+ * stays readable; this is for text with no tool to read on in.
  */
-export function capText(
-  text: string,
-  opts: { suggestKeyword?: boolean; limit?: number } = {},
-): CappedText {
+export function capText(text: string, opts: { limit?: number } = {}): CappedText {
   const limit = opts.limit ?? CHARACTER_LIMIT;
   if (text.length <= limit) return { text, truncated: false };
-  const hint = opts.suggestKeyword
-    ? " Pass a `keyword` to retrieve focused excerpts around matches instead."
-    : " Narrow the request to see the rest.";
   return {
     text: text.slice(0, codePointBoundary(text, limit)),
     truncated: true,
-    truncation_message: `Text truncated from ${text.length} to ${limit} characters.${hint}`,
+    truncation_message: `Text truncated from ${text.length} to ${limit} characters. Narrow the request to see the rest.`,
   };
+}
+
+export interface TextPage {
+  text: string;
+  /** Where this part starts, after any surrogate-pair adjustment. */
+  offset: number;
+  /** Where the next part starts; absent when this part reaches the end. */
+  next_offset?: number;
+  char_count: number;
+}
+
+/**
+ * One CHARACTER_LIMIT-sized part of a long body, starting at `offset`.
+ *
+ * The cap alone made everything past the first 25,000 characters unreachable
+ * except through keyword excerpts: most publication issues (up to ~1.1M
+ * characters), the longest sermon transcriptions (~470k) and a few documents
+ * and articles. A user who asked for the whole text could not have it. Each
+ * part ends where the next begins, so following `next_offset` reads the body
+ * end to end without gaps or overlap.
+ */
+export function pageText(text: string, offset = 0): TextPage {
+  const start = codePointBoundary(text, Math.min(Math.max(0, offset), text.length));
+  const end = codePointBoundary(text, Math.min(text.length, start + CHARACTER_LIMIT));
+  return {
+    text: text.slice(start, end),
+    offset: start,
+    ...(end < text.length ? { next_offset: end } : {}),
+    char_count: text.length,
+  };
+}
+
+/** How to read on from a part that stops short of the end. */
+export function continueMessage(page: TextPage, tool?: string): string {
+  const call = tool ? `Call ${tool} with` : "Pass";
+  return (
+    `Showing characters ${page.offset}–${page.offset + page.text.length} of ${page.char_count}. ` +
+    `${call} offset ${page.next_offset} to read on, or a \`keyword\` for excerpts around matches.`
+  );
 }
 
 /**
@@ -206,27 +244,59 @@ export function keywordExcerpts(
 }
 
 /**
+ * Excerpts search the whole text, so an `offset` passed beside a keyword
+ * changes nothing. Say so rather than let the caller believe it narrowed the
+ * scan.
+ */
+export function noteIgnoredOffset(excerpts: ExcerptResult, offset: number | undefined): ExcerptResult {
+  if (!offset) return excerpts;
+  const note = "offset ignored: a keyword searches the whole text.";
+  return { ...excerpts, parameter_note: excerpts.parameter_note ? `${excerpts.parameter_note} ${note}` : note };
+}
+
+/**
+ * The paging fields for one part of a body, keyed for a detail row: nothing
+ * extra when the whole text fits in one part, so short items read as before.
+ * `bodyKey` holds the text, or is dropped with a note when `offset` is past
+ * the end. Shared by attachOcrOrExcerpts and get_publication_fulltext.
+ */
+export function pagedBody(text: string, bodyKey: string, offset: number | undefined): Record<string, unknown> {
+  if (offset !== undefined && offset >= text.length) {
+    return { char_count: text.length, note: `offset ${offset} is past the end of the text (${text.length} characters)` };
+  }
+  const page = pageText(text, offset);
+  const out: Record<string, unknown> = { [bodyKey]: page.text };
+  if (page.offset === 0 && page.next_offset === undefined) return out;
+  out.char_count = page.char_count;
+  if (page.offset > 0) out.offset = page.offset;
+  if (page.next_offset !== undefined) {
+    out.next_offset = page.next_offset;
+    out.truncated = true;
+    out.truncation_message = continueMessage(page);
+  }
+  return out;
+}
+
+/**
  * Attach a long OCR body to a detail row: with a keyword, replace the raw text
- * with keyword-in-context excerpts; without one, cap it and flag truncation.
- * Shared by get_article, get_document and get_audiovisual (get_publication_fulltext keeps its
- * own flow — different response keys: fulltext, char_count, tableOfContents).
+ * with keyword-in-context excerpts; without one, return the part starting at
+ * `offset` (default the start) and say how to read on. Shared by get_article,
+ * get_document and get_audiovisual (get_publication_fulltext keeps its own
+ * flow, with different response keys: fulltext, char_count, tableOfContents).
  */
 export function attachOcrOrExcerpts(
   row: Record<string, unknown>,
   ocrKey: string,
   keyword: string | undefined,
-  opts: { contextChars?: number; maxExcerpts?: number } = {},
+  opts: { contextChars?: number; maxExcerpts?: number; offset?: number } = {},
 ): void {
   const ocr = typeof row[ocrKey] === "string" ? (row[ocrKey] as string) : "";
   if (keyword && ocr.trim()) {
     delete row[ocrKey];
-    Object.assign(row, keywordExcerpts(ocr, keyword, opts));
+    Object.assign(row, noteIgnoredOffset(keywordExcerpts(ocr, keyword, opts), opts.offset));
   } else if (ocr) {
-    const capped = capText(ocr, { suggestKeyword: true });
-    row[ocrKey] = capped.text;
-    if (capped.truncated) {
-      row.truncated = true;
-      row.truncation_message = capped.truncation_message;
-    }
+    const paged = pagedBody(ocr, ocrKey, opts.offset);
+    if (!(ocrKey in paged)) delete row[ocrKey];
+    Object.assign(row, paged);
   }
 }

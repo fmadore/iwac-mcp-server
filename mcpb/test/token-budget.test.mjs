@@ -219,6 +219,11 @@ await withFixtureScope(async (fixtures) => {
     get_audiovisual: { audiovisual_id: 601000 },
     get_image: { image_id: 701000 },
 
+    // …a later part of a long text (`offset`), under the same character cap as
+    // the first, so the paging path is held to the same ceiling…
+    "get_publication_fulltext#part": { tool: "get_publication_fulltext", args: { publication_id: 203000, offset: 25_000 } },
+    "get_audiovisual#part": { tool: "get_audiovisual", args: { audiovisual_id: 601000, offset: 25_000 } },
+
     // …and the keyword-excerpt path at its maximum spread, which is the larger of
     // the two on any item long enough to have 25 matches.
     "get_article#excerpts": {

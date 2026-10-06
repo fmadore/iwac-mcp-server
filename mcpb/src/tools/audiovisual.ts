@@ -17,6 +17,7 @@ import {
   runListQuery,
   SOURCE_TYPE_VALUES,
   TEXT_COLS,
+  textOffsetParam,
   textResult,
   toolMeta,
   validateEnum,
@@ -148,17 +149,21 @@ export function registerAudiovisualTools(server: Server): void {
     {
       ...toolMeta("Get audiovisual details"),
       description:
-        "Get one audiovisual record by id: full description and transcription (where one exists), creator/publishing channel, duration, medium, subjects, places, language, rights, source, and three distinct links — `url` (the IWAC page, the one to cite), `external_url` (where a harvested video plays) and `media_url` (a deposited file). `source_type` says which to expect. Pass `keyword` for excerpts instead of the full (capped) transcription.",
-      // Only `keyword`: the always-on tool footprint sits just under its
-      // ceiling, so the excerpt window keeps get_document's defaults rather
-      // than spending two more parameters on tuning it.
-      inputSchema: z.object({ audiovisual_id: z.number().int(), keyword: z.string().optional() }),
+        "Get one audiovisual record by id: full description and transcription (where one exists), creator/publishing channel, duration, medium, subjects, places, language, rights, source, and three distinct links: `url` (the IWAC page, the one to cite), `external_url` (where a harvested video plays) and `media_url` (a deposited file). `source_type` says which to expect. A long transcription comes in 25k-char parts (follow `next_offset`); `keyword` returns excerpts instead.",
+      // No context_chars/max_excerpts: the excerpt window keeps get_document's
+      // defaults. `offset` is not optional in the same way: without it, a
+      // transcription past 25k characters cannot be read whole at all.
+      inputSchema: z.object({
+        audiovisual_id: z.number().int(),
+        keyword: z.string().optional(),
+        offset: textOffsetParam(),
+      }),
     },
     // A recorded sermon transcribes to hundreds of thousands of characters (the
     // longest public one is ~470k, ~120k tokens), and the uncapped body got the
-    // whole result discarded by the client. Same cap and excerpt path as an
+    // whole result discarded by the client. Same parts and excerpt path as an
     // article's OCR.
-    ({ audiovisual_id, keyword }) =>
-      detailResult("audiovisual", "Audiovisual item", audiovisual_id, { key: "transcription", keyword }),
+    ({ audiovisual_id, keyword, offset }) =>
+      detailResult("audiovisual", "Audiovisual item", audiovisual_id, { key: "transcription", keyword, offset }),
   );
 }

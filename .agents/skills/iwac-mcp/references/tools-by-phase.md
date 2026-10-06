@@ -14,7 +14,7 @@ Cross-subset search for skill-less clients and quick discovery.
 ### fetch
 Fetch one item returned by `search`.
 - `id` (required): namespaced id from `search`, e.g. `articles:28576`
-- Returns `id`, `title`, `text`, `url`, `category`, and `metadata`. Long text may be capped; when that happens, `recommended_tool` points to the subset-specific full-text tool to call with a `keyword`.
+- Returns `id`, `title`, `text`, `url`, `category`, and `metadata`. Text past 25k chars is cut; when that happens, `text_truncated` is set and `recommended_tool` names the subset's full-text tool, which takes a `keyword` for excerpts or `offset` to read the rest (`metadata.truncation_message` gives the exact offset).
 
 ### explore_corpus
 Use one `selection` across `items`, `concordance`, `coverage`, `compare`,
@@ -212,7 +212,8 @@ Semantic similarity over publication **tables of contents** via Gemini embedding
 Full article detail.
 - `article_id` (int)
 - `+ keyword` → ~2000-char excerpts around matches instead of full OCR: `context_chars` (default 2000, max 5000), `max_excerpts` (default 10, max 25); `match_count` / `excerpts_returned` as in get_publication_fulltext
-- Returns: id, identifier, title, author, newspaper, country, date, subject, spatial, language, nb_pages, url, **description_ai** (~500-char AI abstract), polarity, centrality, subjectivity, word_count, lexical_richness, readability, ocr_text (capped at 25k chars; only 48 articles exceed it)
+- `+ offset` → the OCR from that character on (see **Reading a long text whole** below)
+- Returns: id, identifier, title, author, newspaper, country, date, subject, spatial, language, nb_pages, url, **description_ai** (~500-char AI abstract), polarity, centrality, subjectivity, word_count, lexical_richness, readability, ocr_text (in 25k-char parts; 22 public articles run longer, up to ~98k)
 
 ### get_reference
 Full bibliographic record for one academic reference.
@@ -221,20 +222,26 @@ Full bibliographic record for one academic reference.
 
 ### get_publication_fulltext
 OCR text of one publication. Two modes:
-- `publication_id` (int) alone → full text capped at 25k chars (`char_count` reports the true size — issues run up to ~1.1M chars)
+- `publication_id` (int) alone → the first 25k chars (`char_count` reports the true size: issues run up to ~1.1M chars, and three in four exceed one part); `+ offset` reads on
 - `+ keyword` → excerpts around matches: `context_chars` (default 2000, max 5000), `max_excerpts` (default 10, max 25). `match_count` = total matches; `excerpts_returned` = how many you got; a `truncation_message` appears when capped.
-- When the issue has a table of contents, the response includes `tableOfContents` (avg ~6.4k chars ≈ 1.6k tokens) — often enough to locate an article without any keyword excerpts.
+- When the issue has a table of contents, the first part (or a keyword call) includes `tableOfContents` (avg ~6.4k chars ≈ 1.6k tokens) — often enough to locate an article without any keyword excerpts.
 
 ### get_document
-Full archival-document detail (metadata, AI description, capped OCR).
+Full archival-document detail (metadata, AI description, OCR in 25k-char parts).
 - `document_id` (int)
 - `+ keyword` → ~2000-char excerpts around matches instead of full OCR: `context_chars` (default 2000, max 5000), `max_excerpts` (default 10, max 25); `match_count` / `excerpts_returned`. Useful for the handful of documents over 25k chars (e.g. the COSIM statutes).
+- `+ offset` → the OCR from that character on
 
 ### get_audiovisual
 Full audiovisual metadata.
 - `audiovisual_id` (int)
-- `+ keyword` returns excerpts around matches instead of the whole transcription, with `get_document`'s default window. Without one, a transcription over 25,000 characters is capped and flagged `truncated` (the longest run to ~470k).
+- `+ keyword` returns excerpts around matches instead of the whole transcription, with `get_document`'s default window. Without one, a transcription over 25,000 characters comes in parts (7 of the 50 public ones; the longest runs to ~470k); `+ offset` reads on.
 - Returns id, identifier, title, creator, publisher, country, date, `source_type`, the item's links (`url` = IWAC page, `external_url` = watch URL, `media_url` = deposited file, `thumbnail`, `iiif_manifest`), medium, `type`, `rights`, `contributor`, both duration forms (`duration_seconds` and the ISO-8601 `extent`), subject, spatial, language, source, the full `description`, and `transcription` where one exists (50/1,771).
+
+### Reading a long text whole
+`get_article`, `get_document`, `get_publication_fulltext` and `get_audiovisual` return a long body in 25,000-character parts. A part that stops short of the end carries `truncated: true`, `char_count` (the whole length) and `next_offset`; call the same tool again with `offset: <next_offset>` for the next part, until a part comes back without `next_offset`. Parts meet exactly, with no gap or overlap. A later part also carries `offset`; an offset past the end returns a `note` instead of text. With a `keyword`, excerpts are drawn from the whole text and `offset` is ignored (a `parameter_note` says so).
+
+Each part is ~6-8k tokens of French prose, so reading whole is expensive: a 98k-char article is 4 parts, a 470k-char sermon transcription 19 (~120k tokens), a 1.1M-char issue 45. Do it when the user asks for the full text; otherwise prefer `keyword` excerpts, and confirm before reading more than a few parts.
 
 ### get_image *(new July 2026)*
 Full photograph record.
@@ -394,7 +401,7 @@ See `search_references` above (12 values, with counts).
 - Default limits are 20 for the main searches (15 for documents) — raise toward `max` only when you need breadth; `total_matches` + `has_more` tell you what's there without fetching it. Asking past a tool's `max` doesn't fail — the page is capped and `limit_warning` + `requested_limit` flag it — so there's no point requesting 500
 - Stop rule: when two consecutive search variants surface no new items, the dimension is saturated — move on
 - Triage with `with_description=true` (limit ≤ 10) instead of calling `get_article` on everything; read full OCR only for the 2-3 finalists (Brief) / 6-8 (Extended)
-- A `search_articles` page of 20 ≈ 2.5k tokens; `get_article` ≈ 1-7k tokens; capped `get_publication_fulltext` ≤ ~7k tokens (+ ~1.6k when the issue has a TOC)
+- A `search_articles` page of 20 ≈ 2.5k tokens; `get_article` ≈ 1-7k tokens; one 25k-char part of any full text (`get_publication_fulltext`, `get_audiovisual` …) ≤ ~7k tokens (+ ~1.6k when the issue has a TOC)
 - Use stats/distribution tools for overviews before fetching individual items; when `total_matches` exceeds ~50, analyze metadata rather than reading items
 - For "how did coverage evolve" questions, one `get_temporal_distribution` call (~1k tokens) replaces paging through result envelopes year by year
 - Combine filters (country + subject/keyword + date range) to narrow before reading
