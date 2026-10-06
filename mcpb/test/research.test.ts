@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DuckDBConnection } from "@duckdb/node-api";
 import { project2d } from "../src/pca.js";
 import { WorkQueue, withRequest } from "../src/request.js";
 import { normalizeDateBound, validateDateBounds, dateRangeFilter } from "../src/tools/shared/filters.js";
@@ -149,4 +150,26 @@ test("request cancellation interrupts active DuckDB work and returns its connect
   } finally {
     clearTimeout(timeout);
   }
+});
+
+test("request cancellation interrupts DuckDB work issued but not yet executing", async () => {
+  // DuckDB drops an interrupt that arrives while the statement is still being
+  // prepared; the test above loses that race only sometimes. Abort
+  // synchronously right after the statement is issued to hit it every time.
+  const controller = new AbortController();
+  const original = DuckDBConnection.prototype.runAndReadAll;
+  DuckDBConnection.prototype.runAndReadAll = function (this: DuckDBConnection, ...args) {
+    const pending = original.apply(this, args);
+    controller.abort();
+    return pending;
+  };
+  try {
+    await assert.rejects(
+      withRequest(controller.signal, () => query("SELECT sum(sin(i)) FROM range(1000000000) t(i)")),
+      /interrupt/i,
+    );
+  } finally {
+    DuckDBConnection.prototype.runAndReadAll = original;
+  }
+  assert.equal(Number((await query("SELECT 1 AS n"))[0].n), 1);
 });

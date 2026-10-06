@@ -64,13 +64,24 @@ async function withConnection<T>(fn: (conn: DuckDBConnection) => Promise<T>): Pr
   const release = await queryQueue.acquire(signal);
   try {
     const conn = _idle.pop() ?? (await (await getInstance()).connect());
-    const abort = () => conn.interrupt();
+    // DuckDB clears a pending interrupt when a statement starts executing, so
+    // one that lands while the statement is still being prepared or waiting
+    // for a worker thread is dropped and the scan runs to completion (an abort
+    // 0 ms after issue was lost every time; at 10 ms it usually landed). Keep
+    // interrupting until fn settles; the timer is cleared before the
+    // connection goes back to the pool, so it never reaches another caller.
+    let reinterrupt: NodeJS.Timeout | undefined;
+    const abort = () => {
+      conn.interrupt();
+      reinterrupt ??= setInterval(() => conn.interrupt(), 20);
+    };
     signal?.addEventListener("abort", abort, { once: true });
     try {
       signal?.throwIfAborted();
       return await fn(conn);
     } finally {
       signal?.removeEventListener("abort", abort);
+      clearInterval(reinterrupt);
       if (_idle.length < MAX_IDLE_CONNECTIONS) _idle.push(conn);
       else conn.closeSync();
     }
