@@ -186,3 +186,42 @@ which now declares `listChanged: false`.
 - The release workflow now publishes `docs/releases/<tag>.md` as the GitHub
   release body when that file exists, with the old one-liner as fallback.
   Checked with a stubbed `gh` for all three paths.
+
+## Review fixes ported for v3.8.0 (2026-10-06)
+
+A review of the post-v3.6.0 server (2026-10-05) was implemented on a branch
+that main then overtook: main independently fixed the date filter, cosine
+similarity, deterministic ordering and connection pooling, and restructured
+filtering around selections. Only what main still lacked was ported, as new
+commits on main; the original branch was not merged.
+
+- Ported: per-mirror coverage text (`src/coverage.ts`); `detailResult()` for
+  the five `get_*` tools and a capped, keyword-searchable `get_audiovisual`;
+  `envString()`; the `IWAC_ALLOW_PRIVATE_HTTP` opt-in and dataset logging;
+  access-error reporting in `search` and `get_collection_stats`; the chart
+  `hit()` builder and display fixes; the sentiment UNPIVOT and keyword
+  `withScope()`; the duplicate-validation removal and small shared helpers;
+  stale-bundle, token-floor, shared-reporter and fixture-stamp test tooling.
+- Measured on main with the real cache, payloads identical apart from
+  provenance: `get_sentiment_distribution` `model:"all"` 107 → 79 ms, with a
+  subject filter 401 → 169 ms; `get_field_distribution` with a keyword and
+  `over_time` 2,232 → 847 ms.
+- Not ported, and why: the single-scan list query (main's parallel count and
+  page measured faster, 539 against ~650 ms); the private-stats count cache
+  (main refreshes views in the background, so the counts can change); the
+  semantic-search empty-prefilter shortcut (main deliberately overlaps the
+  embedding call with the prefilter); the PCA early stop, skill-catalogue
+  memo and download hardening (main has its own); the chart `onMark` refactor
+  (main's views now carry selection narrowing, source links and keyboard
+  activation, so it would be a fresh rewrite rather than a port).
+- `withScope()` keeps its id table in the shared catalog rather than as a
+  TEMP table, because pooled connections hold no state of their own; a DROP a
+  cancelled request could not run is retried by the next scope.
+- The `get_audiovisual` excerpt window takes `get_document`'s defaults rather
+  than two more parameters: the always-on tool footprint sits just under its
+  16,000-token ceiling (15,811 after this port, against 15,788 before).
+- Verification: typecheck, lint, build, 168 unit tests, 14 lifecycle tests,
+  fixture, app, skills and token-budget suites pass. The HTTP suite passes
+  except main's two graceful-shutdown checks, which fail on Windows on main
+  as well (a SIGTERM there terminates the child without draining) and pass on
+  Linux CI.

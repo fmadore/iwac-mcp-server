@@ -67,7 +67,7 @@ and structured results remain usable without an Apps view.
 ## Phase 1: Scoping Tools
 
 ### get_collection_stats *(reports `fulltext_coverage` since v0.12.0)*
-Overall collection statistics: subset record counts, articles by country, date range, newspaper count, and **`fulltext_coverage`** — how many items in each subset actually carry OCR in this public dataset (~56% of articles, ~86% of publications; the rest are masked per row by `OCR_is_public`). Read it before reporting any keyword total as a corpus-wide figure.
+Overall collection statistics: subset record counts, articles by country, date range, newspaper count, and **`fulltext_coverage`**: how many items in each subset actually carry OCR in this dataset (on the public dataset, about half of the articles and most publications; the rest are masked per row by `OCR_is_public`). Read it before reporting any keyword total as a corpus-wide figure.
 - No parameters. Use first to understand scale. (First call may trigger the parquet download.)
 
 ### get_country_comparison
@@ -233,6 +233,7 @@ Full archival-document detail (metadata, AI description, capped OCR).
 ### get_audiovisual
 Full audiovisual metadata.
 - `audiovisual_id` (int)
+- `+ keyword` returns excerpts around matches instead of the whole transcription, with `get_document`'s default window. Without one, a transcription over 25,000 characters is capped and flagged `truncated` (the longest run to ~470k).
 - Returns id, identifier, title, creator, publisher, country, date, `source_type`, the item's links (`url` = IWAC page, `external_url` = watch URL, `media_url` = deposited file, `thumbnail`, `iiif_manifest`), medium, `type`, `rights`, `contributor`, both duration forms (`duration_seconds` and the ISO-8601 `extent`), subject, spatial, language, source, the full `description`, and `transcription` where one exists (50/1,771).
 
 ### get_image *(new July 2026)*
@@ -300,7 +301,7 @@ The three fields do not behave alike, and this is the part to get right:
 
 **Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the five models agree unanimously on polarity for only 3,929 of the 12,098 articles they all scored (**32%**). That is an agreement rate, not a confidence score: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable. Four models reached 36% and the first three alone 43%, so a figure copied from an older draft will overstate the agreement.
 
-**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-08-31): four models cover 12,298 articles while Qwen covers 12,098; use the returned common-scored denominator. Two different gaps separate that from the 13,397 in the corpus — 51 non-French/English articles skipped by design, and ~1,050 recent arrivals the enrichment pass has not reached yet (the 2026-08 refresh added them with no OCR, abstract, sentiment or topic). Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
+**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-08-31): four models cover 12,298 articles while Qwen covers 12,098; use the returned common-scored denominator. Two different gaps separate that from the corpus total: 51 non-French/English articles skipped by design, and the recent arrivals the enrichment pass has not reached yet, a tail that grows with every refresh (3,464 articles at the September 2026 revision, mostly dated 2018 or later, with topics and embeddings but no abstract, sentiment or public OCR). Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
 
 **Reliability differs by scale and population.** Use the selected pair's current
 `kappa`, `weighted_kappa` and denominators instead of treating older whole-corpus
@@ -343,7 +344,7 @@ Readability, lexical richness and length of the press text, by year, newspaper o
 - `group_by` (optional, validated): year (default) | newspaper | country; filter block; `top_n`
 - `Lisibilite_OCR` is a **French** readability score (higher = easier), so non-French items are excluded from that metric and counted in `readability_excluded` — 9 articles corpus-wide — rather than reported as unreadable
 - `Richesse_Lexicale_OCR` is MATTR, a moving-average type-token ratio that is **already length-robust**: do not normalise it by word count or bin it by length
-- These columns exist only for items whose full text ships, so the averages describe that subset
+- The scores are computed upstream from the archive's own OCR, so they cover nearly every article, including those whose full text the public dataset withholds
 
 ### get_similar_items *(v0.13.0)*
 The items nearest a given one in meaning, by cosine similarity over the stored embeddings — finds pieces on the same event that share no vocabulary. **Needs no API key** (unlike `semantic_search_*`): it reads the item's own stored vector.

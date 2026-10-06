@@ -27,7 +27,7 @@ identifiers:
     description: "Concept DOI for all versions of the software."
 license: MIT
 version: 3.8.0
-date-released: 2026-09-30
+date-released: 2026-10-06
 keywords:
   - Model Context Protocol
   - MCP server
