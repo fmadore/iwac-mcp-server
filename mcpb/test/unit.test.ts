@@ -5,7 +5,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { bubbleMap, columns, donut, forceGraph, gantt, heatmapMatrix, horizontalBar, squarify, ticks, treemap } from "../src/app/svg.js";
+import { bubbleMap, columns, donut, forceGraph, gantt, heatmapMatrix, horizontalBar, scatter, squarify, ticks, treemap } from "../src/app/svg.js";
 import { BASEMAP, BASEMAP_BOUNDS } from "../src/app/basemap.js";
 import { project2d } from "../src/pca.js";
 import { csv, csvCell } from "../src/app/shell.js";
@@ -862,7 +862,49 @@ describe("chart kernel", () => {
     });
     assert.ok(!svg.includes("<b>"), "unescaped markup leaked into the chart");
     assert.ok(svg.includes("&#38;"), "ampersand was not escaped");
-    assert.ok(!/data-key="[^"]*"[^>]*"/.test(svg.split("data-key=")[1]?.slice(0, 60) ?? ""));
+    // The whole attribute, escaped, so a quote in the data cannot close it early.
+    // (The check this replaces ran on text already split past `data-key=`, so
+    // it could never fail.)
+    assert.ok(svg.includes('data-key="&#34;Le &#60;b&#62;Soir&#60;/b&#62;&#34; &#38; co"'), "data-key was not escaped");
+  });
+
+  // The views' listeners select `.hit[data-key]`, so a clickable mark without the
+  // class is dead, and charts.ts still makes it keyboard-focusable as a button.
+  // Four primitives used to emit data-key alone.
+  it("every clickable primitive marks its keys with class hit, once", () => {
+    const drawn: Record<string, string> = {
+      columns: columns({ categories: ["a", "b"], series: [{ label: "s", values: [1, 2] }], clickable: true }),
+      horizontalBar: horizontalBar({ items: [{ label: "a", value: 1 }], clickable: true }),
+      gantt: gantt({ rows: [{ label: "a", start: 1990, end: 2000 }], clickable: true }),
+      treemap: treemap({ items: [{ label: "a", value: 1 }], clickable: true }),
+      heatmapMatrix: heatmapMatrix({ rows: ["a"], cols: ["b"], values: [[1]], clickable: true }),
+      bubbleMap: bubbleMap({
+        countries: BASEMAP,
+        bounds: BASEMAP_BOUNDS,
+        points: [{ label: "Ouagadougou", lat: 12.37, lng: -1.53, value: 3 }],
+        choropleth: { Benin: 2 },
+        clickable: true,
+      }),
+      forceGraph: forceGraph({ nodes: [{ label: "a", weight: 1 }, { label: "b", weight: 2 }], edges: [], clickable: true }),
+      scatter: scatter({ points: [{ x: 0, y: 0, label: "a" }, { x: 1, y: 1, label: "b" }], clickable: true }),
+    };
+    for (const [name, svg] of Object.entries(drawn)) {
+      const keys = svg.match(/data-key="/g)?.length ?? 0;
+      const hits = svg.match(/class="(?:[\w-]+ )?hit" data-key="/g)?.length ?? 0;
+      assert.ok(keys > 0, `${name} drew no clickable mark`);
+      assert.equal(hits, keys, `${name}: ${keys - hits} clickable marks lack class="hit"`);
+      assert.ok(!/<\w+[^>]*\sclass="[^"]*"[^>]*\sclass="/.test(svg), `${name} emitted two class attributes on one mark`);
+    }
+  });
+
+  it("scatter draws points outside the named groups in grey, not the largest group's colour", () => {
+    const svg = scatter({
+      points: [{ x: 0, y: 0, label: "a", group: "big" }, { x: 1, y: 1, label: "b" }],
+      groups: ["big"],
+    });
+    const fills = [...svg.matchAll(/<circle[^>]*fill="([^"]+)"/g)].map((m) => m[1]);
+    assert.equal(fills.length, 2);
+    assert.equal(fills[1], "var(--muted)");
   });
 
   it("donut renders one arc per non-zero slice and totals the centre", () => {
@@ -1251,6 +1293,14 @@ describe("lunarView", () => {
     const notes = (lunarView(payload).notes ?? []).filter(Boolean).join(" ");
     assert.match(notes, /Ramadan leads at 60/);
     assert.match(notes, /\+\d+%/);
+  });
+
+  // Notes are escaped once, by the renderer. The view escaped the month name as
+  // well, so a Mawlid query's peak read "Rabi&#39; I leads" on screen.
+  it("leaves the peak month unescaped for the renderer to escape once", () => {
+    const notes = (lunarView({ ...payload, distribution: { "03": 70, "09": 20 } }).notes ?? []).filter(Boolean).join(" ");
+    assert.match(notes, /Rabi' I leads at 70/);
+    assert.ok(!notes.includes("&#39;"), "the view pre-escaped a note");
   });
 
   it("reports imprecisely dated items as absent, not zero", () => {

@@ -21,7 +21,7 @@ import type { LunarPayload } from "../../viewContract.js";
 // the work.
 import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { bar } from "../svg.js";
-import { esc, fmtInt } from "../theme.js";
+import { fmtInt } from "../theme.js";
 import { carryFilters } from "./temporal.js";
 
 /** Fallback if the server ever stops sending month_labels. */
@@ -122,7 +122,7 @@ export function lunarView(payload: BasePayload): ViewResult {
   const top = months.reduce((a, b) => (b.value > a.value ? b : a), months[0]);
   const lead =
     plotted && baseline
-      ? `${esc(top.name)} leads at ${fmtInt(top.value)} (${Math.round((top.value / baseline - 1) * 100) >= 0 ? "+" : ""}${Math.round((top.value / baseline - 1) * 100)}% vs an even split).`
+      ? `${top.name} leads at ${fmtInt(top.value)} (${Math.round((top.value / baseline - 1) * 100) >= 0 ? "+" : ""}${Math.round((top.value / baseline - 1) * 100)}% vs an even split).`
       : null;
 
   const imprecise = p.imprecise_date_count

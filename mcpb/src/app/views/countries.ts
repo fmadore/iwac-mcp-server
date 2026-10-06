@@ -9,7 +9,7 @@ import type { CountriesPayload } from "../../viewContract.js";
 // separate 100%-stacked chart, where the question is composition, not size.
 import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { horizontalBar, legend, stackedBar } from "../svg.js";
-import { fmtInt, fmtPct, ordinalColor, orderBy, POLARITY_ORDER } from "../theme.js";
+import { fmtInt, fmtPct, ordinalColor, orderBy, palette, POLARITY_ORDER } from "../theme.js";
 
 export function countriesView(payload: BasePayload): ViewResult {
   const p = payload as CountriesPayload;
@@ -46,12 +46,17 @@ export function countriesView(payload: BasePayload): ViewResult {
     POLARITY_ORDER,
   );
   const model = p.polarity_model ?? "one AI model";
+  // Resolved once and handed to BOTH the bars and the legend. A label outside
+  // the known scale used to get palette colour i in the bars and #888 in the
+  // legend, so its swatch matched nothing on the chart.
+  const fallback = palette();
+  const colors = labels.map((l, i) => ordinalColor(l, POLARITY_ORDER) ?? fallback[i % fallback.length]);
   const polarity = labels.length
     ? stackedBar({
         categories: names,
-        series: labels.map((label) => ({
+        series: labels.map((label, i) => ({
           label,
-          color: ordinalColor(label, POLARITY_ORDER),
+          color: colors[i],
           values: rows.map((c) => {
             const bucket = c.polarity ?? {};
             const sum = Object.values(bucket).reduce((a, b) => a + b, 0);
@@ -61,7 +66,7 @@ export function countriesView(payload: BasePayload): ViewResult {
         format: fmtPct,
         height: 240,
         ariaLabel: "AI polarity mix per country",
-      }) + legend(labels, labels.map((l) => ordinalColor(l, POLARITY_ORDER) ?? "#888"))
+      }) + legend(labels, colors)
     : "";
 
   const scored = rows.filter((c) => Object.keys(c.polarity ?? {}).length).length;

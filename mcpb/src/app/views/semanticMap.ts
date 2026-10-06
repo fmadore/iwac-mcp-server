@@ -84,7 +84,7 @@ export function semanticMapView(payload: BasePayload): ViewResult {
         "it is not the semantic landscape published on islam.zmo.de and should not be compared to it.",
       p.note,
       counts.size > groups.length
-        ? `${counts.size - groups.length} smaller ${p.color_by ?? "group"} values share the default colour; ` +
+        ? `${counts.size - groups.length} smaller ${p.color_by ?? "group"} values are drawn in grey; ` +
           `filter to compare them.`
         : null,
     ],

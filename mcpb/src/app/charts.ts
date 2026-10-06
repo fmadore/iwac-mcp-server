@@ -364,7 +364,7 @@ function render(payload: BasePayload): void {
   root.innerHTML = `
     <header>
       <h1 tabindex="-1">${esc(result.title)}</h1>
-      ${result.subtitle ? `<p class="totals">${result.subtitle}</p>` : ""}
+      ${result.subtitle ? `<p class="totals">${esc(result.subtitle)}</p>` : ""}
       ${result.chips === undefined ? "" : `<div class="chips">${chips(result.chips)}</div>`}
     </header>
     ${transientError ? `<p class="warn" role="alert">${esc(transientError)}</p>` : ""}

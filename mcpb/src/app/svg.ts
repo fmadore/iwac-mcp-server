@@ -47,6 +47,20 @@ export function frame(body: string, f: Frame): string {
 const n = (v: number): string => (Math.round(v * 10) / 10).toString();
 
 /**
+ * The attributes that make a mark clickable: `class="hit"`, which is what the
+ * views' click listeners select and what gives the pointer cursor, plus the
+ * `data-key` / `data-key2` they read. One builder because four primitives used
+ * to write `data-key` by hand and leave out `hit`: their marks looked
+ * clickable, were made keyboard-focusable as buttons, and did nothing.
+ */
+function hit(key: string, key2?: string, cls?: string): string {
+  return (
+    ` class="${cls ? `${cls} ` : ""}hit" data-key="${esc(key)}"` +
+    (key2 === undefined ? "" : ` data-key2="${esc(key2)}"`)
+  );
+}
+
+/**
  * Axis ticks at 1/2/2.5/5×10ⁿ, and the rounded-up maximum they imply. Charts
  * scale to that maximum rather than to the raw peak, so the top gridline is a
  * round number instead of "12 287".
@@ -175,9 +189,8 @@ export function columns(o: ColumnOptions): string {
       const title = series.length > 1 ? `${cat} · ${s.label}: ${fmt(v)}` : `${cat}: ${fmt(v)}`;
       bars.push(
         `<rect x="${n(x)}" y="${n(y)}" width="${n(Math.max(1, barW - (mode === "grouped" ? 1 : 0)))}" height="${n(h)}" ` +
-          `fill="${s.color ?? colors[si % colors.length]}" rx="1"${
-            o.clickable ? ` class="hit" data-key="${esc(cat)}" data-key2="${esc(s.label)}"` : ""
-          }><title>${esc(title)}</title></rect>`,
+          `fill="${s.color ?? colors[si % colors.length]}" rx="1"${o.clickable ? hit(cat, s.label) : ""}>` +
+            `<title>${esc(title)}</title></rect>`,
       );
     });
   });
@@ -266,9 +279,8 @@ export function horizontalBar(o: HorizontalBarOptions): string {
       return (
         `<text x="${gutter - 8}" y="${n(y + rowH / 2 + 4)}" class="tick lbl" text-anchor="end">${esc(clip(it.label, 30))}</text>` +
         `<rect x="${gutter}" y="${n(y + 3)}" width="${n(w)}" height="${n(rowH - 8)}" rx="1" ` +
-        `fill="${it.color ?? colors[i % colors.length]}"${
-          o.clickable ? ` class="hit" data-key="${esc(it.key ?? it.label)}"` : ""
-        }><title>${esc(it.label)}: ${esc(fmt(it.value))}${it.note ? ` (${esc(it.note)})` : ""}</title></rect>` +
+        `fill="${it.color ?? colors[i % colors.length]}"${o.clickable ? hit(it.key ?? it.label) : ""}>` +
+        `<title>${esc(it.label)}: ${esc(fmt(it.value))}${it.note ? ` (${esc(it.note)})` : ""}</title></rect>` +
         `<text x="${n(gutter + w + 6)}" y="${n(y + rowH / 2 + 4)}" class="tick">${esc(fmt(it.value))}</text>`
       );
     })
@@ -342,9 +354,8 @@ export function gantt(o: GanttOptions): string {
       return (
         `<text x="${gutter - 8}" y="${n(y + rowH / 2 + 4)}" class="tick lbl" text-anchor="end">${esc(clip(r.label, 30))}</text>` +
         `<rect x="${n(x1)}" y="${n(y + (rowH - thick) / 2)}" width="${n(span1)}" height="${n(thick)}" rx="${n(Math.min(3, thick / 2))}" ` +
-        `fill="${colors[i % colors.length]}"${
-          o.clickable ? ` class="hit" data-key="${esc(r.key ?? r.label)}"` : ""
-        }><title>${esc(label)}${r.note ? ` — ${esc(r.note)}` : ""}</title></rect>`
+        `fill="${colors[i % colors.length]}"${o.clickable ? hit(r.key ?? r.label) : ""}>` +
+        `<title>${esc(label)}${r.note ? ` — ${esc(r.note)}` : ""}</title></rect>`
       );
     })
     .join("");
@@ -502,7 +513,7 @@ export function treemap(o: TreemapOptions): string {
       const showLabel = b.w > 58 && b.h > 26;
       const showValue = b.w > 58 && b.h > 40;
       return (
-        `<g${o.clickable ? ` class="hit" data-key="${esc(it.key ?? it.label)}"` : ""}>` +
+        `<g${o.clickable ? hit(it.key ?? it.label) : ""}>` +
         `<rect x="${n(b.x)}" y="${n(b.y)}" width="${n(b.w - 1)}" height="${n(b.h - 1)}" rx="2" fill="${it.color ?? colors[i % colors.length]}">` +
         // `note` carries the untruncated name: treemap cells show a short
         // label, so the tooltip is the only place the full one survives.
@@ -561,9 +572,8 @@ export function heatmapMatrix(o: MatrixOptions): string {
           if (!Number.isFinite(v)) return "";
           return (
             `<rect x="${n(gutter + j * cell)}" y="${n(y)}" width="${cell - 1}" height="${cell - 1}" rx="1" ` +
-            `fill="${ramp((v as number) / peak)}"${
-              o.clickable ? ` class="hit" data-key="${esc(r)}" data-key2="${esc(c)}"` : ""
-            }><title>${esc(r)} × ${esc(c)}: ${esc(fmt(v as number))}</title></rect>`
+            `fill="${ramp((v as number) / peak)}"${o.clickable ? hit(r, c) : ""}>` +
+            `<title>${esc(r)} × ${esc(c)}: ${esc(fmt(v as number))}</title></rect>`
           );
         })
         .join("");
@@ -629,8 +639,8 @@ export function bubbleMap(o: BubbleMapOptions): string {
       const total = o.choropleth?.[c.name];
       const fill = c.iwac ? (total === undefined ? "var(--land)" : ramp(0.15 + 0.85 * (total / peakCountry))) : "none";
       return (
-        `<path d="${d}" fill="${fill}" class="${c.iwac ? "land" : "neighbour"}"` +
-        `${o.clickable && c.iwac ? ` data-key="${esc(`country:${c.name}`)}"` : ""}>` +
+        `<path d="${d}" fill="${fill}"` +
+        `${o.clickable && c.iwac ? hit(`country:${c.name}`, undefined, "land") : ` class="${c.iwac ? "land" : "neighbour"}"`}>` +
         `<title>${esc(c.name)}${total === undefined ? "" : `: ${esc(fmt(total))}`}</title></path>`
       );
     })
@@ -647,8 +657,8 @@ export function bubbleMap(o: BubbleMapOptions): string {
     .map((p) => {
       const r = 22 * Math.sqrt(p.value / peak);
       return (
-        `<circle cx="${n(x(p.lng))}" cy="${n(y(p.lat))}" r="${n(r)}" class="bubble"` +
-        `${o.clickable ? ` data-key="${esc(p.key ?? p.label)}"` : ""}>` +
+        `<circle cx="${n(x(p.lng))}" cy="${n(y(p.lat))}" r="${n(r)}"` +
+        `${o.clickable ? hit(p.key ?? p.label, undefined, "bubble") : ` class="bubble"`}>` +
         `<title>${esc(p.label)}: ${esc(fmt(p.value))}</title></circle>`
       );
     })
@@ -794,8 +804,8 @@ export function forceGraph(o: NetworkOptions): string {
     .map((node, i) => {
       const r = 4 + 13 * Math.sqrt(node.weight / peak);
       return (
-        `<circle cx="${n(X(i))}" cy="${n(Y(i))}" r="${n(r)}" fill="${colors[i % colors.length]}" class="node"` +
-        `${o.clickable ? ` data-key="${esc(node.label)}"` : ""}>` +
+        `<circle cx="${n(X(i))}" cy="${n(Y(i))}" r="${n(r)}" fill="${colors[i % colors.length]}"` +
+        `${o.clickable ? hit(node.label, undefined, "node") : ` class="node"`}>` +
         `<title>${esc(node.label)}: ${esc(fmt(node.weight))}</title></circle>` +
         `<text x="${n(X(i))}" y="${n(Y(i) - r - 4)}" class="tick" text-anchor="middle">${esc(clip(node.label, 18))}</text>`
       );
@@ -852,10 +862,13 @@ export function scatter(o: ScatterOptions): string {
   const dots = pts
     .map((p) => {
       const gi = p.group ? groups.indexOf(p.group) : -1;
-      const fill = gi >= 0 ? colors[gi % colors.length] : colors[0];
+      // Points outside the named groups are grey. They used to take colors[0],
+      // which is the LARGEST group's colour, so the long tail was drawn as if it
+      // belonged to the biggest group.
+      const fill = gi >= 0 ? colors[gi % colors.length] : groups.length ? "var(--muted)" : colors[0];
       return (
-        `<circle cx="${n(X(p.x))}" cy="${n(Y(p.y))}" r="${r}" fill="${fill}" class="dot"` +
-        `${o.clickable ? ` data-key="${esc(p.key ?? p.label)}"` : ""}>` +
+        `<circle cx="${n(X(p.x))}" cy="${n(Y(p.y))}" r="${r}" fill="${fill}"` +
+        `${o.clickable ? hit(p.key ?? p.label, undefined, "dot") : ` class="dot"`}>` +
         `<title>${esc(clip(p.label, 90))}${p.group ? ` — ${esc(p.group)}` : ""}</title></circle>`
       );
     })

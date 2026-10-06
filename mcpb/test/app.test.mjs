@@ -729,7 +729,9 @@ await withFixtureScope(async (fixtures) => {
     },
     (markup) => {
       if ((markup.match(/<circle/g) ?? []).length !== 2) return "expected exactly the two in-frame settlements";
-      if (/<circle[^>]*><title>Côte d'Ivoire:/.test(markup)) return "a country was drawn as a bubble";
+      // Titles are escaped, so the apostrophe arrives as &#39;. Matching the raw
+      // name, as this used to, could never fail.
+      if (/<circle[^>]*><title>Côte d&#39;Ivoire:/.test(markup)) return "a country was drawn as a bubble";
       if (!markup.includes("Named at country level")) return "country-level panel missing";
       if (!markup.includes("La Mecque (off map)")) return "off-frame place not surfaced in the ranking";
       if (!markup.includes("Riviera Golf (not geocoded)")) return "ungeocoded place not surfaced";

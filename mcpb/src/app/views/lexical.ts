@@ -73,14 +73,14 @@ export function lexicalView(payload: BasePayload): ViewResult {
         : null,
       "MATTR is a moving-average type-token ratio and is already length-robust: comparing it across groups of " +
         "different article lengths is valid, and normalising it by word count would not be.",
-      "These columns exist only for items whose full text ships in this public dataset, so the averages describe " +
-        "that subset rather than the whole corpus.",
+      "The scores are computed upstream from the archive's own OCR, so they cover articles whose full text this " +
+        "dataset does not ship.",
       p.note,
     ],
     actions: [
       {
         id: "group",
-        label: groupBy === "year" ? "LexicalGroup by newspaper" : "LexicalGroup by year",
+        label: groupBy === "year" ? "Group by newspaper" : "Group by year",
         run: (ctx) =>
           ctx.run("get_lexical_metrics", {
             group_by: groupBy === "year" ? "newspaper" : "year",
