@@ -30,6 +30,12 @@ updates:
           - "@anthropic-ai/mcpb"
       dev-tooling:
         dependency-type: development
+    ignore:
+      # Types track the declared runtime floor (engines + manifest: >=24), not
+      # the newest Node: newer types would let code typecheck against APIs the
+      # floor lacks. Bump this major by hand alongside the Node major above.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
