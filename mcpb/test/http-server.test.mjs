@@ -13,7 +13,7 @@ import http from "node:http";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { createHarness } from "./_harness.mjs";
+import { assertFreshBuild, createHarness, createReporter, expectedToolCount } from "./_harness.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverJs = path.join(root, "server", "index.js");
@@ -21,6 +21,8 @@ const PORT = 18432;
 const TOKEN = "test-token-fixture-http";
 const ALLOWED_ORIGIN = "https://trusted.example";
 const BASE = `http://127.0.0.1:${PORT}`;
+const TOOL_COUNT = expectedToolCount();
+assertFreshBuild();
 
 const baseEnv = {
   ...process.env,
@@ -33,11 +35,8 @@ const baseEnv = {
   IWAC_MCP_ALLOWED_ORIGINS: ALLOWED_ORIGIN,
 };
 
-let failures = 0;
-function fail(msg) {
-  failures++;
-  console.error(`  FAIL: ${msg}`);
-}
+const reporter = createReporter();
+const { fail } = reporter;
 
 // --- 1. Without a token the server must refuse to start (exit 1) --------------
 {
@@ -169,7 +168,9 @@ try {
   await client.connect(transport);
 
   const tools = await client.listTools();
-  if (tools.tools.length !== 35) fail(`expected 35 tools over HTTP with semantic off, got ${tools.tools.length}`);
+  if (tools.tools.length !== TOOL_COUNT) {
+    fail(`expected ${TOOL_COUNT} tools over HTTP with semantic off, got ${tools.tools.length}`);
+  }
 
   // Skills over MCP on the remote leg. This transport is the whole reason the
   // skill is served from the server at all — there is no release artifact to
@@ -195,7 +196,7 @@ try {
     fail(`skills/list over HTTP: manifest has ${httpSkills.skills?.[0]?.resources?.length} files, expected 5`);
   }
 
-  const { call, failures: callFailures } = createHarness(client, { timeoutMs: 60_000 });
+  const { call } = createHarness(client, { timeoutMs: 60_000, reporter });
   await call("search_articles", { country: "Bénin" }, {
     check: (p) => (p.total_matches === 2 ? null : `accented Bénin over HTTP should match 2, got ${p.total_matches}`),
   });
@@ -207,7 +208,6 @@ try {
     expectError: true,
     checkBody: (b) => (b.includes("valid_values") ? null : "invalid country should error with valid_values over HTTP"),
   });
-  failures += callFailures();
 
   await client.close();
   await transport.close();
@@ -232,8 +232,8 @@ try {
   }
 
   const modernTools = await modern.listTools();
-  if (modernTools.tools.length !== 35) {
-    fail(`expected 35 tools on the modern era, got ${modernTools.tools.length}`);
+  if (modernTools.tools.length !== TOOL_COUNT) {
+    fail(`expected ${TOOL_COUNT} tools on the modern era, got ${modernTools.tools.length}`);
   }
   // CacheableResult (SEP-2549): required on list results from 2026-07-28. The
   // SDK defaults to ttlMs 0 / private, so a 0 here means our cacheHints were
@@ -280,12 +280,11 @@ try {
     fail("modern HTTP skills/get and skills/list manifests differ");
   }
 
-  const { call: modernCall, failures: modernFailures } = createHarness(modern, { timeoutMs: 60_000 });
+  const { call: modernCall } = createHarness(modern, { timeoutMs: 60_000, reporter });
   await modernCall("get_collection_stats", {}, {
     structured: true,
     check: (p) => (p.subset_counts?.articles === 6 ? null : "collection stats wrong on the modern era"),
   });
-  failures += modernFailures();
 
   await modern.close();
   await modernTransport.close();
@@ -335,5 +334,7 @@ try {
   if (server.exitCode === null) server.kill("SIGTERM");
 }
 
-console.log(`\n${failures === 0 ? "ALL HTTP CHECKS PASSED" : `${failures} HTTP CHECK(S) FAILED`}`);
+const failures = reporter.failures();
+console.log(`
+${failures === 0 ? "ALL HTTP CHECKS PASSED" : `${failures} HTTP CHECK(S) FAILED`}`);
 process.exitCode = failures === 0 ? 0 : 1;

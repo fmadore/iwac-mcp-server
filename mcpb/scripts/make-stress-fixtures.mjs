@@ -29,6 +29,7 @@
 // Output: test/fixtures-stress/<subset>/train-00000-of-00001.parquet
 // Run indirectly via `npm run test:tokens`; requires a prior `make-fixtures`.
 import { DuckDBInstance } from "@duckdb/node-api";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,6 +83,27 @@ async function main() {
     .map((e) => e.name);
   if (subsets.length === 0) throw new Error(`no fixtures in ${srcDir} — run scripts/make-fixtures.mjs first`);
 
+  // The stress copy is a function of this script and the fixtures it inflates
+  // (whose own stamp already covers their inputs), so an unchanged pair skips
+  // the rebuild, as make-fixtures does.
+  const key = createHash("sha256")
+    .update(await fs.readFile(fileURLToPath(import.meta.url)))
+    .update(await fs.readFile(path.join(srcDir, ".stamp"), "utf8").catch(() => String(Date.now())))
+    .digest("hex");
+  const stamp = path.join(destDir, ".stamp");
+  const current =
+    !process.argv.includes("--force") &&
+    (await fs.readFile(stamp, "utf8").catch(() => "")) === key &&
+    (
+      await Promise.all(
+        subsets.map((s) => fs.access(path.join(destDir, s, "train-00000-of-00001.parquet")).then(() => true, () => false)),
+      )
+    ).every(Boolean);
+  if (current) {
+    console.log(`stress fixtures up to date in ${destDir}`);
+    return;
+  }
+
   await fs.rm(destDir, { recursive: true, force: true });
   const instance = await DuckDBInstance.create(":memory:");
   const conn = await instance.connect();
@@ -126,6 +148,7 @@ async function main() {
     );
   }
 
+  await fs.writeFile(stamp, key); // last, so a partial rebuild is never stamped
   console.log(`stress fixtures written to ${destDir} (>= ${MIN_ROWS} rows per subset)`);
 }
 

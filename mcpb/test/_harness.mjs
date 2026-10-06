@@ -2,6 +2,94 @@
 // (test/fixture-server.test.mjs — hermetic; smoke-test.mjs — live dataset).
 // Previously each kept its own ~50-line copy of call()/fail() that had quietly
 // diverged; the shared version takes the differences as options.
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const MCPB_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+/** The newest mtime under `dir` (recursively), or 0 if it does not exist. */
+function newestMtime(dir) {
+  let newest = 0;
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    newest = Math.max(newest, e.isDirectory() ? newestMtime(full) : statSync(full).mtimeMs);
+  }
+  return newest;
+}
+
+/**
+ * Refuse to test a stale bundle. Every round-trip suite spawns the BUILT
+ * server/index.js, and `npm test` does not build first (deliberately: CI's
+ * runtime-floor job runs a Node 24 build on an older Node). So editing src/
+ * and running the tests used to test the previous build, and pass or fail for
+ * reasons that had nothing to do with the edit. Throws with the fix.
+ */
+export function assertFreshBuild() {
+  let built;
+  try {
+    built = statSync(path.join(MCPB_ROOT, "server", "index.js")).mtimeMs;
+  } catch {
+    throw new Error("server/index.js does not exist: run `npm run build` before the round-trip tests.");
+  }
+  const sources = [
+    path.join(MCPB_ROOT, "src"),
+    path.join(MCPB_ROOT, "scripts", "bundle.mjs"),
+    path.join(MCPB_ROOT, "scripts", "collect-skills.mjs"),
+    path.join(MCPB_ROOT, "package.json"),
+    // The skill files are inlined into the bundle too.
+    path.join(MCPB_ROOT, "..", ".agents", "skills"),
+  ];
+  const newest = Math.max(
+    ...sources.map((p) => {
+      try {
+        return statSync(p).isDirectory() ? newestMtime(p) : statSync(p).mtimeMs;
+      } catch {
+        return 0;
+      }
+    }),
+  );
+  if (newest > built) {
+    throw new Error(
+      "server/index.js is older than its sources (src/, the bundle scripts or the skill files): " +
+        "run `npm run build` first, or these tests exercise the previous build.",
+    );
+  }
+}
+
+/**
+ * How many tools a server with semantic search off must register: the tools
+ * manifest.json declares, minus the optional semantic_search_* ones. Derived
+ * rather than hard-coded, so adding a tool means touching the manifest, not
+ * three copies of a number in three suites.
+ */
+export function expectedToolCount() {
+  const manifest = JSON.parse(readFileSync(path.join(MCPB_ROOT, "manifest.json"), "utf8"));
+  return manifest.tools.filter((t) => !t.name.startsWith("semantic_search_")).length;
+}
+
+/**
+ * One failure counter for a whole suite. Every harness a suite builds (one per
+ * client: legacy era, modern era, degraded cache) reports into it, so nothing
+ * is summed by hand, and leaving a sub-harness out of the sum can no longer
+ * hide its failures.
+ */
+export function createReporter() {
+  let count = 0;
+  return {
+    fail(msg) {
+      count++;
+      console.error(`  FAIL: ${msg}`);
+    },
+    failures: () => count,
+  };
+}
 
 /**
  * Build a { call, fail, failures, tokenReport } harness bound to a connected
@@ -21,12 +109,11 @@
  *               encoder is passed in rather than imported here so the hermetic
  *               fixture test never loads its megabytes of BPE ranks.
  */
-export function createHarness(client, { verbose = false, timeoutMs = 60_000, encode = null, tokenCeiling = 0 } = {}) {
-  let failures = 0;
-  function fail(msg) {
-    failures++;
-    console.error(`  FAIL: ${msg}`);
-  }
+export function createHarness(
+  client,
+  { verbose = false, timeoutMs = 60_000, encode = null, tokenCeiling = 0, reporter = createReporter() } = {},
+) {
+  const { fail } = reporter;
 
   const responseTokens = [];
 
@@ -105,7 +192,7 @@ export function createHarness(client, { verbose = false, timeoutMs = 60_000, enc
     console.log(`  ${responseTokens.length} calls, ${total} tokens total, median ${sorted[Math.floor(sorted.length / 2)].tokens}`);
   }
 
-  return { call, fail, failures: () => failures, tokenReport };
+  return { call, fail, failures: reporter.failures, tokenReport };
 }
 
 /**

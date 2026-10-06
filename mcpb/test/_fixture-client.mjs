@@ -2,11 +2,13 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertFreshBuild } from "./_harness.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Run a test with offline clients that are closed even when an assertion throws. */
 export async function withFixtureScope(run) {
+  assertFreshBuild();
   const sessions = new Set();
   const scope = {
     async connect({ name, cacheDir = "fixtures", clientOptions, stderr = "inherit", env = {} }) {

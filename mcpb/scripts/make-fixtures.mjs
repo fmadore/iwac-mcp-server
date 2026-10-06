@@ -10,12 +10,15 @@
 //
 // Output: test/fixtures/<subset>/train-00000-of-00001.parquet
 import { DuckDBInstance } from "@duckdb/node-api";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturesDir = path.join(root, "test", "fixtures");
+/** Records which inputs produced the files; see fixtureKey(). Not a parquet, so no view reads it. */
+const STAMP = ".stamp";
 
 const IWAC = "https://islam.zmo.de/s/afrique_ouest/item/";
 
@@ -402,7 +405,36 @@ const SUBSET_SQL = {
   `,
 };
 
+/**
+ * What the fixtures are a function of: this script and the DuckDB build that
+ * writes the parquet. `npm test` runs this before each of its suites, so
+ * regenerating unchanged files cost seconds a run, and because each run
+ * deletes the directory first, two suites started together could race on it.
+ */
+async function fixtureKey() {
+  const script = await fs.readFile(fileURLToPath(import.meta.url));
+  const pkg = await fs.readFile(path.join(root, "node_modules", "@duckdb", "node-api", "package.json"), "utf8");
+  return createHash("sha256").update(script).update(JSON.parse(pkg).version).digest("hex");
+}
+
+async function upToDate(key) {
+  try {
+    if ((await fs.readFile(path.join(fixturesDir, STAMP), "utf8")) !== key) return false;
+    await Promise.all(
+      Object.keys(SUBSET_SQL).map((s) => fs.access(path.join(fixturesDir, s, "train-00000-of-00001.parquet"))),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
+  const key = await fixtureKey();
+  if (!process.argv.includes("--force") && (await upToDate(key))) {
+    console.log(`fixtures up to date in ${fixturesDir}`);
+    return;
+  }
   await fs.rm(fixturesDir, { recursive: true, force: true });
   const instance = await DuckDBInstance.create(":memory:");
   const conn = await instance.connect();
@@ -467,6 +499,8 @@ async function main() {
     const dest = path.join(dir, "train-00000-of-00001.parquet").replaceAll("\\", "/");
     await conn.run(`COPY (SELECT * FROM ${table}) TO '${dest.replace(/'/g, "''")}' (FORMAT PARQUET)`);
   }
+  // Last, so an interrupted run never leaves a stamp vouching for partial files.
+  await fs.writeFile(path.join(fixturesDir, STAMP), key);
   console.log(`fixtures written to ${fixturesDir}`);
 }
 

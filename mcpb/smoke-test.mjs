@@ -6,7 +6,7 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { readFileSync } from "node:fs";
-import { checkManifestParity, createHarness } from "./test/_harness.mjs";
+import { assertFreshBuild, checkManifestParity, createHarness } from "./test/_harness.mjs";
 import { encode } from "gpt-tokenizer/encoding/o200k_base";
 
 // Pins against the LIVE dataset revision — these are the dataset-drift alarm.
@@ -39,10 +39,13 @@ const EXPECTED = {
   // not a fault, so nothing here pins the total: what is pinned is the masked
   // full-text count, which moves only when the publication policy does. The
   // user-facing copies (INSTRUCTIONS in src/index.ts and its mirror in the
-  // iwac-mcp skill) were brought to 7,546/13,397 the same day.
+  // iwac-mcp skill) were brought to 7,546/13,397 the same day. They have since
+  // stopped quoting counts, so this pin is the one place the figure lives.
   articlesWithFulltext: 7546,
   publicationsWithFulltext: 1298,
 };
+
+assertFreshBuild();
 
 const transport = new StdioClientTransport({
   command: process.execPath,

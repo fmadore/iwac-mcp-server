@@ -24,6 +24,7 @@
 // Run via `npm run test:tokens`. Requires a prior `npm run build`.
 // Pass `--update` to rewrite test/token-baseline.json after an intended change.
 import { encode } from "gpt-tokenizer/encoding/o200k_base";
+import { createReporter } from "./_harness.mjs";
 import { readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,11 +73,8 @@ await withFixtureScope(async (fixtures) => {
 
   const t = (v) => encode(typeof v === "string" ? v : JSON.stringify(v)).length;
 
-  let failures = 0;
-  const fail = (msg) => {
-    failures++;
-    console.error(`  FAIL: ${msg}`);
-  };
+  const reporter = createReporter();
+  const { fail } = reporter;
 
 
   // === 1. always-on footprint ==================================================
@@ -276,6 +274,18 @@ await withFixtureScope(async (fixtures) => {
     // its own maximum arguments would otherwise "pass" the budget at 30 tokens.
     if (res.isError === true) fail(`${label} returned an error at worst-case arguments: ${body.slice(0, 200)}`);
     if (tokens > RESPONSE_CEILING) fail(`${label} worst case is ${tokens} tokens, over the ${RESPONSE_CEILING} ceiling`);
+    // Nor is an empty page: worst-case arguments that match nothing measure a
+    // ~50-token envelope and pass the ceiling without testing anything.
+    let parsed = null;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      // not JSON: the error check above has already spoken
+    }
+    const rows = parsed?.results ?? parsed?.periodicals ?? parsed?.neighbours;
+    if (parsed && (parsed.count === 0 || (Array.isArray(rows) && rows.length === 0))) {
+      fail(`${label} matched nothing at its worst-case arguments, so it measured an empty page`);
+    }
     if (["explore_corpus#manifest", "explore_corpus#csl-json", "explore_corpus#bibtex"].includes(label)) {
       const exported = res.structuredContent;
       if (exported?.rows?.length !== 50 || !exported?.export?.content)
@@ -303,8 +313,8 @@ await withFixtureScope(async (fixtures) => {
 
   await closeStress();
 
-  if (failures > 0) {
-    console.error(`\ntoken budget: ${failures} failure(s)`);
+  if (reporter.failures() > 0) {
+    console.error(`\ntoken budget: ${reporter.failures()} failure(s)`);
     process.exitCode = 1;
   } else console.log("\ntoken budget: OK");
 });

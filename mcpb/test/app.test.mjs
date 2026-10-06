@@ -14,6 +14,7 @@
 //
 // Run via `npm run test:app`. Requires a prior `npm run build`.
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps";
+import { createReporter } from "./_harness.mjs";
 import * as vm from "node:vm";
 import { gunzipSync } from "node:zlib";
 import { parseHTML } from "linkedom";
@@ -35,11 +36,8 @@ await withFixtureScope(async (fixtures) => {
    */
   const UI_BUDGET_KB = 300;
 
-  let failures = 0;
-  const fail = (msg) => {
-    failures++;
-    console.error(`  FAIL: ${msg}`);
-  };
+  const reporter = createReporter();
+  const { fail } = reporter;
 
   // --- fetch the resource the way a host does ----------------------------------
 
@@ -1358,6 +1356,6 @@ await withFixtureScope(async (fixtures) => {
     }
   }
 
-  console.log(failures ? `\n${failures} APP CHECK(S) FAILED` : "\nALL APP CHECKS PASSED");
-  process.exitCode = failures ? 1 : 0;
+  console.log(reporter.failures() ? `\n${reporter.failures()} APP CHECK(S) FAILED` : "\nALL APP CHECKS PASSED");
+  process.exitCode = reporter.failures() ? 1 : 0;
 });

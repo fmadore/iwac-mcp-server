@@ -10,16 +10,16 @@
 import { cpSync, readFileSync, rmSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkManifestParity, createHarness } from "./_harness.mjs";
+import { checkManifestParity, createHarness, createReporter, expectedToolCount } from "./_harness.mjs";
 import { withFixtureScope } from "./_fixture-client.mjs";
 
 await withFixtureScope(async (fixtures) => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-  let failuresFromDegraded = 0;
+  const reporter = createReporter();
 
   const { client, close: closeClient } = await fixtures.connect({ name: "fixture-test" });
 
-  const { call, fail, failures } = createHarness(client, { timeoutMs: 60_000 });
+  const { call, fail } = createHarness(client, { timeoutMs: 60_000, reporter });
 
   // --- handshake ---------------------------------------------------------------
   const instructions = client.getInstructions?.() ?? "";
@@ -86,7 +86,10 @@ await withFixtureScope(async (fixtures) => {
     if (t?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
       fail(`${n} should declare the chart UI in _meta, got ${JSON.stringify(t?._meta)}`);
   }
-  if (tools.tools.length !== 35) fail(`expected 35 tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
+  const toolCount = expectedToolCount();
+  if (tools.tools.length !== toolCount) {
+    fail(`expected ${toolCount} tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);
+  }
   if (!names.includes("get_temporal_distribution")) fail("get_temporal_distribution not registered");
   for (const t of tools.tools) {
     if (!t.title && !t.annotations?.title) fail(`tool ${t.name} has no title`);
@@ -1291,7 +1294,7 @@ await withFixtureScope(async (fixtures) => {
     const { client: degradedClient, close: closeDegraded } = await fixtures.connect({
       name: "degraded-test", cacheDir: degradedDir, stderr: "ignore",
     });
-    const { call: degradedCall, failures: degradedFailures } = createHarness(degradedClient, { timeoutMs: 60_000 });
+    const { call: degradedCall } = createHarness(degradedClient, { timeoutMs: 60_000, reporter });
 
     await degradedCall("search", { query: "pèlerinage" }, {
       structured: true,
@@ -1311,7 +1314,6 @@ await withFixtureScope(async (fixtures) => {
     // The failing subset's own tool still reports the failure honestly.
     await degradedCall("search_audiovisual", {}, { expectError: true });
 
-    failuresFromDegraded = degradedFailures();
     await closeDegraded();
     rmSync(degradedDir, { recursive: true, force: true });
   }
@@ -1321,13 +1323,12 @@ await withFixtureScope(async (fixtures) => {
   // `initialize` handshake — so it proves only the legacy leg. `serveStdio` is
   // supposed to serve both eras from one factory; pin the modern revision so
   // there is no fallback to mask a regression.
-  let failuresFromModern = 0;
   {
     const { client: modern, close: closeModern } = await fixtures.connect({
       name: "fixture-test-modern",
       clientOptions: { versionNegotiation: { mode: { pin: "2026-07-28" } } },
     });
-    const { call: modernCall, fail: modernFail, failures: modernFailures } = createHarness(modern, { timeoutMs: 60_000 });
+    const { call: modernCall, fail: modernFail } = createHarness(modern, { timeoutMs: 60_000, reporter });
 
     if (modern.getProtocolEra() !== "modern") {
       modernFail(`pinned 2026-07-28 over stdio should negotiate the modern era, got ${modern.getProtocolEra()}`);
@@ -1385,11 +1386,10 @@ await withFixtureScope(async (fixtures) => {
       checkBody: (b) => (b.includes("valid_values") ? null : "invalid country should still error with valid_values on the modern era"),
     });
 
-    failuresFromModern = modernFailures();
     await closeModern();
   }
 
-  const total = failures() + failuresFromDegraded + failuresFromModern;
+  const total = reporter.failures();
   console.log(`\n${total === 0 ? "ALL FIXTURE CHECKS PASSED" : `${total} FIXTURE CHECK(S) FAILED`}`);
   process.exitCode = total === 0 ? 0 : 1;
 });

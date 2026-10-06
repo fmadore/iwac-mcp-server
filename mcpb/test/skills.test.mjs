@@ -12,6 +12,7 @@
 //
 // Run via `npm run test:skills`. Requires a prior `npm run build`.
 import { createHash } from "node:crypto";
+import { createReporter } from "./_harness.mjs";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,11 +36,8 @@ await withFixtureScope(async (fixtures) => {
   const GET = z.looseObject({ ...CACHE, skill: SKILL });
 
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-  let failures = 0;
-  function fail(msg) {
-    failures++;
-    console.error(`  FAIL: ${msg}`);
-  }
+  const reporter = createReporter();
+  const { fail } = reporter;
 
   const { client, close: closeClient } = await fixtures.connect({
     name: "skills-test", clientOptions: { versionNegotiation: { mode: { pin: "2026-07-28" } } },
@@ -236,8 +234,8 @@ await withFixtureScope(async (fixtures) => {
   await legacy.close();
 
   const total = onDisk.skills.reduce((a, s) => a + s.files.length, 0);
-  if (failures) {
-    console.error(`\nskills: ${failures} failure(s)`);
+  if (reporter.failures()) {
+    console.error(`\nskills: ${reporter.failures()} failure(s)`);
     process.exitCode = 1;
   } else console.log(`skills: OK. ${onDisk.skills.length} skill(s), ${total} files served and verified byte-for-byte`);
 });
