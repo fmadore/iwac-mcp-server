@@ -153,6 +153,11 @@ export const config = {
   // Weights the in-process encoder runs: q8 (314 MB, cosine >= 0.9999 to the
   // corpus encoder) or fp32 (1.08 GB, the exact graph the corpus was built with).
   embeddingDtype: envString("IWAC_EMBEDDING_DTYPE")?.toLowerCase() ?? "q8",
+  // CPU threads per query encoding. One is the default because more buy little:
+  // measured on q8, 1 thread took 550 ms of wall time for 500 ms of CPU, 2 took
+  // 400 ms for 725 ms, 4 took ~400 ms for 1,100-1,400 ms. onnxruntime's own
+  // default is every core, which oversubscribes a CPU-capped container.
+  embeddingThreads: parsePositiveInt(envString("IWAC_EMBEDDING_THREADS"), 1, 64),
   localEmbeddingUrl: envString("IWAC_LOCAL_EMBEDDING_URL") ?? "http://127.0.0.1:8080/v1/embeddings",
   localEmbeddingApiKey: envString("IWAC_LOCAL_EMBEDDING_API_KEY"),
   // Optional assertions about the corpus model. The embedding contract defines

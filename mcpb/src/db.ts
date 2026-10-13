@@ -1,5 +1,6 @@
 import { requestSignal, requestSnapshots, runSharedWork, waitForSharedWork, WorkQueue } from "./request.js";
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { ensureSubset, parquetList } from "./hf.js";
 import { config, type Subset } from "./config.js";
 
@@ -283,6 +284,26 @@ export async function query(sql: string, params: Bindable[] = []): Promise<Row[]
   return withConnection(
     async (conn) => (await conn.runAndReadAll(sql, params as DuckDBValue[])).getRowObjectsJS() as Row[],
   );
+}
+
+/**
+ * Hand a large result to `onRows` one DuckDB data chunk (~2,048 rows) at a time,
+ * yielding to the event loop after each. `query` converts a whole result to JS
+ * in one synchronous call on the main thread: for the 16,668 article vectors
+ * that alone held every other request for ~0.4 s.
+ */
+export async function queryInChunks(
+  sql: string,
+  params: Bindable[],
+  onRows: (rows: Row[]) => void | Promise<void>,
+): Promise<void> {
+  await withConnection(async (conn) => {
+    const result = await conn.stream(sql, params as DuckDBValue[]);
+    for await (const rows of result.yieldRowObjectJs()) {
+      await onRows(rows as Row[]);
+      await yieldToEventLoop();
+    }
+  });
 }
 
 export async function queryOne(sql: string, params: Bindable[] = []): Promise<Row | null> {

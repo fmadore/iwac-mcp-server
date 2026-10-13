@@ -18,3 +18,27 @@ export function normalizeVector(values: number[]): Float32Array {
   const norm = Math.sqrt(values.reduce((sum, value) => sum + (value / scale) ** 2, 0));
   return Float32Array.from(values, (value) => (value / scale) / norm);
 }
+
+/**
+ * Validate `values` as a finite, non-zero vector of `dim` numbers and write its
+ * unit-length float32 form into `out` at `offset`. Returns false, writing
+ * nothing usable, for anything normalizeVector would reject or leave at zero.
+ * Index builds call this per row instead of allocating a vector per row: same
+ * checks and the same overflow-safe scaling, in three tight passes.
+ */
+export function writeUnitVector(values: unknown, out: Float32Array, offset: number, dim: number): boolean {
+  if (!Array.isArray(values) || values.length !== dim) return false;
+  let scale = 0;
+  for (let i = 0; i < dim; i++) {
+    const v = values[i];
+    if (typeof v !== "number" || !Number.isFinite(v)) return false;
+    const a = Math.abs(v);
+    if (a > scale) scale = a;
+  }
+  if (scale === 0) return false;
+  let sum = 0;
+  for (let i = 0; i < dim; i++) sum += (values[i] / scale) ** 2;
+  const norm = Math.sqrt(sum);
+  for (let i = 0; i < dim; i++) out[offset + i] = values[i] / scale / norm;
+  return true;
+}

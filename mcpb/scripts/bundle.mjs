@@ -228,6 +228,21 @@ const pcaWorker = await esbuild.build({
   write: false,
 });
 
+// The query encoder's worker, inlined the same way. It carries the tokenizer;
+// onnxruntime-node stays external and is required at run time from the
+// bundle's own location (src/encoderWorker.ts explains why).
+const encoderWorker = await esbuild.build({
+  absWorkingDir: rootDir,
+  entryPoints: [join(rootDir, "src", "encoderWorker.ts")],
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: nodeTarget,
+  external: ["onnxruntime-node"],
+  legalComments: "none",
+  write: false,
+});
+
 await esbuild.build({
   absWorkingDir: rootDir,
   entryPoints: [join(rootDir, "src", "index.ts")],
@@ -249,6 +264,7 @@ await esbuild.build({
   plugins: [stubZodLocales],
   define: {
     __IWAC_PCA_WORKER__: JSON.stringify(pcaWorker.outputFiles[0].text),
+    __IWAC_ENCODER_WORKER__: JSON.stringify(encoderWorker.outputFiles[0].text),
     __IWAC_VERSION__: JSON.stringify(pkg.version),
     __IWAC_UI_CHARTS__: JSON.stringify(uiHtml),
     __IWAC_SKILLS__: JSON.stringify(skillsJson),

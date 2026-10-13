@@ -178,6 +178,7 @@ Environment variables (all transports unless noted):
 | `IWAC_DATASET_REVISION` | `main` | Dataset revision; use an immutable Hub commit SHA for reproducible studies |
 | `IWAC_EMBEDDING_PROVIDER` | `onnx` | `onnx` runs the query encoder in-process; `local` posts queries to an OpenAI-compatible endpoint serving the same model. `gemini` is refused (retired in v4.0.0) |
 | `IWAC_EMBEDDING_DTYPE` | `q8` | In-process encoder weights: `q8` (314 MB) or `fp32` (1.08 GB, the exact graph the corpus was built with) |
+| `IWAC_EMBEDDING_THREADS` | `1` | CPU threads per query encoding. More buy little: on q8, 2 threads cut latency by about a quarter for 1.5 times the CPU, 4 threads for 2 to 3 times |
 | `IWAC_EMBEDDING_CONTRACT_FILE` | — | JSON declaration of another corpus's model, fields and pinned dataset revision (see [docs/research-workbench.md](../docs/research-workbench.md#embedding-contract)) |
 | `IWAC_LOCAL_EMBEDDING_URL` | `http://127.0.0.1:8080/v1/embeddings` | `local` provider: the OpenAI-compatible embeddings endpoint |
 | `IWAC_LOCAL_EMBEDDING_API_KEY` | — | `local` provider: optional bearer credential for that endpoint |
@@ -391,6 +392,18 @@ vectors share a space, so `src/embeddingContract.ts` checks the vectors:
 parity fixture from the Python reference; `npm run test:parity` checks that the
 Node encoder tokenizes identically and reaches cosine >= 0.999 on 14 queries
 (q8 measures 0.99994; add fp32 with `IWAC_PARITY_DTYPES=q8,fp32`).
+
+**Load on the server.** The encoder runs in a worker thread, because
+onnxruntime-node executes `session.run` synchronously on the calling thread.
+On the main thread every encoding froze all other requests for its duration
+(~0.5 s); in the worker, MCP pings sent during a warm semantic search answer in
+under 10 ms. The worker uses one CPU thread by default (`IWAC_EMBEDDING_THREADS`)
+and its thread pool sleeps between queries instead of spin-waiting. A column's
+index is read from DuckDB one chunk at a time and normalised with regular
+yields, so the first search of a subset (about 7 s for the 16,668 articles on
+the development laptop) delays concurrent requests by about 0.1 s at most.
+Measured with `--max-old-space-size=512`: about 75 MB resident idle, under
+800 MB at peak with the encoder and all four semantic indexes loaded.
 
 Platforms: Windows x64/ARM64 (with the Microsoft Visual C++ 2015-2022
 Redistributable), Apple-silicon macOS and Linux. onnxruntime-node ships no

@@ -8,11 +8,15 @@
 //
 // The weights are fetched from the Hub on first use (314 MB for q8, 1.08 GB for
 // fp32), checked against the sizes and SHA-256 digests pinned below, and kept
-// in the model cache. onnxruntime-node and the tokenizer are imported only
-// then, so a server that never runs a semantic search never loads them.
+// in the model cache. The session and tokenizer live in a worker thread
+// (encoderWorker.ts), started on first use, so a server that never runs a
+// semantic search never loads them, and one that does keeps answering other
+// requests while a query is encoded.
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { Worker } from "node:worker_threads";
 import { config } from "./config.js";
+import type { EncoderReply, EncoderRequest } from "./encoderWorker.js";
 import { downloadVerified } from "./hf.js";
 import { requestSignal, runSharedWork, waitForSharedWork } from "./request.js";
 import { withCacheLock } from "./cacheLock.js";
@@ -47,16 +51,90 @@ const GRAPH_FILES: Record<EncoderDtype, [PinnedFile, PinnedFile]> = {
   ],
 };
 
-type Ort = typeof import("onnxruntime-node");
-interface Encoder {
-  ort: Ort;
-  session: import("onnxruntime-node").InferenceSession;
-  tokenizer: import("@huggingface/tokenizers").Tokenizer;
-  /** Width of the (always empty) multimodal feature inputs the graph declares. */
-  featureDim: number;
+declare const __IWAC_ENCODER_WORKER__: string;
+type Result = Extract<EncoderReply, { type: "result" }>;
+
+/**
+ * The main thread's handle on the encoder worker. Requests are matched to
+ * replies by id; the worker answers them in order. It is unref'd while idle, so
+ * it never keeps a finished process alive, and ref'd while anything waits on
+ * it. If it dies, every waiter is rejected and the next search starts a new one.
+ */
+class EncoderWorker {
+  private readonly worker: Worker;
+  private readonly pending = new Map<number, { resolve: (r: Result) => void; reject: (e: Error) => void }>();
+  private readonly stages: EncoderReply[] = [];
+  private stageWaiter?: { resolve: (r: EncoderReply) => void; reject: (e: Error) => void };
+  private nextId = 0;
+  private dead?: Error;
+
+  constructor(onDeath: () => void) {
+    // The bundle's own location anchors the worker's require of onnxruntime-node.
+    const workerData = { base: import.meta.url };
+    this.worker =
+      typeof __IWAC_ENCODER_WORKER__ === "string"
+        ? new Worker(__IWAC_ENCODER_WORKER__, { eval: true, workerData })
+        : new Worker(new URL("./encoderWorker.ts", import.meta.url), { workerData });
+    this.worker.on("message", (reply: EncoderReply) => {
+      if (reply.type === "result") {
+        const waiter = this.pending.get(reply.id);
+        this.pending.delete(reply.id);
+        waiter?.resolve(reply);
+      } else if (this.stageWaiter) {
+        this.stageWaiter.resolve(reply);
+        this.stageWaiter = undefined;
+      } else this.stages.push(reply);
+      this.updateRef();
+    });
+    const die = (err: Error) => {
+      if (this.dead) return;
+      this.dead = err;
+      for (const waiter of this.pending.values()) waiter.reject(err);
+      this.pending.clear();
+      this.stageWaiter?.reject(err);
+      this.stageWaiter = undefined;
+      onDeath();
+    };
+    this.worker.on("error", die);
+    this.worker.on("exit", (code) => die(new Error(`The query encoder worker exited (code ${code})`)));
+    this.updateRef();
+  }
+
+  private updateRef(): void {
+    if (this.pending.size || this.stageWaiter) this.worker.ref();
+    else this.worker.unref();
+  }
+
+  /** The next start-up reply (`runtime`, then `ready`). */
+  nextStage(): Promise<EncoderReply> {
+    if (this.dead) return Promise.reject(this.dead);
+    const buffered = this.stages.shift();
+    if (buffered) return Promise.resolve(buffered);
+    return new Promise((resolve, reject) => {
+      this.stageWaiter = { resolve, reject };
+      this.updateRef();
+    });
+  }
+
+  send(message: EncoderRequest): void {
+    this.worker.postMessage(message);
+  }
+
+  call(type: "encode" | "tokenize", text: string): Promise<Result> {
+    if (this.dead) return Promise.reject(this.dead);
+    const id = this.nextId++;
+    const reply = new Promise<Result>((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    this.updateRef();
+    this.worker.postMessage({ type, id, text } satisfies EncoderRequest);
+    return reply;
+  }
+
+  terminate(): void {
+    void this.worker.terminate();
+  }
 }
 
-let loading: { key: string; encoder: Promise<Encoder> } | undefined;
+let loading: { key: string; encoder: Promise<EncoderWorker> } | undefined;
 
 export function encoderDtype(): EncoderDtype {
   const dtype = config.embeddingDtype;
@@ -104,51 +182,52 @@ async function ensureFiles(files: PinnedFile[]): Promise<void> {
   });
 }
 
-async function loadEncoder(dtype: EncoderDtype): Promise<Encoder> {
+async function loadEncoder(dtype: EncoderDtype, forget: () => void): Promise<EncoderWorker> {
   const [graph, weights] = GRAPH_FILES[dtype];
-  // Load the runtime before fetching hundreds of megabytes it might not run.
-  let ort: Ort;
+  const worker = new EncoderWorker(forget);
   try {
-    ort = await import("onnxruntime-node");
+    // The worker loads the runtime first: no point fetching hundreds of
+    // megabytes for a platform onnxruntime-node cannot run on.
+    const runtime = await worker.nextStage();
+    if (runtime.type === "runtime" && runtime.error) {
+      throw new Error(
+        `The local query encoder cannot run on ${process.platform}-${process.arch}: onnxruntime-node did not load ` +
+          `(${runtime.error}).` +
+          (process.platform === "win32" ? " It needs the Microsoft Visual C++ 2015-2022 Redistributable." : "") +
+          " Similar items, semantic maps and keyword search still work.",
+      );
+    }
+    await ensureFiles([...TOKENIZER_FILES, graph, weights]);
+    worker.send({ type: "load", dir: exportDir(), graph: graph.path, threads: config.embeddingThreads, maxTokens: MAX_TOKENS });
+    const ready = await worker.nextStage();
+    if (ready.type !== "ready" || ready.error) {
+      throw new Error(`${EXPORT_REPO}@${EXPORT_REVISION} did not load: ${ready.error ?? "unexpected reply"}`);
+    }
   } catch (err) {
-    throw new Error(
-      `The local query encoder cannot run on ${process.platform}-${process.arch}: onnxruntime-node did not load ` +
-        `(${(err as Error).message}).` +
-        (process.platform === "win32" ? " It needs the Microsoft Visual C++ 2015-2022 Redistributable." : "") +
-        " Similar items, semantic maps and keyword search still work.",
-    );
+    worker.terminate();
+    throw err;
   }
-  await ensureFiles([...TOKENIZER_FILES, graph, weights]);
-  const { Tokenizer } = await import("@huggingface/tokenizers");
-  const read = async (name: string) => JSON.parse(await fs.readFile(path.join(exportDir(), name), "utf8"));
-  const tokenizer = new Tokenizer(await read("tokenizer.json"), await read("tokenizer_config.json"));
-  const session = await ort.InferenceSession.create(path.join(exportDir(), graph.path), {
-    executionProviders: ["cpu"],
-    graphOptimizationLevel: "all",
-  });
-  const featureInput = session.inputMetadata.find((m) => m.name === "image_features");
-  const featureDim = featureInput?.isTensor ? Number(featureInput.shape.at(-1)) : Number.NaN;
-  if (!Number.isInteger(featureDim) || !session.outputNames.includes("sentence_embedding")) {
-    await session.release();
-    throw new Error(`${EXPORT_REPO}@${EXPORT_REVISION} does not have the inputs and outputs this encoder expects`);
-  }
-  console.error(`[iwac] query encoder ready: ${ENCODER_MODEL} (${dtype})`);
-  return { ort, session, tokenizer, featureDim };
+  console.error(`[iwac] query encoder ready: ${ENCODER_MODEL} (${dtype}, ${config.embeddingThreads} thread(s))`);
+  return worker;
 }
 
 /** The process-wide encoder. Its download and load belong to the process, not
  * to the request that first needed it: a client that gives up during the
  * one-time download leaves it running, and the next search finds it ready. A
  * failed load is forgotten so the next call retries. */
-function encoder(): Promise<Encoder> {
+function encoder(): Promise<EncoderWorker> {
   const dtype = encoderDtype();
-  const key = `${config.modelCacheDir}|${dtype}`;
+  const key = `${config.modelCacheDir}|${dtype}|${config.embeddingThreads}`;
   if (loading?.key !== key) {
-    const job = runSharedWork(() => loadEncoder(dtype));
-    loading = { key, encoder: job };
-    job.catch(() => {
+    const previous = loading;
+    const forget = () => {
       if (loading?.encoder === job) loading = undefined;
-    });
+    };
+    const job = runSharedWork(() => loadEncoder(dtype, forget));
+    loading = { key, encoder: job };
+    job.catch(forget);
+    // A changed configuration (only tests change it) replaces the worker.
+    previous?.encoder.then((old) => old.terminate(), () => {});
   }
   return loading.encoder;
 }
@@ -177,27 +256,14 @@ export async function encoderReady(): Promise<void> {
 
 /** Encode one already-prefixed query into the model's (unit) vector. */
 export async function encodeQuery(text: string): Promise<number[]> {
-  const { ort, session, tokenizer, featureDim } = await waitForSharedWork(encoder());
-  const ids = tokenizer.encode(text).ids;
-  if (ids.length > MAX_TOKENS) {
-    throw new Error(`The query is ${ids.length} tokens long; the encoder accepts at most ${MAX_TOKENS}.`);
-  }
-  const n = ids.length;
-  const noFeatures = () => new ort.Tensor("float32", new Float32Array(0), [0, featureDim]);
-  const output = await session.run(
-    {
-      input_ids: new ort.Tensor("int64", BigInt64Array.from(ids, (id: number) => BigInt(id)), [1, n]),
-      attention_mask: new ort.Tensor("int64", new BigInt64Array(n).fill(1n), [1, n]),
-      image_features: noFeatures(),
-      video_features: noFeatures(),
-      audio_features: noFeatures(),
-    },
-    ["sentence_embedding"],
-  );
-  return Array.from(output.sentence_embedding.data as Float32Array);
+  const reply = await (await waitForSharedWork(encoder())).call("encode", text);
+  if (reply.error || !reply.vector) throw new Error(reply.error ?? "The query encoder returned no vector");
+  return Array.from(reply.vector);
 }
 
 /** Token ids for one already-prefixed query, for the parity test. */
 export async function queryTokenIds(text: string): Promise<number[]> {
-  return (await waitForSharedWork(encoder())).tokenizer.encode(text).ids;
+  const reply = await (await waitForSharedWork(encoder())).call("tokenize", text);
+  if (reply.error || !reply.ids) throw new Error(reply.error ?? "The query encoder returned no tokens");
+  return reply.ids;
 }

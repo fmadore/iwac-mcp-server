@@ -7,9 +7,10 @@ import {
 } from "./embeddingContract.js";
 import { encodeQuery, ENCODER_MODEL, encoderReady } from "./onnxEncoder.js";
 import { requestSignal, requestSnapshots, runSharedWork, waitForSharedWork, WorkQueue } from "./request.js";
-import { isFiniteVector, normalizeVector } from "./vectors.js";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { isFiniteVector, normalizeVector, writeUnitVector } from "./vectors.js";
 import { config, type Subset } from "./config.js";
-import { ensureView, q, query, viewGeneration, viewName } from "./db.js";
+import { ensureView, q, queryInChunks, viewGeneration, viewName } from "./db.js";
 
 interface EmbeddingIndex {
   ids: string[];
@@ -74,25 +75,40 @@ async function loadIndex(subset: Subset, embeddingColumn: string): Promise<Embed
 
 async function buildIndex(subset: Subset, embeddingColumn: string): Promise<EmbeddingIndex> {
   console.error(`[iwac] loading ${embeddingColumn} from ${subset}...`);
-  const rows = await query(
-    `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(embeddingColumn)} AS emb FROM ${viewName(subset)} WHERE ${q(embeddingColumn)} IS NOT NULL`,
-  );
-
-  // dim comes from the first kept vector; a ragged row (wrong length) is
-  // skipped rather than written — one bad row would otherwise fill its matrix
+  // A ragged row (wrong length), a non-finite value or an all-zero vector is
+  // skipped rather than written: one bad row would otherwise fill its matrix
   // slice with NaN and make every sort against it unspecified.
-  const ids: string[] = [];
-  const vectors: number[][] = [];
+  //
+  // The column arrives one DuckDB chunk at a time and each row is validated and
+  // normalised straight into a block of the matrix, yielding to the event loop
+  // as it goes. Read whole and converted in one pass, the 16,668 article vectors
+  // held the loop for ~2.8 s, so every other request on the server stalled
+  // while the first semantic search built its index.
   const dim = embeddingContract().dimension;
+  const ids: string[] = [];
+  const blocks: Float32Array[] = [];
   let skipped = 0;
-  for (const r of rows) {
-    const arr = r.emb;
-    if (!isFiniteVector(arr, dim) || !arr.some((v) => v !== 0)) {
-      skipped++;
-      continue;
-    }
-    ids.push(String(r.id));
-    vectors.push(arr);
+  await queryInChunks(
+    `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(embeddingColumn)} AS emb FROM ${viewName(subset)} WHERE ${q(embeddingColumn)} IS NOT NULL`,
+    [],
+    async (rows) => {
+      const block = new Float32Array(rows.length * dim);
+      let kept = 0;
+      for (let r = 0; r < rows.length; r++) {
+        if (r % 256 === 255) await yieldToEventLoop();
+        if (writeUnitVector(rows[r].emb, block, kept * dim, dim)) {
+          ids.push(String(rows[r].id));
+          kept++;
+        } else skipped++;
+      }
+      blocks.push(block.subarray(0, kept * dim));
+    },
+  );
+  const matrix = new Float32Array(ids.length * dim);
+  let offset = 0;
+  for (const block of blocks) {
+    matrix.set(block, offset);
+    offset += block.length;
   }
   if (skipped > 0) {
     console.error(`[iwac] skipped ${skipped} ${subset} invalid embeddings (expected dim ${dim})`);
@@ -107,10 +123,6 @@ async function buildIndex(subset: Subset, embeddingColumn: string): Promise<Embe
     );
   }
 
-  const matrix = new Float32Array(ids.length * dim);
-  for (let i = 0; i < ids.length; i++) {
-    matrix.set(normalizeVector(vectors[i]), i * dim);
-  }
   // A column from another model, or from a revision before the re-embed, would
   // still load and rank: check the vectors themselves before serving any.
   verifyCorpusAnchors(embeddingContract(), subset, (id) => {
