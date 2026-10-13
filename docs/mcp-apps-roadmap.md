@@ -177,11 +177,11 @@ now exposed.
 | `subject` (articles) | 10,580 tagged, avg ~7/article | `get_field_distribution`, `get_cooccurrence` |
 | `spatial` (articles) | 10,634 (87%), 766 distinct | `get_field_distribution`, `get_place_distribution` |
 | `index.Coordonnées` | **555 / 683 Lieux** geocoded (81%); 0 for persons/orgs | `get_place_distribution` |
-| `embedding_OCR` / `_tableOfContents` | articles 12,286 · refs 423 · publications 473 (31%) | `get_semantic_map`, `get_similar_items` |
+| `embedding_OCR` / `_tableOfContents` / `_abstract` | EmbeddingGemma 2 since 2026-10-13: articles 16,668 · documents 26 · references 442 (by abstract) · publications 603 (40%) | `get_semantic_map`, `get_similar_items` |
 | Periodical runs | 25 periodicals | `list_periodicals` |
 | Per-country counts + polarity | 5 countries | `get_country_comparison` |
 
-Two gaps still worth stating: **publications embeddings cover only 31%** of
+Two gaps still worth stating: **publications embeddings cover only 40%** of
 rows, so a publications scatter is sparse by construction; and **only `Lieux`
 carry coordinates**, so a map can plot places but never persons or
 organisations.
@@ -305,7 +305,7 @@ Recorded because each of these was a measured finding, not a preference.
    real finding, which is not who tops the list but that the signed *share*
    climbs as the press professionalises.
 
-2. **3.3 and 3.4 need no Gemini key.** The roadmap assumed both were gated
+2. **3.3 and 3.4 need no query encoder.** The roadmap assumed both were gated
    behind `IWAC_SEMANTIC_SEARCH_ENABLED` and therefore "dark on the public HTTP
    endpoint". That requirement belongs to semantic *search*, which must embed a
    text query at request time. Projecting stored vectors (3.4) and finding what

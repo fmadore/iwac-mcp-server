@@ -25,10 +25,12 @@ queries are served locally through DuckDB. Online starts compare the Hub's LFS,
 Xet, or Git content identity with a small cache sidecar, so a same-sized dataset
 republish is refreshed; existing caches are verified once by SHA-256 when possible.
 
-- **25 core tools** work without any API key (keyword search, filtering,
-  statistics, coverage timelines, item details).
-- **2 optional semantic-search tools** require a free Google/Gemini API key and
-  are disabled by default. Enable them in the extension settings.
+- No tool needs an API key: keyword search, filtering, statistics, coverage
+  timelines and item details work from the cached data.
+- The **4 semantic-search tools** run the corpus's own embedding model on your
+  machine (see [Semantic search](#semantic-search)). The first semantic search
+  downloads it once (~350 MB); turn **Semantic search** off in the extension
+  settings to skip that.
 
 ## Develop / rebuild the bundle
 
@@ -174,15 +176,15 @@ Environment variables (all transports unless noted):
 | `IWAC_CACHE_DIR` | `~/.iwac-mcp/cache` (`/cache` in Docker) | Where parquet data is cached (~250 MB) |
 | `IWAC_OFFLINE` | `false` | Trust the cache as-is; never touch the network |
 | `IWAC_DATASET_REVISION` | `main` | Dataset revision; use an immutable Hub commit SHA for reproducible studies |
-| `IWAC_EMBEDDING_PROVIDER` | `gemini` | `local` uses an explicitly configured matching corpus contract |
-| `IWAC_EMBEDDING_CONTRACT_FILE` | — | JSON model/revision/dimension/field declaration; required for local embeddings |
-| `IWAC_LOCAL_EMBEDDING_URL` | `http://127.0.0.1:8080/v1/embeddings` | Local OpenAI-compatible embeddings endpoint |
-| `IWAC_LOCAL_EMBEDDING_API_KEY` | — | Optional credential for the explicitly configured local endpoint |
+| `IWAC_EMBEDDING_PROVIDER` | `onnx` | `onnx` runs the query encoder in-process; `local` posts queries to an OpenAI-compatible endpoint serving the same model. `gemini` is refused (retired in v4.0.0) |
+| `IWAC_EMBEDDING_DTYPE` | `q8` | In-process encoder weights: `q8` (314 MB) or `fp32` (1.08 GB, the exact graph the corpus was built with) |
+| `IWAC_EMBEDDING_CONTRACT_FILE` | — | JSON declaration of another corpus's model, fields and pinned dataset revision (see [docs/research-workbench.md](../docs/research-workbench.md#embedding-contract)) |
+| `IWAC_LOCAL_EMBEDDING_URL` | `http://127.0.0.1:8080/v1/embeddings` | `local` provider: the OpenAI-compatible embeddings endpoint |
+| `IWAC_LOCAL_EMBEDDING_API_KEY` | — | `local` provider: optional bearer credential for that endpoint |
 | `IWAC_REFRESH_HOURS` | `24` | Hours before a loaded subset is re-checked against Hugging Face. The check runs in the background on the next call that touches the subset, and a newer revision is swapped in without a restart. `0` disables it |
-| `IWAC_SEMANTIC_SEARCH_ENABLED` | `false` | Register the three `semantic_search_*` tools |
-| `IWAC_GOOGLE_API_KEY` (or `GOOGLE_API_KEY` / `GEMINI_API_KEY`) | — | Gemini key for semantic search |
-| `IWAC_EMBEDDING_MODEL` | `gemini-embedding-2` | Query-embedding model (must match the dataset's) |
-| `IWAC_EMBEDDING_DIMENSIONALITY` | `768` | Query-embedding dimensionality |
+| `IWAC_SEMANTIC_SEARCH_ENABLED` | `true` | Register the four `semantic_search_*` tools. In HTTP mode the encoder is fetched at start-up |
+| `IWAC_EMBEDDING_MODEL` | — | Optional assertion: semantic search refuses to run if it differs from the corpus model (`google/embeddinggemma-2`) |
+| `IWAC_EMBEDDING_DIMENSIONALITY` | — | Optional assertion, as above, for the vector dimension (768) |
 | `PORT` | `8000` | HTTP mode only: listen port |
 | `IWAC_MCP_BEARER_TOKEN` | — | HTTP mode only: the bearer token clients must send |
 | `IWAC_MCP_TOKEN_FILE` | `/run/secrets/iwac_mcp_token` | HTTP mode only: read the token from a mounted secret file instead |
@@ -346,12 +348,61 @@ Environment variables (all transports unless noted):
   skill (ChatGPT via the remote connector). They mirror
   `.agents/skills/iwac-mcp/SKILL.md` — update both together, as with the
   `INSTRUCTIONS` block.
-- Semantic search: loads the `embedding_OCR` / `embedding_tableOfContents` /
-  `embedding_image` column into a normalised `Float32Array`, encodes the query
-  via Gemini, then does a dot-product top-k in-process. `embedding_image` is
-  multimodal — the photograph itself lives in the same 768-dim space as the text
-  vectors, so `semantic_search_images` answers a text query cross-modally, which
-  is the only real handle on a subset where 28 of 30 items have no caption.
+- Semantic search: see [Semantic search](#semantic-search) below.
+
+## Semantic search
+
+Since dataset revision `d834ab71` (2026-10-13) every vector column in IWAC is
+[EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2), computed by
+the [IWAC-Hugging-Face](https://github.com/fmadore/IWAC-Hugging-Face) pipeline
+from the pinned fp32 ONNX export `onnx-community/embeddinggemma-2-ONNX@daa72c51`:
+
+| Subset | Column | Embedded text | Used by |
+| --- | --- | --- | --- |
+| articles | `embedding_OCR` | title + full text (also for articles whose OCR is not public) | `semantic_search_articles`, `get_similar_items`, `get_semantic_map` |
+| documents | `embedding_OCR` | title + full text | `get_similar_items`, `get_semantic_map` |
+| publications | `embedding_tableOfContents` | title + table of contents (~40% of issues) | `semantic_search_publications`, `get_similar_items`, `get_semantic_map` |
+| references | `embedding_abstract` | title + abstract (~half of references) | `semantic_search_references`, `get_similar_items`, `get_semantic_map` |
+| images | `embedding_image` | the photograph itself | `semantic_search_images` |
+
+A `semantic_search_*` call loads the column into a normalised `Float32Array`,
+encodes the query, and ranks by dot product in-process. The query encoder is
+the same export, run with `onnxruntime-node` and the model's own tokenizer
+(`src/onnxEncoder.ts`): no API key, and query text never leaves the machine.
+Its weights are fetched from the Hub on first use into
+`<IWAC_CACHE_DIR>/models/` and checked against pinned sizes and SHA-256
+digests; `q8` (314 MB) is the default, `fp32` (1.08 GB) is exact. Images are
+never encoded at query time: `embedding_image` lives in the same 768-dim space
+as the text vectors, so a text query finds photographs cross-modally.
+
+**Mixing vector spaces is refused, not trusted.** Names cannot prove that two
+vectors share a space, so `src/embeddingContract.ts` checks the vectors:
+
+- **The encoder** must reproduce the Python reference vector of a probe query
+  (cosine >= 0.999) before its first ranking. That catches a different model
+  behind a `local` endpoint, tokenizer or runtime drift, and a dtype too coarse.
+- **Each column** must agree with anchors: stored items whose cosine to the
+  probe was measured when the contract was made. A strict majority must match
+  within 0.001, so a corpus re-embedded with another model, or an older
+  revision pinned with `IWAC_DATASET_REVISION`, fails closed while one edited
+  anchor does not.
+
+`scripts/make-embedding-reference.py` regenerates the probe, anchors and the
+parity fixture from the Python reference; `npm run test:parity` checks that the
+Node encoder tokenizes identically and reaches cosine >= 0.999 on 14 queries
+(q8 measures 0.99994; add fp32 with `IWAC_PARITY_DTYPES=q8,fp32`).
+
+Platforms: Windows x64/ARM64 (with the Microsoft Visual C++ 2015-2022
+Redistributable), Apple-silicon macOS and Linux. onnxruntime-node ships no
+Intel-macOS build, so there the semantic tools report that they cannot run;
+`get_similar_items` and `get_semantic_map` work everywhere, since they compare
+stored vectors only.
+
+Scores: cosines in this space run high. The median article's nearest neighbour
+scores 0.906 and unrelated articles ~0.7. Upstream calibration puts likely
+near-duplicates at **0.97** (94% lexically confirmed on held-out pairs) and the
+reprint-screen prefilter at 0.91; thresholds from the earlier Gemini space do
+not transfer.
 
 ## Why Node rather than Python
 

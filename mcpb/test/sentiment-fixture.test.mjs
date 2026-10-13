@@ -68,8 +68,9 @@ test("old schemas reject unavailable sentiment pairs and semantic date constrain
       const semantic = await request("semantic_search_articles", { query: "imam", date_from: "", date_to: "2000" });
       assert.ok(semantic.isError);
       assert.match(semantic.content[0].text, /no pub_date column/);
+      // The query is encoded in-process: no outside service sees it any more.
       const definition = (await client.listTools()).tools.find((t) => t.name === "semantic_search_articles");
-      assert.equal(definition.annotations.openWorldHint, true);
+      assert.equal(definition.annotations.openWorldHint, false);
     });
   } finally {
     conn.closeSync(); db.closeSync();

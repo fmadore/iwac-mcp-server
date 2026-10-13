@@ -1,9 +1,7 @@
-// Shared runner for the semantic_search_* tools. Both tools follow the same
+// Shared runner for the semantic_search_* tools. They all follow the same
 // shape — SQL-prefilter candidates, embed the query, dot-product top-k, then
 // re-fetch summary rows in similarity order — so the flow lives here once and
-// each tool supplies only its subset specifics. A future
-// semantic_search_references (pending the embedding_abstract column) plugs in
-// the same way.
+// each tool supplies only its subset specifics.
 import { ensureView, getManyByIds, query, viewName, type Bindable } from "../db.js";
 import { semanticSearch } from "../embeddings.js";
 import type { Subset } from "../config.js";
@@ -15,6 +13,10 @@ import {
   type FieldView,
   type ResolvedLimit,
 } from "./_shared.js";
+
+/** The closing sentences of every semantic_search_* description. */
+export const SEMANTIC_NOTE =
+  "Runs the corpus model, EmbeddingGemma 2, locally with no API key (first use downloads ~350 MB). similarity_score only ranks within one query.";
 
 /** A requested constraint must never disappear on an older dataset revision. */
 export function requireSemanticFilters(schema: Set<string>, filters: Record<string, unknown>): void {

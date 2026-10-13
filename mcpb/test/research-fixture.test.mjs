@@ -171,6 +171,53 @@ test("full-text failure remains visible with zero hits and useful metadata hits"
   }
 });
 
+test("the published contract refuses vectors from another embedding space and retired providers", async () => {
+  const { createServer } = await import("node:http");
+  const reference = JSON.parse(await fs.readFile(new URL("./embeddinggemma2-reference.json", import.meta.url), "utf8"));
+  const bytes = Buffer.from(reference.queries[0].vector, "base64");
+  const probe = Array.from({ length: bytes.length / 4 }, (_, i) => bytes.readFloatLE(i * 4));
+  let requests = 0;
+  // An endpoint that answers every query with the reference probe vector passes
+  // the encoder check, so what refuses the search is the corpus check: the
+  // fixture's toy 4-d vectors are not EmbeddingGemma 2 vectors.
+  const server = createServer(async (req, res) => {
+    for await (const _ of req);
+    requests++;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ data: [{ embedding: probe }] }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await withFixtureScope(async (scope) => {
+      const { client } = await scope.connect({
+        name: "published-contract",
+        stderr: "ignore",
+        env: {
+          IWAC_SEMANTIC_SEARCH_ENABLED: "true",
+          IWAC_EMBEDDING_PROVIDER: "local",
+          IWAC_LOCAL_EMBEDDING_URL: `http://127.0.0.1:${server.address().port}/v1/embeddings`,
+        },
+      });
+      const refused = await client.callTool({ name: "semantic_search_articles", arguments: { query: "hadj" } });
+      assert.ok(refused.isError);
+      assert.match(refused.content[0].text, /not google\/embeddinggemma-2 vectors/);
+      assert.ok(requests >= 1, "the encoder was consulted");
+    });
+    await withFixtureScope(async (scope) => {
+      const { client } = await scope.connect({
+        name: "retired-gemini",
+        stderr: "ignore",
+        env: { IWAC_SEMANTIC_SEARCH_ENABLED: "true", IWAC_EMBEDDING_PROVIDER: "gemini" },
+      });
+      const refused = await client.callTool({ name: "semantic_search_references", arguments: { query: "soufisme" } });
+      assert.ok(refused.isError);
+      assert.match(refused.content[0].text, /Gemini query embeddings were retired/);
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("local embedding adapter requires a matching corpus contract and validates responses", async () => {
   const { createServer } = await import("node:http");
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "iwac-local-embedding-"));

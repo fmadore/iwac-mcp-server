@@ -10,7 +10,8 @@ const { values } = parseArgs({
     output: { type: "string" },
     subset: { type: "string", default: "articles" },
     column: { type: "string", default: "embedding_OCR" },
-    threshold: { type: "string", default: "0.85" },
+    // Calibrated upstream for EmbeddingGemma 2 (iwac-analyze similarity-calibration).
+    threshold: { type: "string", default: "0.97" },
     "max-items": { type: "string", default: "2000" },
     "max-pairs": { type: "string", default: "10000" },
   },

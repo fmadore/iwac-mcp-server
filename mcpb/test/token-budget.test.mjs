@@ -79,7 +79,12 @@ await withFixtureScope(async (fixtures) => {
 
   // === 1. always-on footprint ==================================================
 
-  const { client, close: closeClient } = await fixtures.connect({ name: "token-budget" });
+  // Measured as installed: semantic search is on by default, so its four tools
+  // are part of what every session pays for. (Listing them needs no model.)
+  const { client, close: closeClient } = await fixtures.connect({
+    name: "token-budget",
+    env: { IWAC_SEMANTIC_SEARCH_ENABLED: "true" },
+  });
   const instructions = client.getInstructions?.() ?? "";
   const { tools } = await client.listTools();
   const { prompts } = await client.listPrompts();

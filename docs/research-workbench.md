@@ -215,27 +215,36 @@ source dates rather than assigning invented precision.
 `iwac://datasets/{subset}` returns the current schema, availability and provenance;
 its cache TTL is zero because a live dataset can refresh independently of a build.
 
-## Local embedding migration
+## Embedding contract
 
-The default provider remains Gemini. Changing only a query model is unsafe even
-when dimensions agree. The server now checks model, dimension, vector column and
-corpus revision against an embedding contract and normalizes query/index vectors.
-Item-to-item retrieval computes cosine similarity explicitly.
+Since dataset revision `d834ab71` (2026-10-13) the public corpus's vectors are
+EmbeddingGemma 2, and the server encodes queries with the same pinned ONNX
+export in-process (see [mcpb/README.md](../mcpb/README.md#semantic-search)).
+Changing only a query model is unsafe even when dimensions agree, so the
+built-in contract does not trust names: before ranking, the query encoder must
+reproduce a reference probe vector (cosine >= 0.999), and every loaded vector
+column must agree with anchors measured on the corpus. Either check failing
+refuses the search. Item-to-item retrieval computes cosine similarity explicitly.
 
-A self-hosted OpenAI-compatible embeddings endpoint is supported by configuration:
+A self-hosted OpenAI-compatible endpoint serving the same model can replace the
+in-process encoder; the probe check applies to it unchanged:
 
 ```sh
-IWAC_SEMANTIC_SEARCH_ENABLED=true
 IWAC_EMBEDDING_PROVIDER=local
 IWAC_LOCAL_EMBEDDING_URL=http://127.0.0.1:8080/v1/embeddings
-IWAC_EMBEDDING_MODEL=your-corpus-model
-IWAC_EMBEDDING_DIMENSIONALITY=768
+```
+
+Set `IWAC_LOCAL_EMBEDDING_API_KEY` only if that endpoint requires it.
+
+Another corpus, for instance a re-embedded private mirror, needs its own
+contract. It is an operator declaration produced with that corpus's embedding
+pipeline, pinned to one immutable dataset commit:
+
+```sh
+IWAC_EMBEDDING_PROVIDER=local
 IWAC_DATASET_REVISION=<40-character-commit-sha>
 IWAC_EMBEDDING_CONTRACT_FILE=/path/to/embedding-contract.json
 ```
-
-Set `IWAC_LOCAL_EMBEDDING_API_KEY` only if that endpoint requires it. The contract
-is an operator declaration produced with the corpus embedding pipeline:
 
 ```json
 {
@@ -249,17 +258,12 @@ is an operator declaration produced with the corpus embedding pipeline:
 }
 ```
 
-Replace the example revision with the actual corpus commit. The endpoint must
-serve the declared model revision; the compatibility API cannot independently
-attest its weights. `query_prefix` supports models requiring retrieval prefixes.
-The public corpus's built-in Gemini contract names a provider-managed revision;
-it does not claim immutable vendor weights.
-
-**The corpus must be regenerated with the matching model before enabling this.**
-This change adds an adapter and evaluation harness; it does not regenerate IWAC
-embeddings or establish retrieval quality for a new model. Evaluate with held-out,
-researcher-authored French/English, transliteration, sparse-coverage and difficult
-name queries:
+Replace the example revision with the actual corpus commit. Without a `probe`
+and `anchors` (the shape `scripts/make-embedding-reference.py` writes for the
+built-in contract) the endpoint is taken at its word: the compatibility API
+cannot attest its weights. `query_prefix` supports models requiring retrieval
+prefixes. Evaluate a model with held-out, researcher-authored French/English,
+transliteration, sparse-coverage and difficult name queries before relying on it:
 
 ```sh
 node scripts/evaluate-retrieval.mjs --judgments judgments.json --output evaluation.json --k 10
@@ -267,17 +271,22 @@ node scripts/evaluate-retrieval.mjs --judgments judgments.json --output evaluati
 
 Judgments have shape `[{"query":"...","subset":"articles","relevant_ids":["101"]}]`.
 The harness records recall, precision, nDCG, latency and provenance under the
-configured provider. It calls that provider; select and provision it deliberately.
-Compare providers on the same judgments and matching corpus versions before
-migration. No community research lens is fabricated here; consultation remains a
+configured provider. Compare providers on the same judgments and matching corpus
+versions. No community research lens is fabricated here; consultation remains a
 separate scholarly task.
 
 ## Offline similarity candidates
 
 ```sh
 node scripts/reprint-candidates.mjs --input scoped-articles.parquet --output candidates.json \
-  --threshold 0.85 --max-items 2000 --max-pairs 10000
+  --threshold 0.97 --max-items 2000 --max-pairs 10000
 ```
+
+Cosines in the EmbeddingGemma 2 space run high (unrelated articles ~0.7), so
+Gemini-era thresholds do not transfer. Upstream calibration against lexical
+overlap puts likely near-duplicates at 0.97 (94% lexically confirmed on held-out
+pairs), the default here; 0.91 is its recall-oriented prefilter, which finds
+more reprints at the price of many more pairs to read.
 
 This script normalizes valid vectors, computes exact cosine pairs, retains every
 source in the resulting connected components, and exports chronological metadata,

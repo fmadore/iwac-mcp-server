@@ -5,7 +5,7 @@ import { requestProvenance } from "../provenance.js";
 import { withRequest } from "../request.js";
 import type { Server } from "./_shared.js";
 import { SUBSET_FIELDS, TEXT_COLS } from "./shared/fields.js";
-import { bodyColumn, EMBEDDING_COLUMNS } from "./shared/research.js";
+import { bodyColumn, embeddingColumn } from "./shared/research.js";
 import { SENTIMENT_MODELS, sentimentCols } from "./shared/sentiment.js";
 
 const MIME = "application/json";
@@ -43,7 +43,7 @@ export function registerDiscoveryResource(server: Server): void {
       const [columns, total] = await Promise.all([
         query(`DESCRIBE SELECT * FROM ${view}`), queryScalarSingle(`SELECT COUNT(*) FROM ${view}`),
       ]);
-      const embedding = EMBEDDING_COLUMNS[selected];
+      const embedding = embeddingColumn(selected);
       const payload = {
         subset: selected, total: Number(total),
         columns: columns.map((column) => ({ name: String(column.column_name), type: String(column.column_type) })),

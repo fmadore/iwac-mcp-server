@@ -22,11 +22,11 @@ export const ALL_SUBSETS: Subset[] = [
  * A trimmed environment value, or undefined when it is unset, blank, or an
  * unexpanded launcher template. The extension loader substitutes
  * `${user_config.x}` only for settings that have a value or a default, so an
- * optional setting the user left empty (the Hugging Face token, the Google key)
- * reaches this process as that literal string. It is truthy: as a token it
- * earned a misleading 401 and, read first, it hid a valid `HF_TOKEN` or
- * `GOOGLE_API_KEY` from the environment. A manifest default such as
- * "${HOME}/.iwac-mcp/cache" can arrive unexpanded the same way.
+ * optional setting the user left empty (the Hugging Face token) reaches this
+ * process as that literal string. It is truthy: as a token it earned a
+ * misleading 401 and, read first, it hid a valid `HF_TOKEN` from the
+ * environment. A manifest default such as "${HOME}/.iwac-mcp/cache" can arrive
+ * unexpanded the same way.
  */
 export function envString(name: string): string | undefined {
   const v = process.env[name]?.trim();
@@ -119,6 +119,8 @@ function readBearerToken(): string | undefined {
 
 const httpOrigins = parseAllowedOrigins(envString("IWAC_MCP_ALLOWED_ORIGINS"));
 const privateDataset = parseBool(envString("IWAC_PRIVATE_DATASET"), false);
+const cacheBase = resolveCacheDir();
+const dimensionality = envString("IWAC_EMBEDDING_DIMENSIONALITY");
 
 export function datasetCacheDir(base: string, usePrivate: boolean): string {
   return usePrivate ? path.join(base, "private-full") : base;
@@ -129,7 +131,11 @@ export const config = {
   privateDataset,
   hfToken: envString("IWAC_HF_TOKEN") ?? envString("HF_TOKEN"),
   datasetRevision: envString("IWAC_DATASET_REVISION") ?? DATASET_REVISION,
-  cacheDir: datasetCacheDir(resolveCacheDir(), privateDataset),
+  cacheDir: datasetCacheDir(cacheBase, privateDataset),
+  // The query encoder's weights are the same whichever mirror is read, so they
+  // live beside the dataset caches rather than inside one of them. A short
+  // path matters on Windows: onnxruntime reports a model past MAX_PATH as missing.
+  modelCacheDir: path.join(cacheBase, "models"),
   // Offline mode: trust whatever parquet is cached, never touch the network.
   // Used by the hermetic fixture tests and useful on flaky links.
   offline: parseBool(envString("IWAC_OFFLINE"), false),
@@ -138,14 +144,21 @@ export const config = {
   // long-running server (the HTTP endpoint, a desktop session left open)
   // otherwise serves the data it started with until it is restarted.
   refreshIntervalMs: parseRefreshHours(envString("IWAC_REFRESH_HOURS")) * 3_600_000,
-  semanticSearchEnabled: parseBool(envString("IWAC_SEMANTIC_SEARCH_ENABLED"), false),
-  embeddingProvider: envString("IWAC_EMBEDDING_PROVIDER") === "local" ? "local" : "gemini",
+  semanticSearchEnabled: parseBool(envString("IWAC_SEMANTIC_SEARCH_ENABLED"), true),
+  // `onnx` runs the corpus model in this process; `local` posts queries to an
+  // OpenAI-compatible endpoint serving that model. Any other value, notably the
+  // retired `gemini`, is kept verbatim so semantic search can refuse it by name
+  // instead of quietly falling back to a different encoder.
+  embeddingProvider: envString("IWAC_EMBEDDING_PROVIDER")?.toLowerCase() ?? "onnx",
+  // Weights the in-process encoder runs: q8 (314 MB, cosine >= 0.9999 to the
+  // corpus encoder) or fp32 (1.08 GB, the exact graph the corpus was built with).
+  embeddingDtype: envString("IWAC_EMBEDDING_DTYPE")?.toLowerCase() ?? "q8",
   localEmbeddingUrl: envString("IWAC_LOCAL_EMBEDDING_URL") ?? "http://127.0.0.1:8080/v1/embeddings",
   localEmbeddingApiKey: envString("IWAC_LOCAL_EMBEDDING_API_KEY"),
-  embeddingModel: envString("IWAC_EMBEDDING_MODEL") ?? "gemini-embedding-2",
-  embeddingDimensionality: parsePositiveInt(envString("IWAC_EMBEDDING_DIMENSIONALITY"), 768),
-  googleApiKey:
-    envString("IWAC_GOOGLE_API_KEY") ?? envString("GOOGLE_API_KEY") ?? envString("GEMINI_API_KEY"),
+  // Optional assertions about the corpus model. The embedding contract defines
+  // both; a value set here that disagrees with it refuses semantic search.
+  embeddingModel: envString("IWAC_EMBEDDING_MODEL"),
+  embeddingDimensionality: dimensionality === undefined ? undefined : parsePositiveInt(dimensionality, 0),
   // Remote HTTP transport (node server/index.js --http). Unused by stdio mode.
   httpPort: parsePositiveInt(envString("PORT"), 8000, 65_535),
   // The private mirror holds restricted full text. HTTP mode is how the shared

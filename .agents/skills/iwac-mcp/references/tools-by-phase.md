@@ -1,6 +1,6 @@
 # IWAC MCP Tools by Research Phase
 
-38 possible tools (35 core + 3 optional semantic) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Server **v0.9.0+** adds `get_temporal_distribution` (counts per year/month — use it for any "how did coverage evolve" question instead of paging through searches).
+39 tools (4 of them semantic search, which an operator can turn off) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Server **v0.9.0+** adds `get_temporal_distribution` (counts per year/month — use it for any "how did coverage evolve" question instead of paging through searches).
 
 ## Cross-Collection Entry Points
 
@@ -118,11 +118,11 @@ Primary search tool for the 12,287 newspaper articles.
 
 **Tip:** Sentiment comes inline — build topic-specific sentiment tables directly from search results. With `with_description=true` you can usually pick the 2-3 articles worth a full `get_article` without any intermediate calls.
 
-### semantic_search_articles *(optional — requires semantic search enabled + Google API key)*
-Semantic similarity over article OCR via Gemini embeddings. Coverage is effectively complete: 12,286/12,287 articles are embedded.
+### semantic_search_articles *(on by default: local EmbeddingGemma 2, no API key)*
+Semantic similarity over article title + full text, embedded with EmbeddingGemma 2. Coverage is effectively complete (16,668 of 16,715 articles in October 2026), **including articles whose OCR the public dataset withholds**, because the vectors were computed from the full text upstream. The first semantic call of a session may wait for a one-time model download (~350 MB); a "still being prepared" error means retry in a minute.
 - `query`: natural language, **any language**
 - `country` / `newspaper` / `date_from` / `date_to` (optional post-filters), `limit` (default 10, max 50)
-- Returns article summaries ranked by `similarity_score`
+- Returns article summaries ranked by `similarity_score`. Scores only rank within one query (typical top hits ~0.6-0.7); do not compare them across queries or read them as relevance probabilities
 - Complement to keyword search for conceptual queries ("Islamic education reform" finds madrasa modernization, Franco-Arabic schooling…). Not a replacement.
 
 ### search_index
@@ -151,7 +151,7 @@ Search the 1,501 Islamic publications (mostly complete periodical issues; OCR is
 - `date_from` / `date_to` (optional): years (YYYY)
 - `hijri_month` / `hijri_year` (optional) *(v1.3.0+)*: same semantics as on `search_articles`, but only ~83% of issues carry a complete date (many are `YYYY-MM` or a `1981-04/1981-06` range), so a lunar filter reaches a smaller share here — say so if the count carries an argument
 - `limit` (default 20, max 100), `offset`
-- Returns: id, title, newspaper, country, date, language, subject, nb_pages, url — plus `matching_toc_entries` when the keyword hits an issue's table of contents (325/1,501 issues have one; see `semantic_search_publications` below for series coverage)
+- Returns: id, title, newspaper, country, date, language, subject, nb_pages, url — plus `matching_toc_entries` when the keyword hits an issue's table of contents (603/1,501 issues have one; see `semantic_search_publications` below for series coverage)
 
 ### search_references
 Search the 864 academic references. The records are multilingual: search title/abstract keywords in French and English when relevant. Metadata/filter values such as `reference_type` and `language` use French labels.
@@ -164,6 +164,10 @@ Search the 864 academic references. The records are multilingual: search title/a
 - `date_from` / `date_to` (optional): years
 - `limit` (default 20, max 100), `offset`
 - Returns summary + `abstract_snippet` (320 chars) + doi — full abstract via `get_reference`
+
+### semantic_search_references *(on by default: local EmbeddingGemma 2, no API key)*
+Semantic similarity over references' **title + abstract**, across languages (a French query finds English scholarship). Only the 442 of 867 references with an abstract carry a vector, so a book or thesis without one is invisible here; follow up with `search_references` keywords.
+- `query` (natural language, any language), `reference_type`, `country`, `language`, `date_from` / `date_to` (years), `limit` (default 10, max 50)
 
 ### search_documents
 Search the 26 archival documents (Islamic association reports, flyers, project documents — 19 Burkina Faso, 4 Togo, 2 Benin). All have OCR + AI description.
@@ -195,14 +199,14 @@ The 30 fieldwork photographs (mosques, radio stations, schools, signage, street 
 - `country`, `subject` (exact pipe value), `spatial` (exact pipe value), `creator` (substring), `date_from`, `date_to`, `limit` (default 20, max 50), `offset`
 - Returns: id, title, creator, date, country, spatial, coordinates (`"lat, lng"`), subject, image_url, url
 
-### semantic_search_images *(optional — requires semantic search enabled + Google API key)*
+### semantic_search_images *(on by default: local EmbeddingGemma 2, no API key)*
 **Cross-modal.** Ranks against `embedding_image`, a multimodal embedding of the photograph *itself* in the same 768-dim space as the text vectors — so describing what an image shows works even though 28 of 30 have no caption.
 - `query` (describe the visual content, any language), `country` (optional), `limit` (default 10, max 30)
 
-### semantic_search_publications *(optional — requires semantic search enabled + Google API key)*
-Semantic similarity over publication **tables of contents** via Gemini embeddings. TOC coverage (verified June 2026): **325/1,501 issues (~22%)**, all embedded — **complete for 17 of the 25 series** (Le Rendez-Vous 78, Plume Libre 49, L'Appel 48, Alif 32, La Preuve 28, An-Nasr Trimestriel 16, Le CERFIste 13, Al-Azan 13, ASSALAM 11, Al Mawadda 11, Al Maoulid Info 7, Le Pacific 6, Al Maoulid Magazine 5, AJMCI Infos 4, Al Muwassat Info 2, Bulletin d'information du CNI 1, Les Échos de l'AEEMCI 1), but **zero for the three largest** (Islam Info 695, An-Nasr Vendredi 318, Islam Hebdo 122) and five other small series.
+### semantic_search_publications *(on by default: local EmbeddingGemma 2, no API key)*
+Semantic similarity over publication **tables of contents**. TOC coverage (verified October 2026): **603/1,501 issues (~40%)**, all embedded: **complete for Islam Hebdo (122) and 21 smaller series** (Le Rendez-Vous 78, Plume Libre 49, L'Appel 48, Alif 32, La Preuve 28, An-Nasr Trimestriel 16, Le CERFIste 13, Al-Azan 13, ASSALAM 11, Al Mawadda 11, L'Autre Regard 11, …), **130 of Islam Info's 695**, and **none of An-Nasr Vendredi (318)**, Al Minbar (12) and two single-issue series. Each row shows the first 600 characters of the issue's table of contents.
 - `query` (natural language, any language), `country` (optional), `limit` (default 10, max 50)
-- Good for conceptual discovery inside the covered magazines; for Islam Info / An-Nasr Vendredi / Islam Hebdo, fall back to `search_publications` keyword + subject.
+- Good for conceptual discovery inside the covered issues; for An-Nasr Vendredi and most of Islam Info, fall back to `search_publications` keyword + subject.
 
 ---
 
@@ -354,9 +358,9 @@ Readability, lexical richness and length of the press text, by year, newspaper o
 - The scores are computed upstream from the archive's own OCR, so they cover nearly every article, including those whose full text the public dataset withholds
 
 ### get_similar_items *(v0.13.0)*
-The items nearest a given one in meaning, by cosine similarity over the stored embeddings — finds pieces on the same event that share no vocabulary. **Needs no API key** (unlike `semantic_search_*`): it reads the item's own stored vector.
-- `id` (required), `subset` (optional), `limit` (default 12, max 50), `min_score`
-- A neighbour at or above **~0.85** is usually the same story reprinted or lightly rewritten — the practical way to spot syndication in this corpus. 0.6-0.8 is "same subject, different piece".
+The items nearest a given one in meaning, by cosine similarity over the stored embeddings — finds pieces on the same event that share no vocabulary. **Needs no query encoder**: it reads the item's own stored vector, so it works even where semantic search is off.
+- `id` (required), `subset` (optional: articles, documents, publications or references), `limit` (default 12, max 50), `min_score`
+- Scores in this EmbeddingGemma 2 space run high: unrelated articles already score ~0.7 and the median article's nearest neighbour ~0.91. At or above **0.97** a pair is usually the same story reprinted or lightly rewritten (upstream calibration: 94% lexically confirmed), which makes it the practical way to spot syndication. Below that, rank matters more than the value; the Gemini-era 0.85 rule no longer applies.
 - Per item and on demand; this is not a corpus-wide near-duplicate sweep
 
 ### get_semantic_map *(v0.13.0)*

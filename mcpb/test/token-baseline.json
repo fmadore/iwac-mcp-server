@@ -1,13 +1,14 @@
 {
   "tokenizer": "o200k_base",
-  "footprint": 14815,
-  "instructions": 796,
+  "footprint": 15942,
+  "instructions": 827,
   "tools": {
     "search": 589,
     "fetch": 358,
     "explore_corpus": 1007,
     "search_articles": 550,
     "get_article": 225,
+    "semantic_search_articles": 258,
     "search_by_sentiment": 392,
     "get_sentiment_distribution": 851,
     "search_index": 199,
@@ -23,20 +24,23 @@
     "get_field_distribution": 628,
     "get_cooccurrence": 582,
     "get_place_distribution": 605,
-    "get_semantic_map": 677,
-    "get_similar_items": 343,
+    "get_semantic_map": 679,
+    "get_similar_items": 366,
     "get_lexical_metrics": 555,
     "search_publications": 525,
     "list_periodicals": 253,
     "get_publication_fulltext": 204,
+    "semantic_search_publications": 251,
     "search_references": 450,
     "get_reference": 132,
+    "semantic_search_references": 304,
     "search_documents": 230,
     "get_document": 224,
     "search_audiovisual": 437,
     "list_audiovisual": 262,
     "get_audiovisual": 233,
     "search_images": 357,
-    "get_image": 130
+    "get_image": 130,
+    "semantic_search_images": 258
   }
 }

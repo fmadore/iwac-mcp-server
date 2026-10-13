@@ -10,7 +10,8 @@
 import { z } from "zod";
 import { ensureView, type Bindable } from "../db.js";
 import { config } from "../config.js";
-import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
+import { requireSemanticFilters, runSemanticSearchTool, SEMANTIC_NOTE } from "./_semantic.js";
+import { EMBEDDING_COLUMNS } from "../embeddingContract.js";
 import {
   capOffset,
   colsFor,
@@ -106,20 +107,19 @@ export function registerImageTools(server: Server): void {
     ({ image_id }) => detailResult("images", "Image", image_id),
   );
 
-  // Semantic search is dropped entirely when disabled (e.g. the public HTTP
-  // endpoint); kept for the .mcpb / Claude Desktop build where a Google key is set.
+  // Semantic search is dropped entirely when IWAC_SEMANTIC_SEARCH_ENABLED is off.
   if (!config.semanticSearchEnabled) return;
 
   // === semantic_search_images =============================================
   server.registerTool(
     "semantic_search_images",
     {
-      ...toolMeta("Semantic search for photographs", { openWorldHint: true }),
+      ...toolMeta("Semantic search for photographs"),
       description:
         "Find photographs by describing what they SHOW, in any language ('mosquée en construction', 'street " +
         "signage in Arabic'). This is cross-modal: the ranking runs against a multimodal embedding of the " +
         "photograph itself, not against a caption, so it works even though only 2 of the 30 images have one. " +
-        "Sends queries to the configured embedding provider; its model must match the stored corpus vectors.",
+        SEMANTIC_NOTE,
       inputSchema: z.object({
         query: z.string().trim().min(1).max(8192).describe("Description of the visual content, any language"),
         country: countryParam({ nigeria: true }),
@@ -131,7 +131,7 @@ export function registerImageTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       return runSemanticSearchTool({
         subset: "images",
-        embeddingColumn: "embedding_image",
+        embeddingColumn: EMBEDDING_COLUMNS.images,
         query: args.query,
         limit: resolveLimit(args.limit, 10, 30),
         summaryView: "summary",

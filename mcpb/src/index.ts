@@ -22,8 +22,8 @@ const VERSION = typeof __IWAC_VERSION__ === "string" ? __IWAC_VERSION__ : "0.0.0
  * share the same research principles; detailed methods live in the skill.
  * Built per-server because the semantic-search guidance
  * must match whether those tools are actually registered (they are dropped
- * entirely when IWAC_SEMANTIC_SEARCH_ENABLED is off, e.g. on the public HTTP
- * endpoint — instructions must not advertise tools that do not exist).
+ * entirely when IWAC_SEMANTIC_SEARCH_ENABLED is off, and instructions must
+ * not advertise tools that do not exist).
  */
 const INSTRUCTIONS = `IWAC archives newspaper articles, Islamic publications, documents, audiovisual records, photographs and academic references on Islam in Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria and Togo.
 
@@ -51,12 +51,14 @@ function buildInstructions(): string {
   return INSTRUCTIONS.replace("{{FULLTEXT_COVERAGE}}", FULLTEXT_INSTRUCTIONS).replace(
     "{{SEMANTIC_QUERY_LANGUAGE}}",
     config.semanticSearchEnabled
-      ? "Semantic embedding queries (`semantic_search_articles`, `semantic_search_publications`, `semantic_search_images`) may be in any language. "
+      ? "Semantic embedding queries (`semantic_search_articles`, `semantic_search_publications`, `semantic_search_references`, `semantic_search_images`) may be in any language. "
       : "",
   ).replace(
     "{{SEMANTIC_CAVEAT}}",
-    config.semanticSearchEnabled
-      ? ` The semantic_search_* tools send queries to the configured ${config.embeddingProvider} embedding provider.`
+    // The default encoder runs in this process; only an operator-configured
+    // endpoint sees query text, and that is worth saying.
+    config.semanticSearchEnabled && config.embeddingProvider === "local"
+      ? " The semantic_search_* tools send queries to the configured embedding endpoint."
       : "",
   );
 }

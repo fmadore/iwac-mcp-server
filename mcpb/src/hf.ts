@@ -138,9 +138,31 @@ async function downloadFile(entry: TreeEntry, destPath: string): Promise<void> {
   // Generous timeout: the largest subset is ~185 MB and may run on slow links.
   const res = await fetch(url, { headers: authHeaders(), signal: networkSignal(15 * 60_000) });
   checkAccess(res);
+  await saveVerified(res, destPath, { path: entry.path, size: entry.size, sha256: remoteSha256(entry) });
+}
+
+/**
+ * Download a pinned Hub file to `destPath`, verified as `downloadFile` does.
+ * The caller supplies the signal: the query encoder's weights are fetched by
+ * shared work that must outlive the request that first asked for them.
+ */
+export async function downloadVerified(
+  url: string,
+  destPath: string,
+  expected: { path: string; size: number; sha256: string },
+  signal: AbortSignal,
+): Promise<void> {
+  await saveVerified(await fetch(url, { signal }), destPath, expected);
+}
+
+async function saveVerified(
+  res: Response,
+  destPath: string,
+  expected: { path: string; size?: number; sha256?: string },
+): Promise<void> {
   const body = res.body;
   if (!res.ok || !body) {
-    throw new Error(`Failed to download ${entry.path}: HTTP ${res.status}`);
+    throw new Error(`Failed to download ${expected.path}: HTTP ${res.status}`);
   }
   await fs.mkdir(path.dirname(destPath), { recursive: true });
   const tmp = `${destPath}.${process.pid}.${randomUUID()}.partial`;
@@ -155,12 +177,11 @@ async function downloadFile(entry: TreeEntry, destPath: string): Promise<void> {
   });
   try {
     await pipeline(Readable.fromWeb(body as WebReadableStream), meter, createWriteStream(tmp));
-    if (entry.size !== undefined && bytes !== entry.size) {
-      throw new Error(`Download of ${entry.path} is ${bytes} bytes, but the Hub lists ${entry.size}`);
+    if (expected.size !== undefined && bytes !== expected.size) {
+      throw new Error(`Download of ${expected.path} is ${bytes} bytes, but the Hub lists ${expected.size}`);
     }
-    const expected = remoteSha256(entry);
-    if (expected !== undefined && hash.digest("hex") !== expected) {
-      throw new Error(`Download of ${entry.path} does not match its SHA-256 on the Hub`);
+    if (expected.sha256 !== undefined && hash.digest("hex") !== expected.sha256) {
+      throw new Error(`Download of ${expected.path} does not match its SHA-256 on the Hub`);
     }
   } catch (err) {
     await fs.rm(tmp, { force: true });

@@ -7,7 +7,14 @@ import { normalizeDateBound, validateDateBounds, dateRangeFilter } from "../src/
 import { aggregateFilters } from "../src/tools/aggregates/shared.js";
 import { narrowSelection, selectionFrom } from "../src/selection.js";
 import { query, type Bindable } from "../src/db.js";
-import { validateEmbeddingContract } from "../src/embeddingContract.js";
+import {
+  decodeVector,
+  EMBEDDING_COLUMNS,
+  embeddingContract,
+  validateEmbeddingContract,
+  verifyCorpusAnchors,
+  verifyProbeVector,
+} from "../src/embeddingContract.js";
 import { config } from "../src/config.js";
 
 // Analytic covariance: x has the farthest point but only 50/550 of the variance.
@@ -118,24 +125,78 @@ test("work queues bound load, cancel waiters, and release capacity", async () =>
 
 test("equal embedding dimensions cannot bypass model identity", () => {
   const contract = {
-    model: "different-model",
+    model: "fixture-model",
     revision: "v1",
-    dimension: config.embeddingDimensionality,
+    dimension: 768,
     normalization: "unit-l2" as const,
-    dataset_revision: config.datasetRevision,
     fields: { articles: "embedding_OCR" },
     query_prefix: "",
   };
-  assert.throws(() => validateEmbeddingContract(contract, "articles", "embedding_OCR"), /does not match/);
+  assert.throws(() => validateEmbeddingContract(contract, "articles", "wrong-field"), /no wrong-field vectors/);
+  const original = { ...config };
+  try {
+    Object.assign(config, { embeddingModel: "gemini-embedding-2" });
+    assert.throws(() => validateEmbeddingContract(contract, "articles", "embedding_OCR"), /IWAC_EMBEDDING_MODEL is gemini-embedding-2/);
+    Object.assign(config, { embeddingModel: "fixture-model", embeddingDimensionality: 3072 });
+    assert.throws(() => validateEmbeddingContract(contract, "articles", "embedding_OCR"), /IWAC_EMBEDDING_DIMENSIONALITY/);
+    Object.assign(config, { embeddingDimensionality: 768 });
+    validateEmbeddingContract(contract, "articles", "embedding_OCR");
+    assert.throws(
+      () => validateEmbeddingContract({ ...contract, dataset_revision: "f".repeat(40) }, "articles", "embedding_OCR"),
+      /dataset_revision must match/,
+    );
+  } finally {
+    Object.assign(config, original);
+  }
+});
+
+test("the published contract carries a unit probe and anchors for every vector column", () => {
+  const contract = embeddingContract();
+  assert.equal(contract.model, "google/embeddinggemma-2");
+  assert.equal(contract.dataset_revision, undefined, "no revision pin: the vectors are checked instead");
+  assert.deepEqual(contract.fields, EMBEDDING_COLUMNS);
+  const probe = decodeVector(contract.probe?.vector ?? "");
+  assert.equal(probe.length, contract.dimension);
+  assert.ok(Math.abs(Math.hypot(...probe) - 1) < 1e-4);
+  for (const subset of Object.keys(EMBEDDING_COLUMNS))
+    assert.ok((contract.anchors ?? []).filter((a) => a.subset === subset).length >= 3, `${subset} needs anchors`);
+  verifyProbeVector(contract, probe);
+  assert.throws(() => verifyProbeVector(contract, probe.map((v, i) => (i % 2 ? v : -v))), /does not reproduce/);
+  assert.throws(() => verifyProbeVector(contract, probe.slice(0, 256)), /cosine n\/a/);
+});
+
+test("corpus anchors refuse another vector space and tolerate one edited item", () => {
+  const unit = (values: number[]) => Float32Array.from(values, (v) => v / Math.hypot(...values));
+  const probe = unit([1, 0, 0]);
+  const contract = {
+    model: "fixture-model",
+    revision: "v1",
+    dimension: 3,
+    normalization: "unit-l2" as const,
+    fields: { articles: "embedding_OCR" },
+    query_prefix: "",
+    probe: { query: "probe", vector: Buffer.from(probe.buffer).toString("base64") },
+    anchors: [
+      { subset: "articles", id: "1", cosine: 0.6 },
+      { subset: "articles", id: "2", cosine: 0.8 },
+      { subset: "articles", id: "3", cosine: 0 },
+    ],
+  };
+  const rows: Record<string, Float32Array> = { "1": unit([0.6, 0.8, 0]), "2": unit([0.8, 0, 0.6]), "3": unit([0, 1, 0]) };
+  verifyCorpusAnchors(contract, "articles", (id) => rows[id]);
+  // One anchor re-embedded after an edit: the other two still vouch for the space.
+  verifyCorpusAnchors(contract, "articles", (id) => (id === "3" ? unit([0.5, 0.5, 0]) : rows[id]));
+  // A deleted anchor shrinks the vote; the rest must still agree.
+  verifyCorpusAnchors(contract, "articles", (id) => (id === "1" ? undefined : rows[id]));
+  // Another model: the cosines move everywhere.
   assert.throws(
-    () =>
-      validateEmbeddingContract(
-        { ...contract, model: config.embeddingModel, fields: { articles: "wrong-field" } },
-        "articles",
-        "embedding_OCR",
-      ),
-    /does not match/,
+    () => verifyCorpusAnchors(contract, "articles", (id) => unit([0.2, Number(id), 0.3])),
+    /not fixture-model vectors .*0 of 3 anchor items agree/,
   );
+  // Half is not a majority, and no anchor at all is no evidence.
+  assert.throws(() => verifyCorpusAnchors(contract, "articles", (id) => (id === "1" ? rows[id] : id === "2" ? unit([0, 0, 1]) : undefined)), /1 of 2/);
+  assert.throws(() => verifyCorpusAnchors(contract, "articles", () => undefined), /0 of 0/);
+  assert.throws(() => verifyCorpusAnchors(contract, "references", (id) => rows[id]), /no anchors for references/);
 });
 
 test("request cancellation interrupts active DuckDB work and returns its connection", async () => {

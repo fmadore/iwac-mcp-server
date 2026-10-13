@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "iwac-mcp-server",
   "display_name": "Islam West Africa Collection (IWAC)",
-  "version": "3.9.0",
+  "version": "4.0.0",
   "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
-  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual recordings, fieldwork photographs, archival documents, and academic references. Includes AI sentiment analysis (polarity/centrality/subjectivity, scored independently by gpt-5-6-luna, mistral-small-2603, deepseek-v4-flash-0731, gemma-4-31b-it and qwen3-8-27b), per-article AI abstracts, and per-year coverage timelines. All matching is accent- and case-insensitive.\n\n**No API key is required for the core tools** (cross-subset search/fetch, keyword search, filtering, statistics, timelines, item details). Three optional semantic-search tools use Gemini embeddings — over all articles, the publication series with tables of contents, and the photographs (cross-modal: describe what an image shows) — and need a free Google/Gemini API key; these are disabled by default.\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
+  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual recordings, fieldwork photographs, archival documents, and academic references. Includes AI sentiment analysis (polarity/centrality/subjectivity, scored independently by gpt-5-6-luna, mistral-small-2603, deepseek-v4-flash-0731, gemma-4-31b-it and qwen3-8-27b), per-article AI abstracts, and per-year coverage timelines. All matching is accent- and case-insensitive.\n\n**No API key is required.** Besides cross-subset search/fetch, keyword search, filtering, statistics, timelines and item details, four semantic-search tools find articles, publications, academic references and photographs by meaning (for photographs, describe what the image shows). They run EmbeddingGemma 2, the model the corpus was embedded with, on your machine, so no query leaves your computer. The first semantic search downloads the model once (~350 MB).\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
   "author": {
     "name": "Frédérick Madore",
     "email": "frederick.madore@uni-bayreuth.de",
@@ -43,8 +43,6 @@
       "env": {
         "IWAC_CACHE_DIR": "${user_config.cache_dir}",
         "IWAC_SEMANTIC_SEARCH_ENABLED": "${user_config.semantic_search_enabled}",
-        "IWAC_GOOGLE_API_KEY": "${user_config.google_api_key}",
-        "IWAC_EMBEDDING_MODEL": "${user_config.embedding_model}",
         "IWAC_PRIVATE_DATASET": "${user_config.private_dataset}",
         "IWAC_HF_TOKEN": "${user_config.hf_token}"
       }
@@ -73,7 +71,7 @@
     },
     {
       "name": "semantic_search_articles",
-      "description": "Optional. Semantic similarity search over article OCR. Disabled by default — requires a free Google/Gemini API key."
+      "description": "Semantic similarity search over article title + full text, in any language. Runs locally; no API key."
     },
     {
       "name": "search_by_sentiment",
@@ -161,7 +159,7 @@
     },
     {
       "name": "semantic_search_publications",
-      "description": "Optional. Semantic similarity search over publication tables of contents (17 of 25 series covered). Disabled by default — requires a free Google/Gemini API key."
+      "description": "Semantic similarity search over publication tables of contents (~40% of issues). Runs locally; no API key."
     },
     {
       "name": "search_references",
@@ -170,6 +168,10 @@
     {
       "name": "get_reference",
       "description": "Get the full bibliographic record for a reference, including the complete abstract, DOI, subjects, and host-work details."
+    },
+    {
+      "name": "semantic_search_references",
+      "description": "Semantic similarity search over academic references by title + abstract, across languages. Runs locally; no API key."
     },
     {
       "name": "search_documents",
@@ -201,7 +203,7 @@
     },
     {
       "name": "semantic_search_images",
-      "description": "Optional. Cross-modal search: find photographs by describing what they show, ranked against a multimodal embedding of the image itself. Disabled by default — requires a free Google/Gemini API key."
+      "description": "Cross-modal search: find photographs by describing what they show, ranked against an embedding of the image itself. Runs locally; no API key."
     }
   ],
   "compatibility": {
@@ -224,23 +226,9 @@
     },
     "semantic_search_enabled": {
       "type": "boolean",
-      "title": "Enable semantic search (optional)",
-      "description": "Most users can leave this off. Enables three extra tools that find articles, publications and photographs by meaning rather than keywords. Requires a free Google/Gemini API key and uses network calls at query time. The other tools work without this.",
-      "default": false
-    },
-    "google_api_key": {
-      "type": "string",
-      "title": "Google / Gemini API key",
-      "description": "Required only if semantic search is enabled. Get a free key at https://aistudio.google.com/apikey.",
-      "sensitive": true,
-      "required": false
-    },
-    "embedding_model": {
-      "type": "string",
-      "title": "Gemini embedding model",
-      "description": "Model used to encode semantic-search queries. Must match the embeddings stored in the dataset.",
-      "default": "gemini-embedding-2",
-      "required": false
+      "title": "Semantic search",
+      "description": "Four tools that find articles, publications, references and photographs by meaning rather than keywords. They run locally without an API key; the first search downloads the model once (~350 MB). Turn off to skip that download.",
+      "default": true
     },
     "private_dataset": {
       "type": "boolean",

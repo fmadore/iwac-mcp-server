@@ -845,6 +845,23 @@ await withFixtureScope(async (fixtures) => {
     checkBody: (b) => (b.includes("valid_values") ? null : `an unsupported id prefix should list valid subsets: ${b.slice(0, 140)}`),
   });
 
+  // --- references are embedded by abstract, documents by full text ------------
+  // Since dataset revision d834ab71 a reference's vector is `embedding_abstract`
+  // (`embedding_OCR` is gone from references) and documents carry one at all.
+  await call("get_similar_items", { id: "references:301", limit: 3 }, {
+    structured: true,
+    check: (p) =>
+      p.neighbours?.[0]?.id === "304" ? null : `nearest to reference 301 should be 304, got ${p.neighbours?.[0]?.id}`,
+  });
+  await call("get_similar_items", { id: "documents:501" }, {
+    structured: true,
+    check: (p) => (p.subset === "documents" && p.neighbours?.[0]?.id === "502" ? null : "documents need similar items"),
+  });
+  await call("get_semantic_map", { subset: "references" }, {
+    structured: true,
+    check: (p) => (p.projected === 4 ? null : `all 4 fixture references carry a vector, projected ${p.projected}`),
+  });
+
   // --- bad date bounds are rejected, never silently dropped --------------------
   // The regression this guards: an unparseable bound used to be discarded, so the
   // query widened to the WHOLE corpus while `filters` still echoed the bad value.

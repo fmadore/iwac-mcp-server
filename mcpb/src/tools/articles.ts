@@ -2,7 +2,8 @@ import { aggregateFilters, exactInput } from "./aggregates/shared.js";
 import { z } from "zod";
 import { ensureView, } from "../db.js";
 import { config } from "../config.js";
-import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
+import { requireSemanticFilters, runSemanticSearchTool, SEMANTIC_NOTE } from "./_semantic.js";
+import { EMBEDDING_COLUMNS } from "../embeddingContract.js";
 import {
   capOffset,
   colsFor,
@@ -130,17 +131,15 @@ export function registerArticleTools(server: Server): void {
       }),
   );
 
-  // Semantic search is dropped entirely when disabled (e.g. the public HTTP
-  // endpoint); kept for the .mcpb / Claude Desktop build where a Google key is set.
+  // Semantic search is dropped entirely when IWAC_SEMANTIC_SEARCH_ENABLED is off.
   if (!config.semanticSearchEnabled) return;
 
   // === semantic_search_articles ===========================================
   server.registerTool(
     "semantic_search_articles",
     {
-      ...toolMeta("Semantic search for articles", { openWorldHint: true }),
-      description:
-        "Semantic similarity search over article OCR using the configured embedding provider. The natural-language query may be in any language. Sends queries to the configured embedding provider; its model must match the stored corpus vectors.",
+      ...toolMeta("Semantic search for articles"),
+      description: `Semantic search over article title + full text, including articles whose OCR is not public. Query in any language. ${SEMANTIC_NOTE}`,
       inputSchema: z.object({
         query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
         country: countryParam(),
@@ -157,7 +156,7 @@ export function registerArticleTools(server: Server): void {
       if (dates.err) return errorResult(dates.err);
       return runSemanticSearchTool({
         subset: "articles",
-        embeddingColumn: "embedding_OCR",
+        embeddingColumn: EMBEDDING_COLUMNS.articles,
         query: args.query,
         limit: resolveLimit(args.limit, 10, 50),
         summaryView: "summary",

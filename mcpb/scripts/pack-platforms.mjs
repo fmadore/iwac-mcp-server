@@ -17,16 +17,17 @@
 // native Linux binaries of Biome and TypeScript 7 alone were 33 MB of a 112 MB
 // macOS bundle. Each bundle is now assembled in a temporary directory from what
 // the server actually loads. scripts/bundle.mjs inlines everything except the
-// externals @duckdb/* and @google/genai, so node_modules holds exactly those two
-// and what they resolve at runtime, with only the target OS's DuckDB bindings.
+// externals @duckdb/* and onnxruntime-node, so node_modules holds exactly those
+// two and what they resolve at runtime, with only the target OS's native
+// binaries (pruneOnnxRuntime).
 // The working tree is never modified: the per-OS manifest is written into the
 // stage.
 //
 // .mcpbignore is deliberately NOT applied to the stage. Its `src/` line was
 // meant for this project's TypeScript sources, but ignore patterns without a
 // leading slash match at any depth, and it silently removed
-// google-auth-library's and gaxios's `build/src/`, the code @google/genai loads.
-// Semantic search could not start in any bundle packed that way. The stage
+// google-auth-library's and gaxios's `build/src/`, the code the former Gemini
+// client loaded. Semantic search could not start in any bundle packed that way. The stage
 // holds only what should ship, and mcpb's built-in excludes (*.map, *.d.ts, …)
 // still apply. After packing, verifyBundle() unpacks each archive and loads
 // the runtime packages from it, so a bundle that cannot import them fails
@@ -43,7 +44,47 @@ import { ROOT, bindingFiles, ensureBindings, supportedBindings } from "./duckdb-
 const MCPB_BIN = path.join(ROOT, "node_modules", ".bin", process.platform === "win32" ? "mcpb.cmd" : "mcpb");
 
 /** What the built server imports at runtime: the esbuild externals (scripts/bundle.mjs). */
-const RUNTIME_ROOTS = ["@duckdb/node-api", "@google/genai"];
+const RUNTIME_ROOTS = ["@duckdb/node-api", "onnxruntime-node"];
+
+/**
+ * onnxruntime-node puts every OS's CPU runtime in one package (~290 MB). A
+ * bundle keeps its own OS and drops what CPU inference never loads. On Windows
+ * that is DirectML.dll, which onnxruntime.dll only delay-loads for the DirectML
+ * execution provider, and dxcompiler/dxil, which nothing imports (the WebGPU
+ * provider opens them at run time); ~40 MB per arch. On macOS the package
+ * carries libonnxruntime.<version>.dylib as a byte-identical copy of the
+ * libonnxruntime.1.dylib the binding links (@rpath). The native smoke test
+ * (scripts/smoke-package.mjs) loads the pruned runtime on both OSes.
+ */
+const ORT_BIN = path.join("node_modules", "onnxruntime-node", "bin", "napi-v6");
+const ORT_UNUSED = {
+  win32: /^(?:DirectML|dxcompiler|dxil)\.dll$/i,
+  darwin: /^libonnxruntime\.\d+\.\d+\.\d+\.dylib$/,
+};
+/** What must survive pruning, per arch. onnxruntime-node 1.30 ships no
+ * darwin/x64 build: on an Intel Mac semantic search reports that it cannot run. */
+const ORT_REQUIRED = {
+  win32: { x64: ["onnxruntime_binding.node", "onnxruntime.dll"], arm64: ["onnxruntime_binding.node", "onnxruntime.dll"] },
+  darwin: { arm64: ["onnxruntime_binding.node", "libonnxruntime.1.dylib"] },
+};
+
+function pruneOnnxRuntime(dir, os) {
+  const bin = path.join(dir, ORT_BIN);
+  for (const platform of fs.readdirSync(bin)) {
+    if (platform !== os) fs.rmSync(path.join(bin, platform), { recursive: true, force: true });
+  }
+  for (const arch of fs.readdirSync(path.join(bin, os))) {
+    for (const file of fs.readdirSync(path.join(bin, os, arch))) {
+      if (ORT_UNUSED[os].test(file)) fs.rmSync(path.join(bin, os, arch, file));
+    }
+  }
+}
+
+function onnxRuntimeFiles(os) {
+  return Object.entries(ORT_REQUIRED[os]).flatMap(([arch, files]) =>
+    files.map((file) => path.join(ORT_BIN, os, arch, file).replaceAll("\\", "/")),
+  );
+}
 
 /** Files a bundle carries beside server/ and node_modules/. */
 const BUNDLE_FILES = ["manifest.json", "package.json", "README.md", "icon.png"];
@@ -74,9 +115,9 @@ function resolvePackage(name, fromDir) {
 /**
  * Every installed package directory the runtime roots need, following
  * `dependencies` and `optionalDependencies`. Peer dependencies are not
- * followed: they are the host's to provide, and @google/genai's optional peer
- * on the v1 MCP SDK is what npm's own `--omit=dev` view drags in along with
- * Express. DuckDB bindings for any other platform are skipped. A required
+ * followed: they are the host's to provide, and a package's optional peers are
+ * what npm's own `--omit=dev` view drags in (the former Gemini client's peer on
+ * the v1 MCP SDK pulled in Express). DuckDB bindings for any other platform are skipped. A required
  * dependency that is not installed is an error, not a quietly smaller bundle.
  */
 function runtimeClosure(keepBindings) {
@@ -121,25 +162,26 @@ function stage(target, manifest) {
       filter: (src) => src !== nested && !src.startsWith(nested + path.sep),
     });
   }
+  pruneOnnxRuntime(dir, target.os);
   return { dir, packages };
 }
 
 /**
- * Unpack a finished bundle and prove it can load what the server needs:
- * @google/genai is imported for real (pure JavaScript, so it loads on any
- * host), and for DuckDB, whose native binding only loads on its own OS, the
- * entry module and each target binary must be present. This checks the
- * archive, not the staging directory, so it also catches anything the pack
- * step itself drops.
+ * Unpack a finished bundle and prove it carries what the server needs. Both
+ * externals are native and load only on their own OS, so here their entry
+ * modules and each target binary must be present; scripts/smoke-package.mjs
+ * loads them for real on each OS. This checks the archive, not the staging
+ * directory, so it also catches anything the pack step itself drops.
  */
 function verifyBundle(outfile, target) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "iwac-mcpb-verify-"));
   try {
     execSync(`"${MCPB_BIN}" unpack "${outfile}" "${dir}"`, { cwd: ROOT, stdio: "ignore" });
-    execSync(`"${process.execPath}" --input-type=module -e "await import('@google/genai')"`, { cwd: dir, stdio: "pipe" });
     const required = [
       "server/index.js",
       "node_modules/@duckdb/node-api/package.json",
+      "node_modules/onnxruntime-node/package.json",
+      ...onnxRuntimeFiles(target.os),
       ...target.bindings.flatMap((name) => bindingFiles(name).map((file) => `node_modules/${name}/${file}`)),
     ];
     const missing = required.filter((file) => !fs.existsSync(path.join(dir, file)));

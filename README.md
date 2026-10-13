@@ -50,12 +50,16 @@ Desktop to configure these options:
 
 | Feature | Credentials | Settings |
 | --- | --- | --- |
-| Public keyword search, filters, statistics, and item details | None | Default; leave both optional toggles off. |
-| Semantic search | Google / Gemini API key | Turn on **Enable semantic search (optional)** and enter the key. |
+| Public keyword search, filters, statistics, and item details | None | Default. |
+| Semantic search | None | On by default (**Semantic search**). The first semantic search downloads the query model once (~350 MB); turn the setting off to skip it. |
 | Private full text | Hugging Face token authorized to read the private dataset | Enable **Use private full dataset** and enter **Hugging Face token (private dataset only)**. |
 
-Semantic search and private access are independent options. Using both requires
-both credentials. The shared hosted endpoint serves public data.
+Semantic search runs [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2),
+the model the corpus vectors were made with, on your own machine: no API key,
+and no query leaves your computer. It needs Windows (x64 or ARM64, with the
+Microsoft Visual C++ 2015-2022 Redistributable that most PCs already have) or
+an Apple-silicon Mac; on an Intel Mac the semantic tools report that they cannot
+run, and everything else works. The shared hosted endpoint serves public data.
 
 **Updating:** download and open the latest bundle for your OS to update the
 extension. If the Hugging Face fields are missing, your installed extension may
@@ -143,8 +147,9 @@ read the same workflow without downloading a release artifact.
 
 ## What it gives Claude
 
-38 possible read-only tools across seven IWAC subsets. **35 work out of the
-box**; the 3 `semantic_search_*` tools are optional and use Gemini or an explicitly configured local provider (disabled by default). All keyword and filter matching is
+39 read-only tools across seven IWAC subsets, none of which needs an API key.
+The 4 `semantic_search_*` tools can be turned off; they rank with EmbeddingGemma 2
+run locally (see [mcpb/README.md](mcpb/README.md#semantic-search)). All keyword and filter matching is
 accent- and case-insensitive. The unified `search`/`fetch` pair, the stats
 tools, the aggregates, `list_periodicals`, and `get_sentiment_distribution` also
 return MCP structured content (`outputSchema` + `structuredContent`), which the
@@ -159,7 +164,7 @@ ChatGPT connector contract requires.
 | Stats        | `get_collection_stats`, `get_newspaper_stats`, `get_country_comparison`, `get_temporal_distribution` |
 | Aggregates   | `get_topic_distribution`, `get_field_distribution`, `get_cooccurrence`, `get_lexical_metrics`, `get_place_distribution`, `get_semantic_map`, `get_similar_items` |
 | Publications | `search_publications`, `list_periodicals`, `get_publication_fulltext`, `semantic_search_publications` |
-| References   | `search_references`, `get_reference`                                                        |
+| References   | `search_references`, `get_reference`, `semantic_search_references`                          |
 | Images       | `search_images`, `get_image`, `semantic_search_images`                                      |
 | Other        | `search_documents`, `get_document`, `search_audiovisual`, `list_audiovisual`, `get_audiovisual` |
 
@@ -292,9 +297,8 @@ be overwritten; use a new version for a new release.
 
 ## Roadmap
 
-See [TODO.md](TODO.md) — near-term: submit to the Anthropic extension directory,
-sign the bundle with a production code-signing cert, and replace Gemini
-semantic-search with a free local model.
+See [TODO.md](TODO.md). Near-term: submit to the Anthropic extension directory
+and sign the bundle with a production code-signing cert.
 
 ## How to cite
 
@@ -302,7 +306,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 3.9.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 4.0.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -310,7 +314,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {3.9.0},
+  version   = {4.0.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

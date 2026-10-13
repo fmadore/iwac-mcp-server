@@ -63,10 +63,13 @@ Worth knowing when assessing impact:
   from it. No accounts, no session persistence, no telemetry.
 - **All tools are read-only.** There is no tool that writes, deletes, or mutates
   anything, locally or remotely.
-- **Semantic search is opt-in and off by default.** When
-  `IWAC_SEMANTIC_SEARCH_ENABLED=true`, query text is sent to the configured embedding provider (Gemini by default,
-  or an explicitly configured OpenAI-compatible local endpoint). Provider
-  credentials stay server-side.
+- **Semantic search keeps queries local.** The `semantic_search_*` tools encode
+  query text in-process with EmbeddingGemma 2; nothing is sent to an external
+  API. The model weights are downloaded once from Hugging Face at a pinned
+  revision and checked against pinned SHA-256 digests before use. An operator
+  may instead set `IWAC_EMBEDDING_PROVIDER=local`, which sends query text to the
+  OpenAI-compatible endpoint they configure; its credential stays server-side.
+  `IWAC_SEMANTIC_SEARCH_ENABLED=false` removes the tools entirely.
 
 ## Dependency exception reviewed 2026-10-02
 

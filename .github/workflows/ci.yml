@@ -24,6 +24,11 @@ on:
 permissions:
   contents: read
 
+# onnxruntime-node's postinstall fetches CUDA libraries on linux/x64; the
+# server only runs the CPU provider the package already ships.
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -42,7 +47,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -116,7 +121,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build toolchain
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -140,7 +145,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up declared runtime floor
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: ${{ steps.runtime.outputs.version }}
 
@@ -162,7 +167,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -176,7 +181,7 @@ jobs:
         id: month
         run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
 
-      - name: Restore HF parquet cache (~250 MB)
+      - name: Restore HF parquet and encoder cache (~600 MB)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.iwac-mcp/cache
@@ -192,3 +197,8 @@ jobs:
 
       - name: Live smoke test (real dataset)
         run: node smoke-test.mjs
+
+      # The q8 query encoder (~350 MB, kept in the cached directory above) must
+      # still tokenize like the Python reference and reach cosine >= 0.999.
+      - name: Query encoder parity (EmbeddingGemma 2)
+        run: npm run test:parity

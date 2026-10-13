@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
@@ -20,8 +20,16 @@ try {
   execFileSync(process.execPath, [cli, "unpack", resolve(archive), dir], { stdio: "inherit" });
   const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
   assert(manifest.compatibility.platforms.includes(process.platform), "Bundle must target this OS");
-  // Load both external dependency trees from the isolated installed directory.
-  execFileSync(process.execPath, ["--input-type=module", "-e", "await import('@google/genai'); const {DuckDBInstance}=await import('@duckdb/node-api'); const db=await DuckDBInstance.create(':memory:'); const c=await db.connect(); await c.run('SELECT 1'); c.closeSync(); db.closeSync();"], { cwd: dir, stdio: "inherit" });
+  // Load both external dependency trees from the isolated installed directory,
+  // and run each native runtime: the bundle's onnxruntime has been pruned
+  // (scripts/pack-platforms.mjs), so creating a real session is the proof that
+  // nothing it needs went with it.
+  const tinyModel = pathToFileURL(join(root, "scripts/tiny-onnx.mjs")).href;
+  execFileSync(process.execPath, ["--input-type=module", "-e", `const {DuckDBInstance}=await import('@duckdb/node-api'); const db=await DuckDBInstance.create(':memory:'); const c=await db.connect(); await c.run('SELECT 1'); c.closeSync(); db.closeSync();
+    const ort=await import('onnxruntime-node'); const {tinyOnnxModel}=await import(${JSON.stringify(tinyModel)});
+    const s=await ort.InferenceSession.create(tinyOnnxModel(),{executionProviders:['cpu']});
+    const {y}=await s.run({x:new ort.Tensor('float32',Float32Array.from([1.5,-2]),[2])});
+    if (String(Array.from(y.data))!=='1.5,-2') throw new Error('packaged onnxruntime returned '+Array.from(y.data));`], { cwd: dir, stdio: "inherit" });
   transport = new StdioClientTransport({ command: process.execPath, args: [join(dir, "server/index.js")], cwd: dir,
     stderr: "inherit", env: { ...process.env, IWAC_OFFLINE: "1", IWAC_SEMANTIC_SEARCH_ENABLED: "false",
       IWAC_CACHE_DIR: join(root, "test/fixtures"), IWAC_PRIVATE_DATASET: "false" } });

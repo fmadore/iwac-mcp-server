@@ -3,7 +3,8 @@ import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, getById, query, selectList, viewName, type Bindable } from "../db.js";
 import { config } from "../config.js";
-import { requireSemanticFilters, runSemanticSearchTool } from "./_semantic.js";
+import { requireSemanticFilters, runSemanticSearchTool, SEMANTIC_NOTE } from "./_semantic.js";
+import { EMBEDDING_COLUMNS } from "../embeddingContract.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
 import {
   capOffset,
@@ -209,20 +210,18 @@ export function registerPublicationTools(server: Server): void {
     },
   );
 
-  // Semantic search is dropped entirely when disabled (e.g. the public HTTP
-  // endpoint); kept for the .mcpb / Claude Desktop build where a Google key is set.
+  // Semantic search is dropped entirely when IWAC_SEMANTIC_SEARCH_ENABLED is off.
   if (!config.semanticSearchEnabled) return;
 
   // === semantic_search_publications =======================================
   server.registerTool(
     "semantic_search_publications",
     {
-      ...toolMeta("Semantic search for publications", { openWorldHint: true }),
+      ...toolMeta("Semantic search for publications"),
       description:
-        "Semantic similarity search over publication tables of contents using the configured embedding provider. " +
-        "TOC coverage: ~22% of issues — complete for 17 of the 25 series (the smaller magazines), but absent " +
-        "for the three largest (Islam Info, An-Nasr Vendredi, Islam Hebdo); use search_publications for those. " +
-        "The natural-language query may be in any language. Sends queries to the configured embedding provider; its model must match the stored corpus vectors.",
+        "Semantic search over publication tables of contents, present for ~40% of issues (none for An-Nasr " +
+        "Vendredi, 130 of 695 Islam Info issues): use search_publications for the rest. Rows show the first " +
+        `600 characters of each table. Query in any language. ${SEMANTIC_NOTE}`,
       inputSchema: z.object({
         query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
         country: countryParam(),
@@ -234,12 +233,12 @@ export function registerPublicationTools(server: Server): void {
       if (country.err) return errorResult(country.err);
       return runSemanticSearchTool({
         subset: "publications",
-        embeddingColumn: "embedding_tableOfContents",
+        embeddingColumn: EMBEDDING_COLUMNS.publications,
         query: args.query,
         limit: resolveLimit(args.limit, 10, 50),
-        // Include the TOC in the summary rows — it is the very text the
-        // similarity ranking matched against. (Empty TOCs are compacted away.)
-        summaryView: "withToc",
+        // The start of the TOC, the text the ranking ran against, so a hit can
+        // be judged without fetching it. (Empty TOCs are compacted away.)
+        summaryView: "tocPreview",
         buildCandidateFilters: (schema, where, params) => {
           requireSemanticFilters(schema, { country: country.canonical });
           pipeValueFilterIfExists(schema, where, params, "country", country.canonical);

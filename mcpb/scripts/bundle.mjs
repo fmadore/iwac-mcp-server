@@ -4,12 +4,11 @@
 // bundle no longer relies on node_modules resolution for the core server. Two
 // dependency trees are kept EXTERNAL and must remain in node_modules at runtime:
 //
-//   @duckdb/*      — native bindings (.node/.dll/.so/.dylib) are loaded through a
-//                    process.platform-based require and cannot be inlined.
-//   @google/genai  — only used by the optional semantic-search tools; it pulls in
-//                    google-auth-library + protobufjs, which rely on dynamic
-//                    requires and runtime reflection that bundle poorly. Keeping it
-//                    external preserves its exact current runtime behaviour.
+//   @duckdb/*         native bindings (.node/.dll/.so/.dylib), loaded through
+//                     a process.platform-based require; they cannot be inlined.
+//   onnxruntime-node  the semantic-search query encoder's runtime, the same
+//                     kind of platform-selected native binding. Its tokenizer
+//                     (@huggingface/tokenizers) is plain JavaScript and inlined.
 import * as esbuild from "esbuild";
 import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
@@ -242,7 +241,7 @@ await esbuild.build({
   // No banner shebang: src/index.ts already starts with `#!/usr/bin/env node`,
   // and esbuild hoists the entry point's shebang to line 1 of the bundle.
   legalComments: "none",
-  external: ["@duckdb/*", "@google/genai"],
+  external: ["@duckdb/*", "onnxruntime-node"],
   // Same dead weight as in the UI build above, and the server bundle ships in
   // every .mcpb and every Docker image. The server declares its input schemas
   // with zod but never re-configures the locale, so the catalogues are as dead

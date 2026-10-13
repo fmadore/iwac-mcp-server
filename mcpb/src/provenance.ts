@@ -1,4 +1,4 @@
-import { embeddingContract } from "./embeddingContract.js";
+import { contractSummary } from "./embeddingContract.js";
 import { createHash } from "node:crypto";
 import { requestSnapshots } from "./request.js";
 export const PROVENANCE_META_KEY = "islam.zmo.de/provenance";
@@ -18,6 +18,6 @@ export function requestProvenance(tool: string, args: unknown): Record<string, u
     tool,
     arguments: args,
     datasets,
-    ...(tool.startsWith("semantic_search_") ? { embedding_contract: embeddingContract() } : {}),
+    ...(tool.startsWith("semantic_search_") ? { embedding_contract: contractSummary() } : {}),
   };
 }

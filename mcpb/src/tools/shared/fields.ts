@@ -35,7 +35,11 @@ import { HIJRI_COLS, HIJRI_DATE_EXPR } from "./calendar.js";
  *   summary  the search_* result rows
  *   triage   articles only: summary + the AI abstract (`with_description`)
  *   withToc  publications only: summary + the table of contents (the text the
- *            TOC keyword match and the semantic ranking actually ran against)
+ *            TOC keyword match ran against)
+ *   tocPreview  publications only: summary + the first 600 characters of the
+ *            table of contents. Semantic results carry this instead of the whole
+ *            table (median 6-12k characters, so 50 of them would run to ~100k
+ *            tokens); get_publication_fulltext returns the rest.
  *   list     index only: the lean list_subjects/locations/persons rows
  *   listCountries  index only: list + `countries` (the country-filtered lists)
  *   sentiment      articles only: the search_by_sentiment rows
@@ -46,6 +50,7 @@ export type FieldView =
   | "summary"
   | "triage"
   | "withToc"
+  | "tocPreview"
   | "list"
   | "listCountries"
   | "sentiment";
@@ -55,6 +60,7 @@ export type FieldView =
 const VIEW_BASE: Partial<Record<FieldView, FieldView>> = {
   triage: "summary",
   withToc: "summary",
+  tocPreview: "summary",
   listCountries: "list",
 };
 
@@ -201,6 +207,7 @@ export const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       views: ["detail", "fetch", "withToc"],
       searchable: true,
     },
+    { expr: snippetExpr("tableOfContents", 600), alias: "table_of_contents", requires: ["tableOfContents"], views: ["tocPreview"] },
     { expr: '"OCR"', alias: "ocr_text", requires: ["OCR"], views: ["detail", "fetch"], body: true, searchable: true, heavy: true },
   ],
 

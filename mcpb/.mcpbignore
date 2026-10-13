@@ -29,7 +29,7 @@
 /manifest.json.orig
 
 # Dev-only node_modules trees. The server needs only @duckdb/* and
-# @google/genai at runtime (the two externals of the esbuild bundle).
+# onnxruntime-node at runtime (the two externals of the esbuild bundle).
 # `mcpb clean` does NOT prune development packages reliably: its dependency
 # walker stops at the first module it cannot find and then prunes nothing.
 # So the heavy toolchain is listed here explicitly.

@@ -5,7 +5,7 @@ import { ALL_SUBSETS, type Subset } from "../config.js";
 import type { ComparisonRow, ComparisonSelection } from "../viewContract.js";
 import { ensureView, q, query, queryScalarSingle, viewName } from "../db.js";
 import { aggregateFilters, filterInputs } from "./aggregates/shared.js";
-import { bodyColumn, EMBEDDING_COLUMNS } from "./shared/research.js";
+import { bodyColumn, embeddingColumn } from "./shared/research.js";
 import { colsFor, itemUrl, TITLE_COL } from "./shared/fields.js";
 import { annotate, errorResult, type Server } from "./_shared.js";
 import { CHARTS_UI_META } from "./appUi.js";
@@ -95,7 +95,7 @@ export function registerResearchTools(server: Server): void {
         });
       }
       const body = bodyColumn(subset, schema);
-      const embedding = EMBEDDING_COLUMNS[subset];
+      const embedding = embeddingColumn(subset);
       const hasEmbedding =
         embedding && schema.has(embedding) ? `${q(embedding)} IS NOT NULL AND len(${q(embedding)}) > 0` : "FALSE";
       const scoredCols = SENTIMENT_MODELS.map((m) => sentimentCols(m).polarity).filter((c) => schema.has(c));

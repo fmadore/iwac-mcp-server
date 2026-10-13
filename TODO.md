@@ -60,12 +60,14 @@
   Desktop only trusts real CAs. Command:
   `mcpb sign iwac-mcp-server.mcpb --cert prod.pem --key prod.key`
 
-- [ ] **Zero-config semantic search with a free local model** — see
-  [#5](https://github.com/fmadore/iwac-mcp-server/issues/5). Requires
-  re-embedding the HF corpus with the chosen model (corpus + query must use the
-  same model). Candidates: `Qwen3-Embedding-0.6B/4B`, `BGE-M3`,
-  `EmbeddingGemma-300M`, or the older `multilingual-e5-small` /
-  `paraphrase-multilingual-MiniLM-L12-v2`.
+- [x] **Zero-config semantic search with a free local model**: shipped in
+  v4.0.0 ([#5](https://github.com/fmadore/iwac-mcp-server/issues/5),
+  [#48](https://github.com/fmadore/iwac-mcp-server/issues/48)). The corpus was
+  re-embedded upstream with EmbeddingGemma 2 (dataset revision `d834ab71`); the
+  server runs the same pinned ONNX export in-process, checks its own output
+  against the Python reference and each column against corpus anchors, and
+  turns semantic search on by default. Still open: let `get_similar_items` read
+  the precomputed `related_articles` neighbours for articles and documents.
 
 - [x] **Remote transport / hosted deployments** — shipped. `--http` selects the
   Streamable-HTTP transport in `main()` (`mcpb/src/index.ts`), built on
@@ -236,19 +238,19 @@
 - [ ] **Backfill missing `abstract`** (51% present) from Crossref (DOI — 31%
   have one) and OpenAlex (title match). Fetch *real* abstracts; do not generate
   them from a bare title.
-- [ ] **Compute `embedding_abstract`** (over title+abstract, same Gemini model /
-  768-dim as articles) → enables a new `semantic_search_references` tool. Tiny
-  corpus (864 rows), large payoff: connects secondary scholarship to the same
-  semantic surface as the articles.
+- [x] **Compute `embedding_abstract`**: done upstream with EmbeddingGemma 2
+  over title+abstract (442 of 867 references, those with an abstract);
+  `semantic_search_references` shipped in v4.0.0. Backfilling abstracts (below)
+  raises its coverage.
 
 ### Publications (1,501 rows)
 
-- [ ] **Extract `tableOfContents` from OCR** — **mostly done (June 2026):**
-  325/1,501 issues now have a TOC + `embedding_tableOfContents`, covering 17 of
-  the 25 series completely (avg TOC ~6.4k chars). `semantic_search_publications`
-  and the `matching_toc_entries` path now work for those series. Remaining: the
-  three largest series — Islam Info (695 issues), An-Nasr Vendredi (318),
-  Islam Hebdo (122) — plus 5 small series (~41 issues).
+- [ ] **Extract `tableOfContents` from OCR**: **mostly done (October 2026):**
+  603/1,501 issues now have a TOC + `embedding_tableOfContents`, including all
+  of Islam Hebdo. `semantic_search_publications` and the `matching_toc_entries`
+  path work for those issues. Remaining: An-Nasr Vendredi (318 issues), the
+  other 565 Islam Info issues, and Al Minbar, Al Maoulid Magazine (arabe) and
+  Allahou Akbar (15 issues).
 - [ ] **Per-issue `descriptionAI`** (2–4 sentences: themes, notable pieces).
   Publications have *no* summary surface at all today.
 - [ ] (stretch) **Article-level publications index** — explode extracted TOCs
@@ -285,9 +287,8 @@
 
 ### Server tools that light up once the columns land
 
-- `semantic_search_references` — new tool, needs `embedding_abstract`.
-- `semantic_search_publications` — ✅ now useful for the 17 TOC-covered series;
-  corpus-wide once Islam Info / An-Nasr Vendredi / Islam Hebdo TOCs land.
+- `semantic_search_publications` becomes corpus-wide once the An-Nasr Vendredi
+  and remaining Islam Info TOCs land.
 - `search_publications` — returns AI summaries once `descriptionAI` is populated
   (add a `descriptionAI` field to `SUBSET_FIELDS.publications` in
   `src/tools/_shared.ts`, tagged `searchable` and in the `summary` view).

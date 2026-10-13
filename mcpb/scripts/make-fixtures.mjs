@@ -262,26 +262,34 @@ const SUBSET_SQL = {
       page_start VARCHAR, page_end VARCHAR, nb_pages BIGINT, edition VARCHAR, extent VARCHAR,
       abstract VARCHAR, subject VARCHAR, spatial VARCHAR, language VARCHAR, country VARCHAR,
       doi VARCHAR, "URL" VARCHAR, is_part_of VARCHAR, review_of VARCHAR, provenance VARCHAR,
-      iwac_url VARCHAR
+      iwac_url VARCHAR,
+      -- Toy 4-d vectors over title + abstract (the live column is 768-d and
+      -- covers only the references that have an abstract): the two Nigeria
+      -- sharia-politics rows sit together, apart from the Benin/Togo pair.
+      embedding_abstract FLOAT[]
     );
     INSERT INTO "references" VALUES
       ('301', 'ref-301', 'Muslim Politics across Northern Nigeria and Niger', 'Smith, John', '',
        'Article de revue', 'Article de revue', '2015', '', '', '', '12', '3', '201', '229', 0, '', '',
        'This article surveys Muslim political mobilisation across the Niger–Nigeria borderlands. Drawing on fieldwork in Maradi, Kano and Zinder, it traces how reformist movements, Sufi orders and state institutions negotiated authority between 1990 and 2010, and argues that cross-border religious networks shaped electoral politics on both sides in ways national frames systematically miss, with lasting consequences for how sharia debates travelled.',
-       '', 'Maradi|Kano', 'Anglais', 'Niger|Nigeria', '10.1000/test-301', '', 'Journal of West African Studies', '', '', '${IWAC}301'),
+       '', 'Maradi|Kano', 'Anglais', 'Niger|Nigeria', '10.1000/test-301', '', 'Journal of West African Studies', '', '', '${IWAC}301',
+       [0.9, 0.1, 0.0, 0.1]),
       ('302', 'ref-302', 'L''islam au Bénin : histoire et société', 'Kadiri, Aïcha', '',
        'Livre', 'Livre', '1999', 'Éditions du Golfe', '', '', '', '', '', '', 240, '1re', '',
        'Synthèse historique sur les communautés musulmanes béninoises.',
-       'Islam', 'Cotonou', 'Français', 'Benin', '', '', '', '', '', '${IWAC}302'),
+       'Islam', 'Cotonou', 'Français', 'Benin', '', '', '', '', '', '${IWAC}302',
+       [0.2, 0.8, 0.1, 0.1]),
       ('303', 'ref-303', 'Confréries et politique au Togo', 'Mensah, Paul', 'Doe, Jane',
        'Chapitre de livre', 'Chapitre de livre', '2005', 'Academia', 'Religions ouest-africaines', '7',
        '', '', '145', '168', 0, '', '',
        'Le chapitre analyse le rôle des confréries soufies dans la vie politique togolaise.',
-       'Confréries', 'Lomé', 'Français', 'Togo', '', '', '', '', '', '${IWAC}303'),
+       'Confréries', 'Lomé', 'Français', 'Togo', '', '', '', '', '', '${IWAC}303',
+       [0.1, 0.9, 0.2, 0.0]),
       ('304', 'ref-304', 'Sharia Implementation in Northern Nigeria', 'Adamu, Bello', '',
        'Rapport', 'Rapport', '2003', 'Policy Institute', '', '', '', '', '', '', 88, '', '',
        'Report on the first years of sharia implementation across twelve northern Nigerian states.',
-       '', 'Kano', 'Anglais', 'Nigeria', '', 'https://example.org/report-304', '', '', '', '${IWAC}304');
+       '', 'Kano', 'Anglais', 'Nigeria', '', 'https://example.org/report-304', '', '', '', '${IWAC}304',
+       [0.85, 0.2, 0.05, 0.1]);
   `,
 
   documents: `
@@ -289,17 +297,20 @@ const SUBSET_SQL = {
       "o:id" VARCHAR, identifier VARCHAR, title VARCHAR, author VARCHAR, country VARCHAR,
       pub_date VARCHAR, type VARCHAR, subject VARCHAR, spatial VARCHAR, language VARCHAR,
       nb_pages BIGINT, source VARCHAR, rights VARCHAR, "descriptionAI" VARCHAR,
-      nb_mots BIGINT, "OCR" VARCHAR, iwac_url VARCHAR
+      nb_mots BIGINT, "OCR" VARCHAR, iwac_url VARCHAR,
+      embedding_OCR FLOAT[]
     );
     INSERT INTO documents VALUES
       ('501', 'doc-501', 'Rapport annuel de l''AEEMB', 'AEEMB', 'Burkina Faso', '1994-01-01',
        'Rapport', 'Association|Éducation', 'Ouagadougou', 'Français', 24, 'Archives AEEMB', '',
        'Rapport d''activités annuel de l''association des élèves et étudiants musulmans du Burkina.',
-       850, 'L''association des élèves et étudiants musulmans du Burkina dresse le bilan de l''année : camps de formation, prêches et actions sociales.', '${IWAC}501'),
+       850, 'L''association des élèves et étudiants musulmans du Burkina dresse le bilan de l''année : camps de formation, prêches et actions sociales.', '${IWAC}501',
+       [0.1, 0.2, 0.9, 0.1]),
       ('502', 'doc-502', 'Tract de la communauté musulmane de Lomé', '', 'Togo', '1990',
        'Tract', 'Mosquée', 'Lomé', 'Français', 2, '', '',
        'Tract appelant à la solidarité pour la construction d''une mosquée.',
-       210, 'Appel aux fidèles : contribuez à la construction de la nouvelle mosquée centrale de Lomé.', '${IWAC}502');
+       210, 'Appel aux fidèles : contribuez à la construction de la nouvelle mosquée centrale de Lomé.', '${IWAC}502',
+       [0.2, 0.1, 0.1, 0.9]);
   `,
 
   audiovisual: `

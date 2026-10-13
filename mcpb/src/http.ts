@@ -36,6 +36,7 @@ import { toNodeHandler } from "@modelcontextprotocol/node";
 import http from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
+import { warmEncoder } from "./onnxEncoder.js";
 
 /** Cap on request body size — MCP JSON-RPC payloads are tiny; larger is abuse. */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -234,5 +235,8 @@ export function startHttpServer(createServer: () => McpServer): void {
       `[iwac] IWAC MCP server running on http://0.0.0.0:${port}/mcp ` +
         `(dataset: ${config.datasetRepo}, cache: ${config.cacheDir}, semantic: ${config.semanticSearchEnabled})`,
     );
+    // A shared endpoint should not make its first semantic search wait for the
+    // encoder's one-time download; a desktop install fetches it only if used.
+    if (config.semanticSearchEnabled && config.embeddingProvider === "onnx" && !config.offline) warmEncoder();
   });
 }

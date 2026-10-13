@@ -116,14 +116,15 @@ clients can use `skills/*`; other clients can read the ordinary resources.
 
 </details>
 
-### Optional: semantic search
+### Semantic search
 
-Twenty-seven tools work out of the box. Three extra tools find articles,
-publications and photographs by *meaning* rather than keywords — the photo
-search is cross-modal, so you can describe what an image shows. They need a free
-Google/Gemini API key and are **off by default**. To enable them, turn on
-**Enable semantic search** in the extension's settings and paste a key from
-[Google AI Studio](https://aistudio.google.com/apikey). Most users don't need this.
+Four tools find articles, publications, academic references and photographs by
+*meaning* rather than keywords. The photo search is cross-modal, so you can
+describe what an image shows. They need no API key: they run the model the
+collection was embedded with on your own computer, so your queries stay there.
+The first semantic search downloads that model once (~350 MB). If you would
+rather skip the download, turn off **Semantic search** in the extension's
+settings; every other tool works without it.
 
 ---
 

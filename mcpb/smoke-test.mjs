@@ -81,7 +81,8 @@ if (!serverVersion || serverVersion === "0.0.0-dev") fail("server version not in
 // Instructions parity (the ONLY guidance channel a skill-less client gets):
 // must reflect v0.8.x semantics and not the pre-v0.7 single-substring search myth.
 const instructions = client.getInstructions?.() ?? "";
-const semanticOn = ["1", "true", "yes", "on"].includes(
+// Semantic search is on unless explicitly turned off, as in src/config.ts.
+const semanticOn = !["0", "false", "no", "off"].includes(
   (process.env.IWAC_SEMANTIC_SEARCH_ENABLED ?? "").trim().toLowerCase(),
 );
 
@@ -100,8 +101,8 @@ if (!instructions) {
 const tools = await client.listTools();
 const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
 console.log(`tools (${tools.tools.length}):`, tools.tools.map((t) => t.name).join(", "));
-// The semantic_search_* tools register only when IWAC_SEMANTIC_SEARCH_ENABLED=true;
-// the live HTTP endpoint runs with it off, so they are dropped there entirely.
+// The semantic_search_* tools are dropped entirely when IWAC_SEMANTIC_SEARCH_ENABLED
+// is off.
 const expectedTools = manifest.tools.filter((tool) => semanticOn || !tool.name.startsWith("semantic_search_")).length;
 if (tools.tools.length !== expectedTools) fail(`expected ${expectedTools} tools, got ${tools.tools.length}`);
 
@@ -846,9 +847,31 @@ await call("list_locations", { country: "Benin", limit: 3 }, {
       : "list_locations(country) should carry a mentioned-in semantics note",
 });
 
-// --- semantic: registration is gated on IWAC_SEMANTIC_SEARCH_ENABLED, so the
-// presence/absence of the three semantic tools is asserted against the tools list
-// near the top of this script (no call here — that would need a Google API key). ---
+// --- semantic: registration is asserted against the tools list near the top.
+// With the tools on, run each one for real: the local encoder must pass its
+// probe check and every subset's vectors their anchor check, on the live corpus.
+// The first call may download the encoder (~350 MB). ---
+if (semanticOn) {
+  const contractModel = (r) => r?._meta?.["islam.zmo.de/provenance"]?.embedding_contract?.model;
+  const ranked = (p) =>
+    Array.isArray(p.results) && p.results.length > 0 && p.results.every((r) => typeof r.similarity_score === "number")
+      ? null
+      : "semantic search should return scored results";
+  for (const [tool, query] of [
+    ["semantic_search_articles", "pèlerinage à La Mecque"],
+    ["semantic_search_publications", "enseignement coranique"],
+    ["semantic_search_references", "Sufi brotherhoods and politics"],
+    ["semantic_search_images", "mosquée"],
+  ]) {
+    await call(tool, { query, limit: 5 }, {
+      check: (p, _body, res) => ranked(p) ?? (contractModel(res) === "google/embeddinggemma-2" ? null : "provenance should name the corpus model"),
+    });
+  }
+  // A filter must narrow the candidates, never widen them.
+  await call("semantic_search_articles", { query: "Tabaski", country: "Togo", limit: 5 }, {
+    check: (p) => (p.results?.every((r) => String(r.country ?? "").includes("Togo")) ? ranked(p) : "country filter leaked"),
+  });
+}
 
 // --- error path ----------------------------------------------------------------
 await call("get_article", { article_id: 1 }, { expectError: true });

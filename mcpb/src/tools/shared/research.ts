@@ -8,9 +8,4 @@ export function bodyColumn(subset: Subset, schema: Set<string>): string | undefi
   return col && schema.has(col) ? col : undefined;
 }
 
-export const EMBEDDING_COLUMNS: Partial<Record<Subset, string>> = {
-  articles: "embedding_OCR",
-  references: "embedding_OCR",
-  publications: "embedding_tableOfContents",
-  images: "embedding_image",
-};
+export { embeddingColumn } from "../../embeddingContract.js";

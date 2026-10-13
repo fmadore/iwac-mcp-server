@@ -9,6 +9,10 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    // TypeScript 6+ no longer loads every @types package by default. Node's
+    // types used to arrive only through a `/// <reference types="node" />` in
+    // @google/genai's declarations; name them here instead.
+    "types": ["node"],
     "declaration": false,
     "sourceMap": false
   },

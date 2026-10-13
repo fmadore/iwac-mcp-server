@@ -20,7 +20,8 @@ import {
   validateEnum,
   type Server,
 } from "../_shared.js";
-import { AGG_SUBSETS, aggregateFilters, filterInputs } from "./shared.js";
+import { aggregateFilters, filterInputs } from "./shared.js";
+import { embeddingColumn } from "../../embeddingContract.js";
 
 /**
  * Fields a semantic scatter may colour by. `polarity` is the stable public name
@@ -44,16 +45,20 @@ function colorColumn(field: string): string {
 }
 
 /**
- * Which column holds each subset's vectors. Publications embed their table of
- * contents rather than their OCR (a whole issue is far past the model's token
- * limit), and only ~31% of them have one, so a publications scatter is sparse
- * by construction.
+ * Subsets whose stored vectors these tools compare (columns: EMBEDDING_COLUMNS
+ * in embeddingContract.ts). Publications are embedded by table of contents and
+ * references by abstract, so both maps are sparse by construction; the 30
+ * photographs are left to semantic_search_images.
  */
-const EMBEDDING_COLS: Partial<Record<Subset, string>> = {
-  articles: "embedding_OCR",
-  references: "embedding_OCR",
-  publications: "embedding_tableOfContents",
-};
+const VECTOR_SUBSETS = ["articles", "documents", "publications", "references"] as const;
+
+/**
+ * Calibrated on the EmbeddingGemma 2 vectors upstream (`iwac-analyze
+ * similarity-calibration`): at or above this cosine 94% of held-out pairs were
+ * lexically confirmed near-duplicates. Unrelated articles already score ~0.7,
+ * so lower cutoffs from the earlier Gemini space mean nothing here.
+ */
+const NEAR_DUPLICATE = 0.97;
 
 /**
  * Titles are the bulk of a semantic-map payload and only ever become a chart
@@ -106,7 +111,7 @@ export function registerSemanticTools(server: Server): void {
         "Stable-hash sample of matching stored embeddings, projected with PCA. Reports eligible, invalid, missing and capped counts, seed and explained variance. Group counts describe the sample. Coordinates are chart-only; this is not the published UMAP landscape. Needs no API key.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
-        subset: z.string().optional().describe("articles (default) | publications | references"),
+        subset: z.string().optional().describe("articles (default) | documents | publications | references"),
         ...filterInputs(),
         color_by: z
           .string()
@@ -119,7 +124,7 @@ export function registerSemanticTools(server: Server): void {
       outputSchema: SEMANTIC_MAP_OUTPUT,
     },
     async (args) => {
-      const subsetV = validateEnum(args.subset, AGG_SUBSETS, "subset");
+      const subsetV = validateEnum(args.subset, VECTOR_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
       const subset: Subset = subsetV.canonical ?? "articles";
       const country = validateEnum(args.country, COUNTRIES, "country");
@@ -133,11 +138,11 @@ export function registerSemanticTools(server: Server): void {
       if (colorV.err) return errorResult(colorV.err);
 
       const schema = await ensureView(subset);
-      const embeddingCol = EMBEDDING_COLS[subset];
+      const embeddingCol = embeddingColumn(subset);
       if (!embeddingCol || !schema.has(embeddingCol)) {
         return errorResult({
           error: `Subset '${subset}' carries no embedding column in this dataset revision`,
-          valid_values: AGG_SUBSETS.filter((s) => EMBEDDING_COLS[s]),
+          valid_values: [...VECTOR_SUBSETS],
         });
       }
       // `colorBy` is the name echoed back; `colorCol` is the dataset column it
@@ -282,13 +287,13 @@ export function registerSemanticTools(server: Server): void {
     {
       ...toolMeta("Find similar items"),
       description:
-        "Nearest stored embeddings by cosine similarity, without an API key. Scores rank reading candidates; no threshold proves a reprint. Returns source IDs and dates for comparison. Corpus-wide candidate generation belongs offline.",
+        "Nearest stored embeddings by cosine similarity, without an API key. Scores run high (unrelated ~0.7) and rank reading candidates; >= 0.97 suggests a near-duplicate, but no threshold proves a reprint. Returns source IDs and dates. Corpus-wide candidate generation belongs offline.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         id: z
           .string()
           .describe("Item id — either a bare o:id ('3064') or the namespaced form search returns ('articles:3064')"),
-        subset: z.string().optional().describe("articles (default) | publications | references"),
+        subset: z.string().optional().describe("articles (default) | documents | publications | references"),
         limit: z.number().int().optional().describe("Neighbours returned (default 12, max 50)"),
         min_score: z.number().min(-1).max(1).optional().describe("Minimum cosine similarity (-1 to 1)"),
       }),
@@ -305,9 +310,9 @@ export function registerSemanticTools(server: Server): void {
       const prefixed = /^([a-z_]+):(.+)$/i.exec(rawId);
       const subsetFromId = prefixed?.[1].toLowerCase();
 
-      const askedV = validateEnum(args.subset, AGG_SUBSETS, "subset");
+      const askedV = validateEnum(args.subset, VECTOR_SUBSETS, "subset");
       if (askedV.err) return errorResult(askedV.err);
-      const subsetV = askedV.canonical ? askedV : validateEnum(subsetFromId, AGG_SUBSETS, "subset");
+      const subsetV = askedV.canonical ? askedV : validateEnum(subsetFromId, VECTOR_SUBSETS, "subset");
       if (subsetV.err) return errorResult(subsetV.err);
       const subset: Subset = subsetV.canonical ?? "articles";
       if (subsetFromId && askedV.canonical && askedV.canonical !== subsetFromId) {
@@ -316,11 +321,11 @@ export function registerSemanticTools(server: Server): void {
         });
       }
       const schema = await ensureView(subset);
-      const embeddingCol = EMBEDDING_COLS[subset];
+      const embeddingCol = embeddingColumn(subset);
       if (!embeddingCol || !schema.has(embeddingCol)) {
         return errorResult({
           error: `Subset '${subset}' carries no embedding column in this dataset revision`,
-          valid_values: AGG_SUBSETS.filter((s) => EMBEDDING_COLS[s]),
+          valid_values: [...VECTOR_SUBSETS],
         });
       }
       const id = prefixed ? prefixed[2].trim() : rawId;
@@ -392,7 +397,7 @@ export function registerSemanticTools(server: Server): void {
         })
         .filter((r) => min === undefined || (r.score as number) >= min);
 
-      const reprints = neighbours.filter((r) => (r.score as number) >= 0.85).length;
+      const reprints = neighbours.filter((r) => (r.score as number) >= NEAR_DUPLICATE).length;
       return chartResult({
         view: VIEW.similar,
         subset,
@@ -406,9 +411,9 @@ export function registerSemanticTools(server: Server): void {
         note:
           `Cosine similarity over the stored embeddings; 1.0 is identical. ` +
           (reprints
-            ? `${reprints} neighbour${reprints === 1 ? " scores" : "s score"} at or above 0.85, which in this ` +
-              `corpus marks candidates for close reading; it is not evidence of copying. `
-            : "") +
+            ? `${reprints} neighbour${reprints === 1 ? " scores" : "s score"} at or above ${NEAR_DUPLICATE}, where ` +
+              `most pairs in this corpus share their wording: candidates for close reading, not evidence of copying. `
+            : `Scores in this embedding space run high (unrelated articles typically ~0.7), so rank matters more than the value. `) +
           `Only items with valid stored vectors of the source dimension can appear; missing vectors restrict recall.`,
       });
     },
