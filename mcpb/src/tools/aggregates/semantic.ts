@@ -1,8 +1,8 @@
 import { chartResult, chartViewResult } from "../shared/chartResults.js";
 import { sentimentCols } from "../shared/sentiment.js";
-import { isFiniteVector } from "../../vectors.js";
+import { isFiniteVector, parseRelated } from "../../vectors.js";
 import { z } from "zod";
-import { ensureView, q, query, queryOne, viewName } from "../../db.js";
+import { ensureView, q, query, queryOne, type Row, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
 import { projectAsync } from "../../projection.js";
 import { createHash } from "node:crypto";
@@ -61,6 +61,23 @@ const VECTOR_SUBSETS = ["articles", "documents", "publications", "references"] a
 const NEAR_DUPLICATE = 0.97;
 
 /**
+ * Upstream publishes each article's and document's ten nearest neighbours as
+ * `related_articles` (IWAC-Hugging-Face `post-processing/related_articles.py`),
+ * the list islam.zmo.de's "Similar articles" panels show. It ranks the same
+ * `embedding_OCR` within the subset by the live query's rule (score
+ * descending, ties by string o:id, the row itself excluded), so reading it
+ * changes nothing but float noise on four-decimal ties, and makes the server
+ * and the site agree by construction. The script can fill publications too,
+ * but that list has never been pushed.
+ *
+ * Upstream nulls the WHOLE column whenever a vector or the row set changes and
+ * refills it only on an explicit push: a filled cell is current for its
+ * revision, an empty one means "not computed yet", never "no neighbours".
+ */
+const RELATED_COLUMN = "related_articles";
+const RELATED_SUBSETS: readonly Subset[] = ["articles", "documents"];
+
+/**
  * Titles are the bulk of a semantic-map payload and only ever become a chart
  * tooltip, so they are clipped rather than sent whole.
  */
@@ -98,6 +115,8 @@ const SIMILAR_OUTPUT = z.object({
   subset: z.string(),
   source: z.looseObject({}),
   neighbours: z.array(z.looseObject({})),
+  neighbours_source: z.string(),
+  stored_count: z.number(),
   note: z.string(),
 });
 
@@ -287,7 +306,7 @@ export function registerSemanticTools(server: Server): void {
     {
       ...toolMeta("Find similar items"),
       description:
-        "Nearest stored embeddings by cosine similarity, without an API key. Scores run high (unrelated ~0.7) and rank reading candidates; >= 0.97 suggests a near-duplicate, but no threshold proves a reprint. Returns source IDs and dates. Corpus-wide candidate generation belongs offline.",
+        "Nearest stored embeddings by cosine similarity. Articles and documents lead with the dataset's published top 10. Scores run high (unrelated ~0.7) and rank reading candidates; >= 0.97 suggests a near-duplicate, but no threshold proves a reprint. Returns source IDs and dates. Corpus-wide candidate generation belongs offline.",
       _meta: CHARTS_UI_META,
       inputSchema: z.object({
         id: z
@@ -335,6 +354,10 @@ export function registerSemanticTools(server: Server): void {
       const titleCol = TITLE_COL[subset];
       const extra = ["newspaper", "pub_date", "country"].filter((c) => schema.has(c));
       const extraSel = extra.length ? `, ${extra.map((c) => q(c)).join(", ")}` : "";
+      // Absent from a revision that predates the column, so read it only where
+      // the loaded view actually has it.
+      const relatedCol = RELATED_SUBSETS.includes(subset) && schema.has(RELATED_COLUMN) ? RELATED_COLUMN : undefined;
+      const relatedSel = relatedCol ? `, ${q(relatedCol)} AS related` : "";
 
       // Resolve the source FIRST. A missing id would otherwise make the target
       // subquery NULL, and `list_inner_product(v, NULL)` returns NULL rather
@@ -344,7 +367,7 @@ export function registerSemanticTools(server: Server): void {
       // missing vector is a coverage limit of the public dataset.
       const source = await queryOne(
         `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title,
-                ${q(embeddingCol)} IS NOT NULL AS has_vector, ${q(embeddingCol)} AS source_vector${extraSel}
+                ${q(embeddingCol)} IS NOT NULL AS has_vector, ${q(embeddingCol)} AS source_vector${extraSel}${relatedSel}
          FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ?`,
         [id],
       );
@@ -359,43 +382,80 @@ export function registerSemanticTools(server: Server): void {
       if (!isFiniteVector(source.source_vector) || !source.source_vector.some((v) => v !== 0))
         return errorResult({ error: `Item ${id} has an invalid or zero embedding` });
 
+      // The published list first, kept in its stored order with its stored
+      // scores. An id the snapshot lacks is dropped: upstream's invalidation
+      // rule (see RELATED_COLUMN) means it should never happen, so the note
+      // says when it does.
+      const listed = relatedCol ? parseRelated(source.related, String(source.id)) : [];
+      let stored: Row[] = [];
+      if (listed.length) {
+        const meta = await query(
+          `SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title${extraSel}
+           FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) IN (${listed.map(() => "?").join(", ")})`,
+          listed.map((n) => n.id),
+        );
+        const byId = new Map(meta.map((r) => [String(r.id), r]));
+        stored = listed.flatMap((n) => {
+          const r = byId.get(n.id);
+          return r ? [{ ...r, score: n.score }] : [];
+        });
+      }
+      const skipped = listed.length - stored.length;
+      stored = stored.slice(0, limit);
+
+      // Past the end of the published list the live ranking continues it. It
+      // skips every listed id rather than starting at live rank 11, so a
+      // neighbour the two rankings place either side of a tie at the cut is
+      // neither lost nor repeated. The stored part is never re-sorted: across
+      // that seam a live score can sit above a stored one.
+      //
       // MATERIALIZED is load-bearing, not a hint. DuckDB otherwise evaluates
       // list_inner_product before the IS NOT NULL filter, and the row with no
       // vector aborts the whole query with "left argument can not contain NULL
       // values". Materialising the filtered source removes the NULL from the
       // function's input entirely.
-      const rows = await query(
-        `WITH src AS MATERIALIZED (
-           SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title${extraSel},
-                  ${q(embeddingCol)} AS v
-           FROM ${viewName(subset)} WHERE ${q(embeddingCol)} IS NOT NULL
-             AND len(${q(embeddingCol)}) = (SELECT len(${q(embeddingCol)}) FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ? LIMIT 1)
-             AND list_count(${q(embeddingCol)}) = len(${q(embeddingCol)})
-             AND len(${q(embeddingCol)}) > 0
-             AND list_sum(list_transform(${q(embeddingCol)}, x -> CASE WHEN isfinite(x) THEN 0 ELSE 1 END)) = 0
-             AND list_sum(list_transform(${q(embeddingCol)}, x -> x::DOUBLE * x::DOUBLE)) > 0
-         ),
-         target AS MATERIALIZED (SELECT v FROM src WHERE id = ? LIMIT 1)
-         SELECT id, title${extraSel}, list_cosine_similarity(v, (SELECT v FROM target)) AS score
-         FROM src WHERE id <> ?
-         ORDER BY score DESC, id LIMIT ${limit}`,
-        [id, id, id],
-      );
+      const listedIds = stored.map((r) => String(r.id));
+      const notListed = listedIds.length ? ` AND id NOT IN (${listedIds.map(() => "?").join(", ")})` : "";
+      const live =
+        stored.length < limit
+          ? await query(
+              `WITH src AS MATERIALIZED (
+                 SELECT CAST("o:id" AS VARCHAR) AS id, ${q(titleCol)} AS title${extraSel},
+                        ${q(embeddingCol)} AS v
+                 FROM ${viewName(subset)} WHERE ${q(embeddingCol)} IS NOT NULL
+                   AND len(${q(embeddingCol)}) = (SELECT len(${q(embeddingCol)}) FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ? LIMIT 1)
+                   AND list_count(${q(embeddingCol)}) = len(${q(embeddingCol)})
+                   AND len(${q(embeddingCol)}) > 0
+                   AND list_sum(list_transform(${q(embeddingCol)}, x -> CASE WHEN isfinite(x) THEN 0 ELSE 1 END)) = 0
+                   AND list_sum(list_transform(${q(embeddingCol)}, x -> x::DOUBLE * x::DOUBLE)) > 0
+               ),
+               target AS MATERIALIZED (SELECT v FROM src WHERE id = ? LIMIT 1)
+               SELECT id, title${extraSel}, list_cosine_similarity(v, (SELECT v FROM target)) AS score
+               FROM src WHERE id <> ?${notListed}
+               ORDER BY score DESC, id LIMIT ${limit - stored.length}`,
+              [id, id, id, ...listedIds],
+            )
+          : [];
 
       const min = typeof args.min_score === "number" ? args.min_score : undefined;
-      const neighbours = rows
-        .filter((r) => Number.isFinite(Number(r.score)))
-        .map((r) => {
-          const rec: Record<string, unknown> = {
-            id: String(r.id),
-            title: clipTitle(r.title),
-            score: Math.round(Number(r.score) * 1e4) / 1e4,
-            url: itemUrl(String(r.id)),
-          };
-          for (const c of extra) if (r[c] != null && String(r[c]).trim() !== "") rec[c] = String(r[c]);
-          return rec;
-        })
-        .filter((r) => min === undefined || (r.score as number) >= min);
+      const keep = (rows: Row[]) =>
+        rows
+          .filter((r) => Number.isFinite(Number(r.score)))
+          .map((r) => {
+            const rec: Record<string, unknown> = {
+              id: String(r.id),
+              title: clipTitle(r.title),
+              score: Math.round(Number(r.score) * 1e4) / 1e4,
+              url: itemUrl(String(r.id)),
+            };
+            for (const c of extra) if (r[c] != null && String(r[c]).trim() !== "") rec[c] = String(r[c]);
+            return rec;
+          })
+          .filter((r) => min === undefined || (r.score as number) >= min);
+      const fromStored = keep(stored);
+      const fromLive = keep(live);
+      const neighbours = [...fromStored, ...fromLive];
+      const neighboursSource = !stored.length ? "live" : fromLive.length ? "related_articles+live" : "related_articles";
 
       const reprints = neighbours.filter((r) => (r.score as number) >= NEAR_DUPLICATE).length;
       return chartResult({
@@ -408,8 +468,11 @@ export function registerSemanticTools(server: Server): void {
           ...Object.fromEntries(extra.map((c) => [c, source[c]])),
         },
         neighbours,
+        neighbours_source: neighboursSource,
+        stored_count: fromStored.length,
         note:
           `Cosine similarity over the stored embeddings; 1.0 is identical. ` +
+          rankingNote(neighboursSource, fromStored.length, skipped, Boolean(relatedCol)) +
           (reprints
             ? `${reprints} neighbour${reprints === 1 ? " scores" : "s score"} at or above ${NEAR_DUPLICATE}, where ` +
               `most pairs in this corpus share their wording: candidates for close reading, not evidence of copying. `
@@ -418,4 +481,27 @@ export function registerSemanticTools(server: Server): void {
       });
     },
   );
+}
+
+/**
+ * The sentence that says which ranking a neighbour list came from, so a
+ * citation can tell the dataset's published list from a live computation.
+ */
+function rankingNote(source: string, storedCount: number, skipped: number, published: boolean): string {
+  const gone = skipped
+    ? `${skipped} listed neighbour${skipped === 1 ? " is" : "s are"} absent from this snapshot and ${skipped === 1 ? "was" : "were"} skipped. `
+    : "";
+  if (source === "related_articles")
+    return `Ranked as the dataset publishes it (related_articles, this revision). ${gone}`;
+  if (source === "related_articles+live")
+    return storedCount
+      ? `The first ${storedCount} are the dataset's published ranking (related_articles); the rest are ranked live ` +
+          `after them and not re-sorted, so a live score can exceed a stored one. ${gone}`
+      : `No neighbour from the dataset's published ranking (related_articles) clears min_score; these continue it live. ${gone}`;
+  // Live with a list in hand means every listed id was missing.
+  if (skipped)
+    return `None of the ${skipped} published neighbour${skipped === 1 ? " is" : "s is"} in this snapshot, so they were ranked live. `;
+  return published
+    ? "This item has no published neighbour list in this revision, so they were ranked live. "
+    : "Ranked live: this subset publishes no neighbour list. ";
 }

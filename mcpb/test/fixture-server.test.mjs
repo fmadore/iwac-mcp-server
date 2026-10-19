@@ -848,14 +848,85 @@ await withFixtureScope(async (fixtures) => {
   // --- references are embedded by abstract, documents by full text ------------
   // Since dataset revision d834ab71 a reference's vector is `embedding_abstract`
   // (`embedding_OCR` is gone from references) and documents carry one at all.
+  // References publish no neighbour list, so they rank live.
   await call("get_similar_items", { id: "references:301", limit: 3 }, {
     structured: true,
-    check: (p) =>
-      p.neighbours?.[0]?.id === "304" ? null : `nearest to reference 301 should be 304, got ${p.neighbours?.[0]?.id}`,
+    check: (p) => {
+      if (p.neighbours?.[0]?.id !== "304") return `nearest to reference 301 should be 304, got ${p.neighbours?.[0]?.id}`;
+      if (p.neighbours_source !== "live" || p.stored_count !== 0)
+        return `a subset without related_articles should rank live, got ${p.neighbours_source}/${p.stored_count}`;
+      return p.note?.includes("publishes no neighbour list") ? null : "the note should say why the ranking is live";
+    },
   });
+  // A document's published list names documents; its stored score (0.5, where
+  // the live cosine is ~0.25) proves that list was read.
   await call("get_similar_items", { id: "documents:501" }, {
     structured: true,
-    check: (p) => (p.subset === "documents" && p.neighbours?.[0]?.id === "502" ? null : "documents need similar items"),
+    check: (p) => {
+      if (p.subset !== "documents" || p.neighbours?.[0]?.id !== "502") return "documents need similar items";
+      if (p.neighbours[0].score !== 0.5 || p.neighbours_source !== "related_articles")
+        return `documents should read their own stored list, got ${p.neighbours[0].score} from ${p.neighbours_source}`;
+      return null;
+    },
+  });
+
+  // --- the published neighbour list (related_articles, issue #49) -------------
+  // Article 102's stored list contradicts its vectors (RELATED_OVERRIDES in
+  // scripts/make-fixtures.mjs), so only reading the column gives this order.
+  await call("get_similar_items", { id: "102", limit: 3 }, {
+    structured: true,
+    check: (p) => {
+      const got = p.neighbours?.map((n) => `${n.id}:${n.score}`).join("|");
+      if (got !== "104:0.1|106:0.09|103:0.08") return `stored list not read in stored order: ${got}`;
+      if (p.neighbours_source !== "related_articles" || p.stored_count !== 3)
+        return `expected related_articles/3, got ${p.neighbours_source}/${p.stored_count}`;
+      return null;
+    },
+  });
+  // Past its end the live ranking continues the list: the stored part is not
+  // re-sorted, no id repeats, and the seam is reported.
+  await call("get_similar_items", { id: "102", limit: 5 }, {
+    structured: true,
+    check: (p) => {
+      const ids = p.neighbours?.map((n) => n.id) ?? [];
+      if (ids.join() !== "104,106,103,105,101") return `expected the stored three then live, got ${ids.join()}`;
+      if (new Set(ids).size !== ids.length) return "an id repeats across the seam";
+      if (p.neighbours_source !== "related_articles+live" || p.stored_count !== 3)
+        return `seam not reported: ${p.neighbours_source}/${p.stored_count}`;
+      if (!(p.neighbours[3].score > p.neighbours[2].score))
+        return "here the first live score should exceed the last stored one, and stay after it";
+      return p.note?.includes("first 3") ? null : "the note should say where the seam falls";
+    },
+  });
+  // min_score filters the combined list, and the seam moves with it.
+  await call("get_similar_items", { id: "102", limit: 5, min_score: 0.085 }, {
+    structured: true,
+    check: (p) => {
+      const ids = p.neighbours?.map((n) => n.id).join();
+      return ids === "104,106,105,101" && p.stored_count === 2
+        ? null
+        : `min_score should filter stored and live alike: ${ids} (stored_count ${p.stored_count})`;
+    },
+  });
+  // An empty cell means "not computed yet": the live query answers.
+  await call("get_similar_items", { id: "103", limit: 3 }, {
+    structured: true,
+    check: (p) => {
+      if (p.neighbours_source !== "live" || p.stored_count !== 0)
+        return `an empty cell should fall back live, got ${p.neighbours_source}/${p.stored_count}`;
+      if (p.neighbours?.[0]?.id !== "102") return `live nearest to 103 is 102, got ${p.neighbours?.[0]?.id}`;
+      return p.note?.includes("no published neighbour list") ? null : "the note should say the list is missing";
+    },
+  });
+  // A listed id the snapshot lacks (999) is dropped, and the note says so.
+  await call("get_similar_items", { id: "104", limit: 3 }, {
+    structured: true,
+    check: (p) => {
+      const ids = p.neighbours?.map((n) => n.id).join();
+      if (ids !== "106,103,102") return `a missing id should be dropped, got ${ids}`;
+      if (p.neighbours_source !== "related_articles") return `neighbours_source ${p.neighbours_source}`;
+      return p.note?.includes("1 listed neighbour is absent") ? null : "the note should report the skipped id";
+    },
   });
   await call("get_semantic_map", { subset: "references" }, {
     structured: true,

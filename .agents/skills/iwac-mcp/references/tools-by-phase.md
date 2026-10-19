@@ -360,6 +360,7 @@ Readability, lexical richness and length of the press text, by year, newspaper o
 ### get_similar_items *(v0.13.0)*
 The items nearest a given one in meaning, by cosine similarity over the stored embeddings — finds pieces on the same event that share no vocabulary. **Needs no query encoder**: it reads the item's own stored vector, so it works even where semantic search is off.
 - `id` (required), `subset` (optional: articles, documents, publications or references), `limit` (default 12, max 50), `min_score`
+- **Which ranking you got.** For articles and documents the list starts with the dataset's published ten nearest neighbours (`related_articles`, the list islam.zmo.de's "Similar articles" panel shows), with their stored scores. `neighbours_source` says `related_articles`, `related_articles+live` (the first `stored_count` are published, the rest ranked live after them and not re-sorted, so a later score can be higher) or `live` (publications, references, or an item with no published list yet). When you cite "the closest articles", say which.
 - Scores in this EmbeddingGemma 2 space run high: unrelated articles already score ~0.7 and the median article's nearest neighbour ~0.91. At or above **0.97** a pair is usually the same story reprinted or lightly rewritten (upstream calibration: 94% lexically confirmed), which makes it the practical way to spot syndication. Below that, rank matters more than the value; the Gemini-era 0.85 rule no longer applies.
 - Per item and on demand; this is not a corpus-wide near-duplicate sweep
 

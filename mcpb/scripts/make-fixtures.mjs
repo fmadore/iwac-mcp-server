@@ -65,6 +65,41 @@ const HIJRI_SUBSETS = ["articles", "publications", "documents", "audiovisual", "
 const HIJRI_LEGACY_DOUBLE = ["publications"];
 
 /**
+ * Subsets carrying upstream's published neighbour list, `related_articles`
+ * ("o:id:cosine|…", post-processing/related_articles.py). Filled the way
+ * upstream fills it (top 10 by cosine within the subset, ties by string o:id,
+ * the row itself excluded, four decimals), then overridden per row by
+ * RELATED_OVERRIDES so each path of get_similar_items has a row to prove it.
+ */
+const RELATED_SUBSETS = ["articles", "documents"];
+
+/**
+ * Cells that deliberately depart from the computed list. A value is the whole
+ * cell; null empties it; `prepend` keeps the computed list behind an extra entry.
+ *
+ *   articles 102: CONTRADICTS its vectors (live, 103 is nearest at ~0.99), and
+ *     holds three entries scored below what the live ranking finds for the
+ *     next two. Reading it in order proves the stored list was read; asking for
+ *     more than three shows the seam, where a live score exceeds a stored one.
+ *   articles 103: empty, the "not computed yet" state, so the live fallback
+ *     answers.
+ *   articles 104: names o:id 999, which no row has: it must be dropped.
+ *   documents 501/502: a document's list names documents, never articles, and
+ *     carries a score no live cosine of these vectors gives (live is ~0.25).
+ */
+const RELATED_OVERRIDES = {
+  articles: {
+    102: "104:0.1000|106:0.0900|103:0.0800",
+    103: null,
+    104: { prepend: "999:0.9990" },
+  },
+  documents: {
+    501: "502:0.5000",
+    502: "501:0.5000",
+  },
+};
+
+/**
  * Gregorian → Umm al-Qura for every date the fixtures use, computed with
  * `hijridate` (the pipeline's converter of record) rather than with Node's
  * `Intl`. Hard-coded on purpose: baking a second converter into this repo is
@@ -503,6 +538,30 @@ async function main() {
           `UPDATE ${table} SET "hijri_year" = ${hy}, "hijri_month" = ${hm}, "hijri_day" = ${hd}
            WHERE pub_date = '${greg}'`,
         );
+      }
+    }
+    // NULL, not '', where a row has no list: the parquet stores a null cell.
+    if (RELATED_SUBSETS.includes(subset)) {
+      await conn.run(`ALTER TABLE ${table} ADD COLUMN related_articles VARCHAR`);
+      await conn.run(
+        `UPDATE ${table} AS a SET related_articles = (
+           SELECT string_agg(id || ':' || printf('%.4f', score), '|' ORDER BY score DESC, id)
+           FROM (
+             SELECT b."o:id" AS id, list_cosine_similarity(a.embedding_OCR, b.embedding_OCR) AS score
+             FROM ${table} AS b
+             WHERE b."o:id" <> a."o:id" AND b.embedding_OCR IS NOT NULL
+             ORDER BY score DESC, id LIMIT 10
+           )
+         ) WHERE a.embedding_OCR IS NOT NULL`,
+      );
+      for (const [oid, cell] of Object.entries(RELATED_OVERRIDES[subset] ?? {})) {
+        const value =
+          cell === null
+            ? "NULL"
+            : typeof cell === "string"
+              ? `'${cell}'`
+              : `'${cell.prepend}|' || related_articles`;
+        await conn.run(`UPDATE ${table} SET related_articles = ${value} WHERE "o:id" = '${oid}'`);
       }
     }
     const dir = path.join(fixturesDir, subset);

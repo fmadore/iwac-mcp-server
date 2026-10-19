@@ -66,8 +66,11 @@
   re-embedded upstream with EmbeddingGemma 2 (dataset revision `d834ab71`); the
   server runs the same pinned ONNX export in-process, checks its own output
   against the Python reference and each column against corpus anchors, and
-  turns semantic search on by default. Still open: let `get_similar_items` read
-  the precomputed `related_articles` neighbours for articles and documents.
+  turns semantic search on by default. v4.1.0
+  ([#49](https://github.com/fmadore/iwac-mcp-server/issues/49)) closed the last
+  piece: `get_similar_items` reads the precomputed `related_articles` neighbours
+  for articles and documents. Document → article neighbours wait for an
+  upstream column.
 
 - [x] **Remote transport / hosted deployments** — shipped. `--http` selects the
   Streamable-HTTP transport in `main()` (`mcpb/src/index.ts`), built on

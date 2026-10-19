@@ -314,6 +314,10 @@ export interface SimilarPayload extends ChartPayloadBase {
   subset?: string;
   source?: Neighbour;
   neighbours?: Neighbour[];
+  /** "related_articles" | "live" | "related_articles+live": the ranking the list came from. */
+  neighbours_source?: string;
+  /** How many leading neighbours come from the published list; the live ones follow. */
+  stored_count?: number;
 }
 
 export interface TemporalPayload extends ChartPayloadBase {

@@ -569,17 +569,38 @@ await call("get_semantic_map", { limit: 200, color_by: "country" }, {
 // Neighbours of a real article. Also the closest thing this server has to a
 // reprint check: a corpus of syndicated West African press should produce at
 // least one near-duplicate somewhere in a 20-neighbour sweep.
+//
+// The first ten are the dataset's published `related_articles` list and the
+// rest are ranked live after them, so each part is sorted but the whole need
+// not be: a live score can sit just above a stored one across the seam.
+const sortedDesc = (xs) => String(xs) === String([...xs].sort((a, b) => b - a));
+const published = await call("get_similar_items", { id: "10076", limit: 10 }, {
+  structured: true,
+  check: (p) => {
+    // "live" here means upstream emptied the column (any re-embedding or row
+    // change does) and has not refilled it: the server still answers, but the
+    // published list it is meant to match is gone.
+    if (p.neighbours_source !== "related_articles" || p.stored_count !== 10)
+      return `expected the published ten, got ${p.neighbours_source}/${p.stored_count}: has related_articles been emptied upstream?`;
+    return sortedDesc(p.neighbours.map((n) => n.score)) ? null : "the published list is not in descending order";
+  },
+});
 await call("get_similar_items", { id: "10076", limit: 20 }, {
   structured: true,
   check: (p) => {
     if (p.neighbours?.length !== 20) return `expected 20 neighbours, got ${p.neighbours?.length}`;
     if (p.neighbours.some((n) => n.id === "10076")) return "the source is its own neighbour";
+    if (new Set(p.neighbours.map((n) => n.id)).size !== 20) return "an id repeats across the stored/live seam";
+    if (p.neighbours_source !== "related_articles+live" || p.stored_count !== 10)
+      return `expected ten published then ten live, got ${p.neighbours_source}/${p.stored_count}`;
+    if (published && p.neighbours.slice(0, 10).map((n) => n.id).join() !== published.neighbours.map((n) => n.id).join())
+      return "asking for more neighbours changed the published ten";
     const scores = p.neighbours.map((n) => n.score);
-    if (String(scores) !== String([...scores].sort((a, b) => b - a))) return "neighbours are not sorted by score";
+    if (!sortedDesc(scores.slice(0, 10)) || !sortedDesc(scores.slice(10))) return "neighbours are not sorted by score";
     // Cosine over L2-normalised vectors: anything outside [-1, 1] means the
     // stored vectors are no longer normalised upstream.
     if (scores.some((s) => s > 1.0001 || s < -1.0001)) return `score out of range: ${Math.max(...scores)}`;
-    if (scores[0] < 0.5) return `nearest neighbour only ${scores[0]} — the vectors may have changed model`;
+    if (scores[0] < 0.5) return `nearest neighbour only ${scores[0]}: the vectors may have changed model`;
     return null;
   },
 });

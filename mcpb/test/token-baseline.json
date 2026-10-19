@@ -1,6 +1,6 @@
 {
   "tokenizer": "o200k_base",
-  "footprint": 15942,
+  "footprint": 15974,
   "instructions": 827,
   "tools": {
     "search": 589,
@@ -25,7 +25,7 @@
     "get_cooccurrence": 582,
     "get_place_distribution": 605,
     "get_semantic_map": 679,
-    "get_similar_items": 366,
+    "get_similar_items": 398,
     "get_lexical_metrics": 555,
     "search_publications": 525,
     "list_periodicals": 253,

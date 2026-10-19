@@ -417,6 +417,17 @@ near-duplicates at **0.97** (94% lexically confirmed on held-out pairs) and the
 reprint-screen prefilter at 0.91; thresholds from the earlier Gemini space do
 not transfer.
 
+Published neighbours: the dataset stores each article's and document's ten
+nearest neighbours as `related_articles`, the list islam.zmo.de's "Similar
+articles" panels show. `get_similar_items` returns that list first, in its
+stored order and with its stored scores, so the server and the site agree by
+construction rather than up to float noise on four-decimal ties. Beyond ten
+(the default `limit` is 12) it continues with live-ranked neighbours, skipping
+the listed ones, and reports the seam as `stored_count`. Publications,
+references, a revision without the column and an item whose cell is empty are
+ranked live. `neighbours_source` (`related_articles`, `related_articles+live`
+or `live`) says which ranking a result came from.
+
 ## Why Node rather than Python
 
 Anthropic's MCPB guidance recommends Node because Claude Desktop ships with a

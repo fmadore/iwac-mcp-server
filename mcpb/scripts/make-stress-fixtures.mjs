@@ -126,6 +126,17 @@ async function main() {
     if (types.has("o:id")) {
       replacements.push(`(("o:id"::BIGINT * 1000) + r)::${types.get("o:id")} AS "o:id"`);
     }
+    // A published neighbour list names o:ids, so it follows them into the same
+    // copy; left as is, every entry would point at an id the copy lacks and
+    // the stored-list path would never be measured.
+    if (types.has("o:id") && columns.includes("related_articles")) {
+      replacements.push(
+        `CASE WHEN length(trim(coalesce(related_articles, ''))) = 0 THEN related_articles
+              ELSE array_to_string(list_transform(string_split(related_articles, '|'),
+                     e -> ((split_part(e, ':', 1)::BIGINT * 1000) + r)::VARCHAR || ':' || split_part(e, ':', 2)), '|')
+         END AS related_articles`,
+      );
+    }
     for (const col of UNIQUE_SUFFIXED) {
       if (columns.includes(col)) {
         replacements.push(

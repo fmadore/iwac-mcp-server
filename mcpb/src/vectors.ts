@@ -42,3 +42,44 @@ export function writeUnitVector(values: unknown, out: Float32Array, offset: numb
   for (let i = 0; i < dim; i++) out[offset + i] = values[i] / scale / norm;
   return true;
 }
+
+/** One entry of a published neighbour list: an o:id and its stored cosine. */
+export interface StoredNeighbour {
+  id: string;
+  score: number;
+}
+
+const DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
+
+/** "007" and "7" are one o:id; anything but digits is not an o:id at all. */
+function canonicalId(raw: string): string | undefined {
+  return /^\d+$/.test(raw) ? String(BigInt(raw)) : undefined;
+}
+
+/**
+ * One `related_articles` cell ("o:id:cosine|o:id:cosine|…") as neighbours, in
+ * stored order. Reads the cell the way IwacVisualizations' `parse_related`
+ * does, so the server and islam.zmo.de cannot list different neighbours from
+ * the same cell: a null, blank or non-string cell gives [], an entry without an
+ * integer id and a finite score is skipped rather than guessed, a repeated id
+ * keeps its first position, and `exclude` (the row's own o:id) is dropped. The
+ * order is never re-sorted: it is upstream's ranking, ties included.
+ */
+export function parseRelated(value: unknown, exclude?: string): StoredNeighbour[] {
+  if (typeof value !== "string") return [];
+  const self = exclude === undefined ? undefined : canonicalId(exclude.trim());
+  const out: StoredNeighbour[] = [];
+  const seen = new Set<string>();
+  for (const entry of value.split("|")) {
+    const cut = entry.lastIndexOf(":");
+    if (cut < 0) continue;
+    const id = canonicalId(entry.slice(0, cut).trim());
+    const rawScore = entry.slice(cut + 1).trim();
+    if (id === undefined || !DECIMAL.test(rawScore)) continue;
+    const score = Number(rawScore);
+    if (!Number.isFinite(score) || id === self || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, score });
+  }
+  return out;
+}
