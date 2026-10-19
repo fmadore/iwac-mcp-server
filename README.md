@@ -35,7 +35,7 @@ queries.
 
 1. Download the latest bundle for your OS using the links above.
 2. Double-click the file. Claude Desktop shows an install dialog — click **Install**.
-3. On first use the server downloads ~250 MB of parquet data from Hugging Face
+3. On first use the server downloads ~265 MB of parquet data from Hugging Face
    into `~/.iwac-mcp/cache/` (override in the extension settings).
 
 The bundle contains the server and DuckDB binaries for your OS (x64 and arm64).
@@ -172,17 +172,18 @@ The **aggregates** answer questions about a whole set rather than returning its
 items: how it spreads across the 30 precomputed LDA topics, which subjects,
 places or bylines dominate it, what gets discussed alongside what, how its prose
 reads, where on a map it points, how it lays out in embedding space, and what a
-given item's nearest neighbours are. Eleven tools in all — the stats family plus
-these — declare an MCP App view, so in Claude they render as interactive charts
-rather than JSON.
+given item's nearest neighbours are. Fourteen tools in all (the stats family,
+these aggregates, `list_periodicals`, `get_sentiment_distribution` and
+`explore_corpus`) declare an MCP App view, so in Claude they render as
+interactive charts rather than JSON.
 
 `get_temporal_distribution` also reads the **Islamic calendar**. With
 `granularity="lunar_month"` it pools every year into the twelve lunar months —
 the one bucket a Gregorian axis structurally cannot produce, because the Hijri
 year drifts ~11 days annually and so smears each observance across all twelve
-Gregorian months. Over the 13,261 fully-dated articles the archive's rhythm is
-plain: Ramadan +74%, Dhu al-Hijja +68% (hajj and Tabaski) and Shawwal +42%
-(Korité) against an even split, while Rabi' I — Maouloud — sits flat. `search_articles`
+Gregorian months. Over the 16,579 fully-dated articles the archive's rhythm is
+plain: Ramadan +73%, Dhu al-Hijja +68% (hajj and Tabaski) and Shawwal +42%
+(Korité) against an even split, while Rabi' I (Maouloud) sits flat. `search_articles`
 and `search_publications` take `hijri_month` (1–12 or a name in either
 transliteration) and `hijri_year` to read the items behind a peak. The lunar
 dates are precomputed in the dataset pipeline with the Umm al-Qura tables, the
@@ -205,24 +206,29 @@ e.g. `https://islam.zmo.de/s/afrique_ouest/item/28576`.
 
 IWAC is a digital archive focused on Islam and Muslims in West Africa:
 
-- **12,000+ newspaper articles** from Benin, Burkina Faso, Côte d'Ivoire, Niger,
-  and Togo, 1960s–present (mostly French), each with an AI abstract and AI
-  sentiment analysis (polarity / centrality / subjectivity), scored
-  independently by five models — `gpt-5-6-luna` (the one the inline columns
-  report), `mistral-small-2603`, `deepseek-v4-flash-0731`, `gemma-4-31b-it` and
-  `qwen3-8-27b`. All five agree on polarity for only ~32% of articles, so
+- **16,700+ newspaper articles** from Benin, Burkina Faso, Côte d'Ivoire, Niger,
+  and Togo, 1961 to the present (mostly French), each with an AI abstract. The
+  public dataset carries full OCR for the ~45% whose text is public on
+  islam.zmo.de; `get_collection_stats` reports the live ratio.
+- **AI sentiment analysis** (polarity / centrality / subjectivity) for the
+  12,298 articles the enrichment pass has reached, scored independently by five
+  models: `gpt-5-6-luna` (the one the inline columns report),
+  `mistral-small-2603`, `deepseek-v4-flash-0731`, `gemma-4-31b-it` and
+  `qwen3-8-27b`. The ~4,400 newest arrivals are not scored yet. All five agree
+  on polarity for only ~32% of articles, so
   `get_sentiment_distribution(model="all")` is the honest way to quote a figure.
-  They do not all cover the same articles either — `qwen3-8-27b` scores 12,098
-  where the rest score 12,298 — so each model reports its own `coverage`.
+  They do not all cover the same articles either (`qwen3-8-27b` scores 12,098
+  where the rest score 12,298), so each model reports its own `coverage`.
   `model="consensus"` returns the panel's precomputed majority (not a sixth
   model), and `search_by_sentiment(disputed=…)` reads the articles it split on
-- **4,700+ authority records** (persons, organisations, places, events, subjects)
-- **1,500+ Islamic publications** (periodical issues, books) with full OCR
+- **5,000+ authority records** (persons, organisations, places, events, subjects)
+- **1,500+ Islamic publications** (periodical issues, books), most with full OCR
 - **860+ academic references**, half with abstracts
-- **1,700+ audiovisual items** — francophone web video from Burkina Faso, Togo
+- **1,800+ audiovisual items**: francophone web video from Burkina Faso, Togo
   and Benin (harvested from public channels, still growing, searchable by
   channel and reachable through a watch URL), plus 47 deposited Nigerian
-  Hausa/Arabic recordings with files — and archival documents
+  Hausa/Arabic recordings with files
+- **26 archival documents** and **30 fieldwork photographs**
 
 ## Research workbench
 
@@ -283,7 +289,7 @@ npm run lint        # biome (linter only)
 npm run build       # esbuild -> single server/index.js
 npm test            # unit, fixture, app, skills, HTTP and token-budget tests
 npm run test:browser # Chromium app behavior (install browser first)
-npm run test:live   # full smoke test against the real HF dataset (~250 MB)
+npm run test:live   # full smoke test against the real HF dataset (~265 MB)
 ```
 
 CI runs the version check, typecheck, lint, build, unit tests, and the offline

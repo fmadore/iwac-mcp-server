@@ -4,7 +4,7 @@
   "display_name": "Islam West Africa Collection (IWAC)",
   "version": "4.1.0",
   "description": "Read-only access to the Islam West Africa Collection via Hugging Face datasets.",
-  "long_description": "Search and analyse the Islam West Africa Collection (IWAC): ~12,000 newspaper articles, 1,500 Islamic publications (searchable by keyword, subject, series, and table of contents), 4,700 index entries, plus audiovisual recordings, fieldwork photographs, archival documents, and academic references. Includes AI sentiment analysis (polarity/centrality/subjectivity, scored independently by gpt-5-6-luna, mistral-small-2603, deepseek-v4-flash-0731, gemma-4-31b-it and qwen3-8-27b), per-article AI abstracts, and per-year coverage timelines. All matching is accent- and case-insensitive.\n\n**No API key is required.** Besides cross-subset search/fetch, keyword search, filtering, statistics, timelines and item details, four semantic-search tools find articles, publications, academic references and photographs by meaning (for photographs, describe what the image shows). They run EmbeddingGemma 2, the model the corpus was embedded with, on your machine, so no query leaves your computer. The first semantic search downloads the model once (~350 MB).\n\nOn first use the server downloads ~250 MB of parquet data from Hugging Face into a local cache.",
+  "long_description": "Search and analyse the Islam West Africa Collection (IWAC) on Islam and Muslims in Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria and Togo: ~16,700 newspaper articles (1961 to today, each with an AI abstract), 1,500 Islamic publications (searchable by keyword, subject, series and table of contents), 5,000 authority records (persons, places, organisations, events, subjects), ~1,800 audiovisual items, 860+ academic references, archival documents and fieldwork photographs. All matching is accent- and case-insensitive, and every result links to its canonical record on islam.zmo.de.\n\nBeyond search and item reading, the tools describe whole selections: coverage over time (Gregorian or Islamic calendar, with normalised shares), LDA topics, subject, place and byline rankings, co-occurrence, a place map, lexical metrics, an embedding scatter and nearest neighbours for spotting reprints. A research workbench adds keyword-in-context reading, coverage heatmaps, two-selection comparison and CSL-JSON/BibTeX exports with dataset provenance. In hosts that support MCP Apps, fourteen tools render as interactive charts.\n\nAI sentiment (polarity, centrality, subjectivity) comes from five independent models (gpt-5-6-luna, mistral-small-2603, deepseek-v4-flash-0731, gemma-4-31b-it and qwen3-8-27b) plus their precomputed majority, with inter-model agreement and kappa reported alongside. It covers the ~12,300 articles the enrichment pass has reached; the newest arrivals are not scored yet.\n\n**No API key is required.** Four semantic-search tools find articles, publications, academic references and photographs by meaning (for photographs, describe what the image shows). They run EmbeddingGemma 2, the model the corpus was embedded with, on your machine, so no query leaves your computer. The first semantic search downloads the model once (~350 MB).\n\nOn first use the server downloads ~265 MB of parquet data from Hugging Face into a local cache. The public dataset carries full OCR text only where the item is public on islam.zmo.de (under half of the articles, most publications); titles, subjects and AI abstracts remain searchable for every item.",
   "author": {
     "name": "Frédérick Madore",
     "email": "frederick.madore@uni-bayreuth.de",
@@ -29,8 +29,7 @@
     "semantic-search"
   ],
   "privacy_policies": [
-    "https://huggingface.co/privacy",
-    "https://policies.google.com/privacy"
+    "https://huggingface.co/privacy"
   ],
   "server": {
     "type": "node",
@@ -59,15 +58,15 @@
     },
     {
       "name": "explore_corpus",
-      "description": "Research workbench: source reading, concordance, coverage, comparison, attention and authority aliases."
+      "description": "Research workbench over one selection: source reading, keyword-in-context concordance, source-by-year coverage, two-selection comparison, publication-country vs mentioned-place attention, authority aliases, and paginated manifest, CSL-JSON and BibTeX exports with dataset provenance. Renders as an interactive workbench in hosts that support MCP Apps."
     },
     {
       "name": "search_articles",
-      "description": "Search newspaper articles by French keyword (title, OCR, AI abstract), country, newspaper, subject, and date range."
+      "description": "Search newspaper articles by French keyword (title, OCR, French and English AI abstracts), country, newspaper, subject, Gregorian date range, or Islamic (Hijri) month and year."
     },
     {
       "name": "get_article",
-      "description": "Get full metadata, AI abstract, sentiment, and OCR text for a specific article."
+      "description": "Get full metadata, AI abstract, sentiment, and OCR text for a specific article, in 25k-character parts or as excerpts around a keyword."
     },
     {
       "name": "semantic_search_articles",
@@ -75,11 +74,11 @@
     },
     {
       "name": "search_by_sentiment",
-      "description": "Filter articles by gpt-5-6-luna polarity, centrality and subjectivity labels, or by the fields the model panel split on."
+      "description": "Filter articles by gpt-5-6-luna polarity, centrality and subjectivity labels, or keep only the articles the five-model panel split on (disputed)."
     },
     {
       "name": "get_sentiment_distribution",
-      "description": "Aggregate AI sentiment stats across a filter set, for one of the five models that scored the corpus for all five plus their agreement, or for the panel's precomputed majority. Renders as interactive donut charts in hosts that support MCP Apps."
+      "description": "Aggregate AI sentiment over a filtered selection, for one of the five models, all five side by side with their coverage and agreement (pairwise Cohen's and weighted kappa), or the panel's precomputed majority. Renders as interactive donut charts in hosts that support MCP Apps."
     },
     {
       "name": "search_index",
@@ -115,39 +114,39 @@
     },
     {
       "name": "get_temporal_distribution",
-      "description": "Coverage over time: counts of matching items per year or month, with the standard filters and optional grouping by country or newspaper. Renders as an interactive chart in hosts that support MCP Apps."
+      "description": "Coverage over time: counts of matching items per Gregorian or Hijri year or month, or pooled into the twelve lunar months, optionally grouped by country or newspaper and normalised into shares with explicit denominators. Renders as an interactive chart in hosts that support MCP Apps."
     },
     {
       "name": "get_topic_distribution",
-      "description": "How a filtered set of articles distributes across the 30 precomputed LDA topics, optionally over time. Renders as an interactive treemap and stacked timeline in hosts that support MCP Apps."
+      "description": "How a filtered set distributes across the precomputed LDA topics (30 for articles, 33 for references), optionally over time, with unclassified items disclosed. Renders as an interactive treemap and stacked timeline in hosts that support MCP Apps."
     },
     {
       "name": "get_field_distribution",
-      "description": "Rank the values of one multi-valued field (subject, spatial, author, language, newspaper, country) across a filtered set, optionally with the per-year share of items carrying a value. Renders as an interactive ranking in hosts that support MCP Apps."
+      "description": "Rank the values of one multi-valued field (subject, spatial, author, language, newspaper, country) across a filtered set of articles, publications or references, optionally with the per-year share of items carrying a value. Renders as an interactive ranking in hosts that support MCP Apps."
     },
     {
       "name": "get_cooccurrence",
-      "description": "How often the top values of a multi-valued field appear on the same item — a subject or place co-mention matrix. Renders as an interactive heatmap in hosts that support MCP Apps."
+      "description": "How often the top values of a multi-valued field appear on the same item: a subject or place co-mention matrix. Renders as an interactive heatmap in hosts that support MCP Apps."
     },
     {
       "name": "get_place_distribution",
-      "description": "Places named by a filtered set, joined to the index's geocoded 'Lieux' authority records. Renders as an interactive choropleth-and-bubble map of West Africa in hosts that support MCP Apps."
+      "description": "Places named by a filtered set, joined to the index's geocoded authority records, with publication countries kept apart from mentioned places and missing geocodes counted. Renders as an interactive map of West Africa in hosts that support MCP Apps."
     },
     {
       "name": "get_semantic_map",
-      "description": "A 2-D PCA scatter of a filtered set, projected from the stored 768-dimension embeddings, with the explained-variance share. Needs no API key. Renders as an interactive scatter in hosts that support MCP Apps."
+      "description": "A 2-D PCA scatter of a sample of a filtered set, projected from the stored 768-dimension EmbeddingGemma 2 vectors, with the explained-variance share. Needs no API key or model download. Renders as an interactive scatter in hosts that support MCP Apps."
     },
     {
       "name": "get_similar_items",
-      "description": "The items nearest to a given one in meaning, by cosine similarity over the stored embeddings: how to spot a reprinted story. For articles and documents the first ten are the dataset's published neighbours. Renders as an interactive similarity chart in hosts that support MCP Apps."
+      "description": "The items nearest to a given one in meaning, by cosine similarity over the stored embeddings: candidates for reprinted or rewritten stories. For articles and documents the first ten are the dataset's published neighbours, the list islam.zmo.de shows. Renders as an interactive similarity chart in hosts that support MCP Apps."
     },
     {
       "name": "get_lexical_metrics",
-      "description": "Readability, lexical richness (MATTR) and length of the press text by year, newspaper or country. Renders as interactive charts in hosts that support MCP Apps."
+      "description": "Text length, lexical richness (MATTR) and French readability of the press by year, newspaper or country, from precomputed metrics. Renders as interactive charts in hosts that support MCP Apps."
     },
     {
       "name": "search_publications",
-      "description": "Search Islamic publications (periodical issues, books) by French keyword (title, subject, table of contents, OCR), series, subject, country, and year."
+      "description": "Search Islamic publications (periodical issues, books) by French keyword (title, subject, table of contents, OCR), series, subject, country, year, or Islamic (Hijri) month and year."
     },
     {
       "name": "list_periodicals",
@@ -155,11 +154,11 @@
     },
     {
       "name": "get_publication_fulltext",
-      "description": "Retrieve full OCR text of a publication, optionally with capped keyword excerpts."
+      "description": "Retrieve the full OCR text of a publication in 25k-character parts, or capped excerpts around a keyword."
     },
     {
       "name": "semantic_search_publications",
-      "description": "Semantic similarity search over publication tables of contents (~40% of issues). Runs locally; no API key."
+      "description": "Semantic similarity search over publication tables of contents (~40% of issues), in any language. Runs locally; no API key."
     },
     {
       "name": "search_references",
@@ -175,7 +174,7 @@
     },
     {
       "name": "search_documents",
-      "description": "Search the archival-documents subset with French keywords (association reports, flyers — mostly Burkina Faso)."
+      "description": "Search the archival-documents subset (26 items: association reports, flyers, project documents, mostly Burkina Faso) with French keywords."
     },
     {
       "name": "get_document",
@@ -183,11 +182,11 @@
     },
     {
       "name": "search_audiovisual",
-      "description": "Search audiovisual materials by keyword, description, transcription and metadata — including the publishing channel and source type (francophone web video from Burkina Faso, Togo and Benin; deposited Nigerian Hausa/Arabic recordings)."
+      "description": "Search audiovisual materials by keyword, description, transcription and metadata, including the publishing channel and source type (francophone web video from Burkina Faso, Togo and Benin; deposited Nigerian Hausa/Arabic recordings)."
     },
     {
       "name": "get_audiovisual",
-      "description": "Get full metadata, description, duration, rights, transcription (where one exists) and the item's links for a specific audiovisual record — the IWAC page plus either a watch URL or a media file."
+      "description": "Get full metadata, description, duration, rights, transcription (where one exists) and the item's links for a specific audiovisual record: the IWAC page plus either a watch URL or a media file."
     },
     {
       "name": "list_audiovisual",
@@ -195,7 +194,7 @@
     },
     {
       "name": "search_images",
-      "description": "Search the fieldwork photographs by keyword, country, subject, place, photographer, and date. Returns image URLs and coordinates."
+      "description": "Search the 30 fieldwork photographs by keyword, country, subject, place, photographer, and date. Returns image URLs and coordinates."
     },
     {
       "name": "get_image",
@@ -220,7 +219,7 @@
     "cache_dir": {
       "type": "directory",
       "title": "Dataset cache directory",
-      "description": "Where to store the downloaded IWAC parquet files (~250 MB on first run). Leave default to use your home directory.",
+      "description": "Where to store the downloaded IWAC parquet files (~265 MB on first run). Leave default to use your home directory.",
       "required": false,
       "default": "${HOME}/.iwac-mcp/cache"
     },

@@ -105,7 +105,7 @@ The 25 Islamic periodical/series titles in the publications subset, with issue c
 ## Phase 2: Systematic Search Tools
 
 ### search_articles
-Primary search tool for the 12,287 newspaper articles.
+Primary search tool for the ~16,700 newspaper articles.
 - `keyword` (optional): substring match on **title + OCR + AI abstracts, French and English** (does NOT search subject/spatial — use the `subject` parameter for curated tags). An English term can therefore match a French article via its English summary
 - `country` (optional): exact name — Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo
 - `newspaper` (optional): substring match
@@ -126,7 +126,7 @@ Semantic similarity over article title + full text, embedded with EmbeddingGemma
 - Complement to keyword search for conceptual queries ("Islamic education reform" finds madrasa modernization, Franco-Arabic schooling…). Not a replacement.
 
 ### search_index
-Search the 4,697 authority records by name.
+Search the ~5,000 authority records by name.
 - `keyword`: matched against the entry title (accent-insensitive)
 - `index_type` (optional): exact type, **validated** (accents optional) — Personnes | Lieux | Organisations | Événements | Sujets | Notices d'autorité; an unrecognised value errors with `valid_values`
 - `limit` (default 20, max 100), `offset`
@@ -312,7 +312,7 @@ The three fields do not behave alike, and this is the part to get right:
 
 **Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the five models agree unanimously on polarity for only 3,929 of the 12,098 articles they all scored (**32%**). That is an agreement rate, not a confidence score: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable. Four models reached 36% and the first three alone 43%, so a figure copied from an older draft will overstate the agreement.
 
-**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-08-31): four models cover 12,298 articles while Qwen covers 12,098; use the returned common-scored denominator. Two different gaps separate that from the corpus total: 51 non-French/English articles skipped by design, and the recent arrivals the enrichment pass has not reached yet, a tail that grows with every refresh (3,464 articles at the September 2026 revision, mostly dated 2018 or later, with topics and embeddings but no abstract, sentiment or public OCR). Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
+**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-08-31): four models cover 12,298 articles while Qwen covers 12,098; use the returned common-scored denominator. Two different gaps separate that from the corpus total: 51 non-French/English articles skipped by design, and the recent arrivals the enrichment pass has not reached yet, a tail that grows with every refresh (about 4,370 articles at the October 2026 revision, mostly dated 2018 or later, with abstracts, topics and embeddings but no sentiment). Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
 
 **Reliability differs by scale and population.** Use the selected pair's current
 `kappa`, `weighted_kappa` and denominators instead of treating older whole-corpus
@@ -322,7 +322,7 @@ weak evidence and its returned caveat must accompany findings. Agreement between
 models does not establish historical truth or calibrated confidence.
 
 ### get_topic_distribution *(v0.13.0)*
-How a set spreads across the 30 precomputed LDA topics (12,234 of 12,287 articles are classified), each labelled by its top terms. Topics were assigned offline over the full text, so they describe what a piece is **about** rather than which words it contains — the fastest way to map an unfamiliar corpus without keyword guessing.
+How a set spreads across the 30 precomputed LDA topics (16,611 of 16,715 articles are classified), each labelled by its top terms. Topics were assigned offline over the full text, so they describe what a piece is **about** rather than which words it contains — the fastest way to map an unfamiliar corpus without keyword guessing.
 - `subset` (optional): articles (default) | references (references have their own 33-topic model)
 - filter block; `min_prob` (0-1; mean assignment probability is 0.34, so 0.5 is already strong); `over_time` (adds the time dimension); `top_n` (bands in `over_time`, default 8)
 - Returns `topics` (label, count, `avg_prob`) sorted by count, and `classified` vs `total_matches` — unclassified items are disclosed, not hidden
@@ -335,7 +335,7 @@ Rank the values of one multi-valued field across a set. One tool for four questi
 - `over_time` (optional): adds `coverage_by_year` — the per-year **share** of items carrying any value
 - Pipe-joined fields are split, so counts sum to more than the item count; the response says so
 
-**Tip:** `get_field_distribution(field="author", over_time=true)` is the byline question. The finding is rarely who tops the list (9,664 of 12,287 articles are signed, across 2,463 names) — it is that the signed *share* climbs as the press professionalises after 1990.
+**Tip:** `get_field_distribution(field="author", over_time=true)` is the byline question. The finding is rarely who tops the list (11,599 of 16,715 articles are signed, across 2,667 names) — it is that the signed *share* climbs as the press professionalises after 1990.
 
 ### get_cooccurrence *(v0.13.0)*
 How often the top values of a field appear on the **same** item — what X gets discussed alongside, straight from the tagging.
@@ -382,15 +382,15 @@ A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. 
 Exact names: `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo`, `Nigeria` (all six are accepted everywhere; `Nigeria` simply yields 0 press articles — a real finding, not an error). Accents are optional (`Bénin` works); partial names (`Burkina`) are invalid and now error.
 
 ### Polarity scale (articles, `gpt-5-6-luna`)
-Très positif (425) | Positif (6,146) | Neutre (5,017) | Négatif (375) | Très négatif (45) | Non applicable (290) — plus 51 unscored (counts verified 2026-08-17)
+Très positif (425) | Positif (6,146) | Neutre (5,017) | Négatif (375) | Très négatif (45) | Non applicable (290) — plus 4,417 unscored: the 51 skipped by design and the newest arrivals not yet reached (counts verified 2026-10-19)
 
 ### Centrality scale (articles, `gpt-5-6-luna`)
-Très central (8,210) | Central (1,561) | Marginal (1,122) | Secondaire (1,115) | Non abordé (290) — plus 51 unscored
+Très central (8,210) | Central (1,561) | Marginal (1,122) | Secondaire (1,115) | Non abordé (290) — plus the same 4,417 unscored
 
 ### Subjectivity scale (articles, `gpt-5-6-luna`)
-Très objectif (1,144) | Plutôt objectif (7,900) | Mixte (314) | Plutôt subjectif (1,914) | Très subjectif (736) — plus 341 unscored, which are exactly this model's `Non abordé` rows and the 51 unscanned ones. An ordinal **label**, not a number. The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
+Très objectif (1,144) | Plutôt objectif (7,900) | Mixte (314) | Plutôt subjectif (1,914) | Très subjectif (736) — plus 4,707 unscored, which are exactly this model's 290 `Non abordé` rows and the 4,417 unscored articles. An ordinal **label**, not a number. The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
 
-The same three scales exist for `mistral-small-2603`, `deepseek-v4-flash-0731` and `gemma-4-31b-it`; reach them with `get_sentiment_distribution(model=…)`. They differ substantially — Mistral reads 2,087 articles as Très positif where Luna reads 425, and Gemma reads 7,275 as Neutre where Luna reads 5,017 — which is why a figure has to name its model. Gemma matches Luna's completeness (its 294 unscored subjectivity rows are exactly its own `Non abordé` ones plus the 51), so an unscored row is an abstention, not a gap.
+The same three scales exist for `mistral-small-2603`, `deepseek-v4-flash-0731` and `gemma-4-31b-it`; reach them with `get_sentiment_distribution(model=…)`. They differ substantially — Mistral reads 2,087 articles as Très positif where Luna reads 425, and Gemma reads 7,275 as Neutre where Luna reads 5,017 — which is why a figure has to name its model. Gemma matches Luna's completeness (its unscored subjectivity rows are exactly its own `Non abordé` ones plus the articles no model has reached), so an unscored row is an abstention, not a gap.
 
 ### Index types
 Personnes (2,833) | Lieux (683) | Organisations (413) | Notices d'autorité (312) | Événements (242) | Sujets (214)

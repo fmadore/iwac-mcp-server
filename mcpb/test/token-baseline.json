@@ -1,6 +1,6 @@
 {
   "tokenizer": "o200k_base",
-  "footprint": 15974,
+  "footprint": 15968,
   "instructions": 827,
   "tools": {
     "search": 589,
@@ -14,8 +14,8 @@
     "search_index": 199,
     "get_index_entry": 117,
     "list_subjects": 121,
-    "list_locations": 241,
-    "list_persons": 242,
+    "list_locations": 238,
+    "list_persons": 239,
     "get_collection_stats": 366,
     "get_newspaper_stats": 237,
     "get_country_comparison": 205,

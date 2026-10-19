@@ -38,8 +38,10 @@ In scope:
   request bypass `IWAC_MCP_BEARER_TOKEN` / `IWAC_MCP_ALLOWED_ORIGINS`.
 - The published artifacts: the per-OS `.mcpb` bundles, the GHCR image, and the
   release/publish workflows (supply-chain integrity, leaked secrets in CI).
-- Leakage of a configured `IWAC_GOOGLE_API_KEY` into tool output, logs, or error
-  messages.
+- Leakage of a configured secret (`IWAC_HF_TOKEN` / `HF_TOKEN`,
+  `IWAC_MCP_BEARER_TOKEN`, `IWAC_LOCAL_EMBEDDING_API_KEY`) into tool output,
+  logs, or error messages, and any way for a private-mode instance to serve
+  masked full text over HTTP without `IWAC_ALLOW_PRIVATE_HTTP=true`.
 
 Out of scope:
 
@@ -59,7 +61,7 @@ Out of scope:
 Worth knowing when assessing impact:
 
 - **No user data is stored.** The server keeps a local parquet cache
-  (`IWAC_CACHE_DIR`, ~250 MB) downloaded from Hugging Face and answers queries
+  (`IWAC_CACHE_DIR`, ~265 MB) downloaded from Hugging Face and answers queries
   from it. No accounts, no session persistence, no telemetry.
 - **All tools are read-only.** There is no tool that writes, deletes, or mutates
   anything, locally or remotely.

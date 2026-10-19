@@ -8,11 +8,11 @@ The Islam West Africa Collection (IWAC, <https://islam.zmo.de>) is a curated dig
 
 Six kinds of material:
 
-- **~13,400 newspaper articles** (mainstream press, five countries) — a continuous, dated record of Muslim life: religious celebrations, the hajj, mosque inaugurations, association politics, debates on laïcité and Islamic education, women and youth, security.
+- **~16,700 newspaper articles** (mainstream press, five countries) — a continuous, dated record of Muslim life: religious celebrations, the hajj, mosque inaugurations, association politics, debates on laïcité and Islamic education, women and youth, security.
 - **~1,500 Islamic publications** — 25 periodicals produced by associations, mosques and schools (Islam Info, An-Nasr Vendredi, Plume Libre, ASSALAM, Le CERFIste…): the community's own voice, with concerns and theological positions often absent from the mainstream press.
-- **~4,700 index records** — curated authority entries for persons, organizations, places, events and subjects, linked to the articles that mention them.
-- **864 academic references** — scholarship on Islam in the region, mostly in French and English, with some other languages.
-- **26 association documents** (reports, flyers — mostly Burkina Faso) and **~1,770 audiovisual items**: mainly francophone web video from Burkina Faso, Togo and Benin (broadcast reports, association and campus recordings, 2020s), plus 47 deposited Nigerian recordings in Hausa and Arabic.
+- **~5,000 index records** — curated authority entries for persons, organizations, places, events and subjects, linked to the articles that mention them.
+- **867 academic references** — scholarship on Islam in the region, mostly in French and English, with some other languages.
+- **26 association documents** (reports, flyers — mostly Burkina Faso) and **~1,800 audiovisual items**: mainly francophone web video from Burkina Faso, Togo and Benin (broadcast reports, association and campus recordings, 2020s), plus 47 deposited Nigerian recordings in Hausa and Arabic.
 
 ## Why the press matters (talking points)
 
@@ -38,9 +38,9 @@ Because reports are date-stamped and location-specific, the collection also supp
 
 - **Keyword search** (French concept terms for press/publications; French and English title/abstract terms for scholarship) across titles, full OCR text and AI abstracts. Articles and documents carry a French **and** an English AI abstract and both are searched, so an English term can reach a French item through its summary — responses still return only the French one.
 - **Curated themes** — 214 subject tags (Hadj, Laïcité, Ramadan, Éducation islamique…) for precise, pre-classified slices.
-- **People, organisations, places** — find the canonical name among the 4,700 index records, then pull every article that mentions it.
+- **People, organisations, places** — find the canonical name among the 5,000 index records, then pull every article that mentions it.
 - **Conceptual (semantic) search** in any language, when keywords would miss paraphrases — "Islamic education reform" also surfaces madrasa-modernisation pieces.
-- **Tone and framing** — nearly every article carries AI sentiment labels (polarity, centrality, subjectivity) from five independent models, so you can also ask how far the models agree before trusting a reading. They agree on tone for barely a third of the corpus, which is itself worth knowing.
+- **Tone and framing** — about three-quarters of the articles (every one the enrichment pass has reached) carry AI sentiment labels (polarity, centrality, subjectivity) from five independent models, so you can also ask how far the models agree before trusting a reading. They agree on tone for barely a third of the corpus, which is itself worth knowing.
 - **Trends over time** — chart how coverage of a topic rose and fell year by year (per country or outlet), directly, without leafing through the articles themselves.
 - **The shape of a body of material** — instead of reading a set, describe it: which of 30 automatically-derived topics it falls into, which subjects or places or bylines dominate it, what gets discussed alongside what, where on a map it points, how its prose reads. Useful when you don't yet know what to search for.
 - **Finding the same story twice** — given one article, surface the pieces closest to it in meaning, which is how syndicated reports and rewrites show up.
@@ -48,7 +48,7 @@ Because reports are date-stamped and location-specific, the collection also supp
 - **Inside Islamic periodicals** — browse the 25 series, search tables of contents (complete for 17 smaller magazines), or pull keyword excerpts from a full issue. The same keyword-excerpt reading works on long archival documents and articles too.
 - **Reproducible selections** — preserve exact filters, inspect coverage and keyword contexts, and export source manifests or CSL-JSON/BibTeX bibliographies with dataset provenance.
 - **Discuss the view you are exploring** — on supported hosts, enlarge it to fullscreen and use **Ask about this selection** to request an interpretation of its current filters and evidence. Automatic sharing keeps a compact selection summary available; source reading remains a separate research step. Available controls depend on the host.
-- **Scholarship** — connect press findings to the 864 academic references.
+- **Scholarship** — connect press findings to the 867 academic references.
 
 ## Example questions (adapt, don't recite)
 

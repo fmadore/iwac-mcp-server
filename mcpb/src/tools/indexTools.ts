@@ -132,8 +132,8 @@ function registerIndexListTool(
   const countrySemantics = withCountry
     ? ` The optional 'country' filter selects entries that APPEAR IN records from that country ` +
       `(mentioned-in, not located-in), ranked by collection-wide 'frequency' — so foreign and ` +
-      `cross-border entries can appear. Nigeria returns none here (index frequency is computed from ` +
-      `articles + publications + references, which have no Nigerian items — Nigeria is audiovisual only).`
+      `cross-border entries can appear. Nigeria reaches only the few entries its references mention ` +
+      `(index frequency counts articles, publications and references; no article is Nigerian).`
     : "";
 
   const meta = {

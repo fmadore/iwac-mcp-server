@@ -19,7 +19,7 @@ the right CPU architecture automatically), which keeps the download small and
 makes installation reliable. Claude Desktop has no Linux build, so no Linux
 bundle is published.
 
-On first use the server downloads ~250 MB of parquet data from Hugging Face
+On first use the server downloads ~265 MB of parquet data from Hugging Face
 into `~/.iwac-mcp/cache/` (override via the extension settings). Subsequent
 queries are served locally through DuckDB. Online starts compare the Hub's LFS,
 Xet, or Git content identity with a small cache sidecar, so a same-sized dataset
@@ -46,22 +46,6 @@ npm run test:live                           # full smoke test against the real d
 npm run test:tokens -- --update             # re-baseline the token budget after an intended change
 ```
 
-> **Windows on ARM:** `npm run lint` dies with an access violation
-> (`0xC0000005`; exit 139 under Git Bash) on `win32-arm64`. It is a Biome
-> platform-binary regression, not a config problem: it reproduces on a two-line
-> file with no config at all, while `biome --version` and `biome rage` still
-> work. Bisected to **2.5.2** — 2.4.16, 2.5.0 and 2.5.1 are fine, every release
-> from 2.5.2 to 2.5.7 crashes. Reported upstream as
-> [biomejs/biome#11242](https://github.com/biomejs/biome/issues/11242).
-> CI lints on `ubuntu-latest` and is unaffected. To lint locally before a commit,
-> run the x64 binary under emulation — keep the version in step with
-> `package.json`:
->
-> ```bash
-> npm i --no-save --force --cpu=x64 --os=win32 --prefix /tmp/biome-x64 @biomejs/cli-win32-x64@2.5.6
-> /tmp/biome-x64/node_modules/@biomejs/cli-win32-x64/biome.exe lint .
-> ```
-
 `npm test` is hermetic: `test/unit.test.ts` covers the pure helpers,
 `test/fixture-server.test.mjs` spawns the built server over stdio against
 synthetic parquet fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1`,
@@ -80,14 +64,17 @@ Two things are measured, in `o200k_base` tokens — not Claude's tokenizer, sinc
 none is published, but the one the public MCP benchmarks use and close enough on
 French prose for a gate about *movement*:
 
-* **Always-on footprint** — the 35 default tool definitions plus the instructions block,
-  which every client loads before the user has typed anything: **~14.8k tokens**
-  today (`inputSchema` 6.8k, `outputSchema` 3.0k, descriptions 2.2k; zod's implicit
-  safe-integer bounds are stripped from every integer field, ~20 tokens each). Compared
+* **Always-on footprint**: the 39 default tool definitions (semantic search is on
+  by default) plus the instructions block, which every client loads before the
+  user has typed anything: **~16.0k tokens** today (15,968, of which the
+  instructions are 827; zod's implicit safe-integer bounds are stripped from every
+  integer field, ~20 tokens each). Compared
   against `test/token-baseline.json` on every PR; more than 5% growth fails, and
   clearing it means either trimming the schemas or re-baselining with
   `--update` in the same commit, where a reviewer can see the cost. A hard
-  ceiling of 16k catches step changes the percentage would let through.
+  ceiling of 16k catches step changes the percentage would let through; the
+  footprint now sits 32 tokens under it, so any new tool or longer description
+  has to be paid for by trimming elsewhere.
 * **Worst-case responses** — every tool called with the largest arguments it
   will honour, against inflated fixtures (`scripts/make-stress-fixtures.mjs`:
   the ordinary fixtures re-read with ≥130 rows per subset and text padded to the
@@ -173,7 +160,7 @@ Environment variables (all transports unless noted):
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
-| `IWAC_CACHE_DIR` | `~/.iwac-mcp/cache` (`/cache` in Docker) | Where parquet data is cached (~250 MB) |
+| `IWAC_CACHE_DIR` | `~/.iwac-mcp/cache` (`/cache` in Docker) | Where parquet data is cached (~265 MB public data, plus ~330 MB once semantic search fetches its model) |
 | `IWAC_OFFLINE` | `false` | Trust the cache as-is; never touch the network |
 | `IWAC_DATASET_REVISION` | `main` | Dataset revision; use an immutable Hub commit SHA for reproducible studies |
 | `IWAC_EMBEDDING_PROVIDER` | `onnx` | `onnx` runs the query encoder in-process; `local` posts queries to an OpenAI-compatible endpoint serving the same model. `gemini` is refused (retired in v4.0.0) |
@@ -201,7 +188,7 @@ Environment variables (all transports unless noted):
 | `src/`                       | TypeScript sources, split into `tools/` modules |
 | `src/http.ts`                | Remote Streamable-HTTP transport (`--http`)     |
 | `server/index.js`            | Single esbuild bundle (server + MCP SDK + zod)  |
-| `node_modules/`              | Runtime externals: `@duckdb/*` + `@google/genai`|
+| `node_modules/`              | Runtime externals: `@duckdb/*` + `onnxruntime-node` |
 | `Dockerfile`                 | GHCR image for the remote HTTP deployment       |
 | `biome.json`                 | Lint configuration (`npm run lint`)             |
 | `src/viewContract.ts`        | The one constant shared by the server and app bundles |
@@ -224,11 +211,11 @@ Environment variables (all transports unless noted):
   are lazily downloaded per subset (articles, publications, documents,
   audiovisual, images, index, references) and registered as DuckDB views over the local cache.
 - Full-text coverage: this is the **public** projection of the dataset, which
-  masks OCR per row by `OCR_is_public` (~56% of articles, ~86% of publications).
-  Titles and subjects are present for every item, and AI abstracts for every
-  item enrichment has reached — ingestion runs ahead of it, so the newest
-  arrivals (~1,050 articles at the 2026-08 refresh) carry metadata only. Nothing
-  is invisible, but a keyword count is a floor rather than a census.
+  masks OCR per row by `OCR_is_public` (~45% of articles, ~86% of publications
+  carry full text at the October 2026 revision). Titles, subjects and AI
+  abstracts are present for every article, but sentiment scoring lags
+  ingestion: the newest ~4,400 articles carry no sentiment yet. Nothing is
+  invisible, but a keyword count is a floor rather than a census.
   `get_collection_stats` reports the live ratio as `fulltext_coverage`, and the
   handshake instructions tell clients to disclose it.
 - Queries: all tools use parameterised SQL against DuckDB. The query layer
@@ -435,9 +422,10 @@ bundled Node runtime, which means zero installation friction for end users.
 
 `npm run build` bundles the server, the MCP SDK, and zod into a single
 `server/index.js` with [esbuild](scripts/bundle.mjs). The native `@duckdb/*`
-bindings and the optional `@google/genai` client stay external (the former can't
-be inlined; the latter is only needed when semantic search is enabled), so those
-two trees are the only runtime `node_modules` the packed bundle relies on.
+bindings and `onnxruntime-node` (the semantic-search query encoder) stay
+external because neither native addon can be inlined, so those two trees are
+the only runtime `node_modules` the packed bundle relies on. The model's
+tokenizer (`@huggingface/tokenizers`) is pure JavaScript and is inlined.
 
 ## Optional private full-text access
 
@@ -481,11 +469,10 @@ queues have limits, deadlines and cancellation; PCA executes in worker threads.
 
 ## October 2026 compatibility and build notes
 
-The next release requires Node.js >=24.0.0 (build, Docker and desktop runtime).
-This removes the old Node 20 compatibility claim because that release is end of
-life. Update desktop hosts carrying older embedded Node versions before upgrading.
-The runtime-floor CI job tests the exact declared minimum. This compatibility
-change must be called out when selecting and documenting the next release version.
+Since v3.7.0 the server requires Node.js >=24.0.0 (build, Docker and desktop
+runtime); the old Node 20 compatibility claim was dropped because that release
+is end of life. Update desktop hosts carrying older embedded Node versions before
+upgrading. The runtime-floor CI job tests the exact declared minimum.
 
 MCP Apps 2 and Zod 4.6 retain their full protocol schemas. To stay within the 300 KB
 resource budget, the self-contained UI carries gzip/base64 JavaScript decoded by

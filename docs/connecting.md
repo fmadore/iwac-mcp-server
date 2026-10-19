@@ -3,7 +3,7 @@
 The [Islam West Africa Collection (IWAC)](https://islam.zmo.de/s/westafrica/) is
 available as a **Model Context Protocol (MCP) server** — a read-only research
 interface that lets an AI assistant search and analyse the collection directly:
-~12,000 newspaper articles, 1,500 Islamic publications, 4,700 authority records
+~16,700 newspaper articles, 1,500 Islamic publications, 5,000 authority records
 (persons, places, organisations, events, subjects), 860+ academic references,
 plus archival documents, audiovisual recordings and fieldwork photographs from
 Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria, and Togo.
@@ -51,7 +51,7 @@ runtime and database engine.
 
 There is no Linux bundle, because Claude Desktop itself is not available on Linux.
 
-**First run:** the first time you use a tool, the server downloads ~250 MB of
+**First run:** the first time you use a tool, the server downloads ~265 MB of
 data from Hugging Face into `~/.iwac-mcp/cache/` (you can change this folder in
 the extension's settings). After that, queries are fast and fully local.
 
@@ -98,9 +98,9 @@ This is the supported way to add the skill, and the one to use. An installed
 skill is matched against your question automatically, before any tool runs.
 
 <details>
-<summary>Prototype: the server also serves the skill as <code>skill://</code> resources</summary>
+<summary>The server also serves the skill as <code>skill://</code> resources</summary>
 
-Recent builds embed the skill and expose it as MCP resources:
+Every build embeds the skill and exposes it as MCP resources:
 `skill://iwac-mcp/SKILL.md`, its four `skill://iwac-mcp/references/…` files, and
 a `skill://iwac-mcp` catalogue listing them with SHA-256 digests. A client that
 has not installed the skill can read it from the server instead. Nothing is
@@ -188,7 +188,7 @@ install in ChatGPT. Two things carry the same guidance to a connector:
   mirror the skill's workflow. Use these; they are the supported route.
 - **`skill://` resources.** The server also exposes the skill itself
   as MCP resources. Whether you can reach them depends on the client's support
-  for reading resources, and the interface is experimental. See the note under
+  for reading resources or for the Skills extension. See the note under
   [Add the research skill](#2-add-the-research-skill--strongly-recommended).
 
 Failing both, asking for "a cited synthesis, searching in French" gets you most
