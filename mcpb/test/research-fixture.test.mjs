@@ -85,6 +85,26 @@ test("research workbench counts, exact selection, normalization, provenance and 
     );
     const attention = await call("explore_corpus", { mode: "attention", selection: { country: "Benin" } });
     assert.ok(attention.rows.some((r) => r.destination === "Cotonou"));
+    // Cell views honour limit/offset for the model; the chart keeps its own cap
+    // through the widget-only channel, whatever page was asked for.
+    for (const args of [
+      { mode: "attention", selection: { country: "Benin" } },
+      { mode: "coverage" },
+      { mode: "compare", selection: { country: "Benin" }, comparison: { country: "Togo" } },
+    ]) {
+      const full = await call("explore_corpus", { ...args, limit: 50 });
+      const first = await client.callTool({ name: "explore_corpus", arguments: { ...args, limit: 2 } });
+      const page = payload(first);
+      assert.equal(page.rows.length, Math.min(2, full.total_cells), `${args.mode}: page size`);
+      assert.equal(page.total_cells, full.total_cells, `${args.mode}: total_cells`);
+      assert.equal(page.has_more, full.total_cells > 2, `${args.mode}: has_more`);
+      assert.deepEqual(page.rows, full.rows.slice(0, 2), `${args.mode}: page is a prefix of the ranking`);
+      const next = await call("explore_corpus", { ...args, limit: 2, offset: 2 });
+      assert.deepEqual(next.rows, full.rows.slice(2, 4), `${args.mode}: offset continues the ranking`);
+      const chartRows = first._meta?.["islam.zmo.de/viewData"]?.rows;
+      assert.ok(chartRows.length >= Math.min(full.total_cells, 40) || chartRows.length === full.total_cells, `${args.mode}: chart keeps its cells`);
+      assert.ok(!("omitted_cells" in page), `${args.mode}: omitted_cells is chart-only`);
+    }
     assert.ok(
       (await client.callTool({ name: "explore_corpus", arguments: { mode: "attention", subset: "references" } }))
         .isError,

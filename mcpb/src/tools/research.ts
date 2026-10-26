@@ -1,5 +1,6 @@
 /** Research workbench: one selection contract, all subsets, source-backed views. */
 import { chartResult } from "./shared/chartResults.js";
+import { viewResult } from "./shared/results.js";
 import { z } from "zod";
 import { ALL_SUBSETS, type Subset } from "../config.js";
 import type { ComparisonRow, ComparisonSelection } from "../viewContract.js";
@@ -36,6 +37,7 @@ const output = z.object({
   selections: z.array(rowSchema).optional(),
   overlap: z.number().optional(),
   omitted_cells: z.number().optional(),
+  total_cells: z.number().optional(),
   source_exact_field: z.string().optional(),
   export: rowSchema.optional(),
   temporal: rowSchema.optional(),
@@ -46,6 +48,25 @@ const count = async (v: string, f: ReturnType<typeof aggregateFilters>) =>
 const present = (col: string | undefined) =>
   col ? `NULLIF(TRIM(CAST(${q(col)} AS VARCHAR)), '') IS NOT NULL` : "FALSE";
 
+/**
+ * Cell views (compare, coverage, attention): the model reads one `limit`-sized
+ * page of the ranked cells and pages on with `offset`; the chart still receives
+ * the largest `chartCap` cells through the widget-only channel, so it draws
+ * the same picture whatever page the model asked for.
+ */
+function pagedCells<R>(
+  payload: Record<string, unknown>,
+  cells: R[],
+  chartCap: number,
+  { offset, limit }: { offset: number; limit: number },
+) {
+  const rows = cells.slice(offset, offset + limit);
+  return viewResult(
+    { ...payload, rows, offset, limit, has_more: offset + rows.length < cells.length, total_cells: cells.length },
+    { rows: cells.slice(0, chartCap), omitted_cells: Math.max(0, cells.length - chartCap) },
+  );
+}
+
 export function registerResearchTools(server: Server): void {
   server.registerTool(
     "explore_corpus",
@@ -54,7 +75,7 @@ export function registerResearchTools(server: Server): void {
       annotations: annotate("Research workbench"),
       _meta: CHARTS_UI_META,
       description:
-        "Selection workbench: items, concordance, coverage, compare (requires comparison), attention, aliases, or paginated manifest/CSL-JSON/BibTeX exports. Exact filters intersect. Coverage measures archive availability. Exports identify this page and dataset snapshot; compare snapshot IDs across pages. Schema discovery: iwac://datasets/{subset}.",
+        "Selection workbench: items, concordance, coverage, compare (requires comparison), attention, aliases, or paginated manifest/CSL-JSON/BibTeX exports. Exact filters intersect. limit/offset also page compare/coverage/attention cells. Coverage measures archive availability. Exports identify this page and dataset snapshot; compare snapshot IDs across pages. Schema discovery: iwac://datasets/{subset}.",
       inputSchema: z.object({
         mode: z.enum(["items", "concordance", "coverage", "compare", "attention", "aliases", ...EXPORT_MODES]).default("items"),
         subset: z.enum(ALL_SUBSETS as [Subset, ...Subset[]]).default("articles"),
@@ -177,29 +198,32 @@ export function registerResearchTools(server: Server): void {
               );
             }
         }
-        // Rank on the combined base so the two sides always use the same categories.
+        // Rank on the combined base so the two sides always use the same categories,
+        // then order the cells by category rank so a page never splits A from B.
         const ranked = new Map<string, number>();
         for (const r of rows) {
           const key = JSON.stringify([r.field, r.value]);
           ranked.set(key, (ranked.get(key) ?? 0) + Number(r.count));
         }
-        const keys = new Set(
-          [...ranked]
-            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-            .slice(0, 40)
-            .map(([key]) => key),
+        const order = new Map(
+          [...ranked].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([key], i) => [key, i]),
         );
-        const kept = rows.filter((r) => keys.has(JSON.stringify([r.field, r.value])));
-        return chartResult({
-          ...base,
-          view: "comparison",
-          rows: kept,
-          selections,
-          overlap,
-          temporal: await comparisonTimeline(subset, schema, v, selection, comparison),
-          omitted_cells: rows.length - kept.length,
-          note: "Shares use each selection's entire base, including missing values. Categories use stored labels (pipe-joined countries remain one category). Selections can overlap; differences are descriptive, not causal. Largest 40 combined categories shown.",
-        });
+        const rank = (r: ComparisonRow) => order.get(JSON.stringify([r.field, r.value])) ?? 0;
+        const cells = rows.sort((a, b) => rank(a) - rank(b) || a.selection.localeCompare(b.selection));
+        const chartCap = cells.findIndex((r) => rank(r) >= 40);
+        return pagedCells(
+          {
+            ...base,
+            view: "comparison",
+            selections,
+            overlap,
+            temporal: await comparisonTimeline(subset, schema, v, selection, comparison),
+            note: "Rows are cells (selection × category), ordered by combined category count; page on with offset. Shares use each selection's entire base, including missing values. Categories use stored labels (pipe-joined countries remain one category). Selections can overlap; differences are descriptive, not causal.",
+          },
+          cells,
+          chartCap < 0 ? cells.length : chartCap,
+          { offset, limit },
+        );
       }
       if (mode === "coverage") {
         if (!schema.has("pub_date")) return errorResult({ error: `No publication date in ${subset}` });
@@ -208,25 +232,28 @@ export function registerResearchTools(server: Server): void {
           `SELECT COALESCE(NULLIF(TRIM(${q(source)}), ''), '(missing)') AS source, COALESCE(NULLIF(regexp_extract(pub_date, '^(\\d{4})', 1), ''), '(undated)') AS year, ${metrics} FROM ${v} WHERE ${whereSql(f.where)} GROUP BY 1, 2 ORDER BY total DESC, 1, 2`,
           f.params,
         );
-        return chartResult({
-          ...base,
-          view: "coverage",
-          source_field: source,
-          ...(source === "country" ? { source_exact_field: "country_raw" } : {}),
-          rows: rows.slice(0, 400).map((row) => ({
+        return pagedCells(
+          {
+            ...base,
+            view: "coverage",
+            source_field: source,
+            ...(source === "country" ? { source_exact_field: "country_raw" } : {}),
+            metrics: {
+              fulltext: body ?? "unavailable",
+              embedded: embedding && schema.has(embedding) ? embedding : "unavailable",
+              scored: scoredCols,
+            },
+            note: "Cells count archived items, body-text availability, nonempty embeddings and at least one model polarity score, largest first; page on with offset. Availability does not certify OCR or vector quality. Missing dates are explicit; absent cells mean no archived records, not no historical activity. Availability is null when a column is unavailable. Known publication lifetimes are not inferred from archival gaps.",
+          },
+          rows.map((row) => ({
             source: String(row.source), year: String(row.year), total: Number(row.total),
             fulltext: row.fulltext === null ? null : Number(row.fulltext),
             embedded: row.embedded === null ? null : Number(row.embedded),
             scored: row.scored === null ? null : Number(row.scored),
           })),
-          omitted_cells: Math.max(0, rows.length - 400),
-          metrics: {
-            fulltext: body ?? "unavailable",
-            embedded: embedding && schema.has(embedding) ? embedding : "unavailable",
-            scored: scoredCols,
-          },
-          note: "Cells count archived items, body-text availability, nonempty embeddings and at least one model polarity score. Availability does not certify OCR or vector quality. Missing dates are explicit; absent cells mean no archived records, not no historical activity. Largest 400 populated cells shown; availability is null when a column is unavailable. Known publication lifetimes are not inferred from archival gaps.",
-        });
+          400,
+          { offset, limit },
+        );
       }
       if (!["articles", "publications"].includes(subset))
         return errorResult({
@@ -239,13 +266,16 @@ export function registerResearchTools(server: Server): void {
         `WITH selected AS (SELECT "o:id" AS id, country, spatial FROM ${v} WHERE ${whereSql(f.where)}), origins AS (SELECT DISTINCT id, TRIM(UNNEST(string_split(COALESCE(country,''), '|'))) AS origin, spatial FROM selected), mentions AS (SELECT DISTINCT id, origin, TRIM(UNNEST(string_split(COALESCE(spatial,''), '|'))) AS destination FROM origins) SELECT origin, destination, COUNT(DISTINCT id) AS count, (SELECT COUNT(DISTINCT id) FROM origins o WHERE o.origin = m.origin) AS denominator FROM mentions m WHERE origin <> '' AND destination <> '' GROUP BY 1, 2 ORDER BY count DESC, 1, 2`,
         f.params,
       );
-      return chartResult({
-        ...base,
-        view: "attention",
-        rows: rows.slice(0, 200).map((row) => ({ origin: String(row.origin), destination: String(row.destination), count: Number(row.count), denominator: Number(row.denominator) })),
-        omitted_cells: Math.max(0, rows.length - 200),
-        note: "Publication-country metadata × mentioned place tags, not routes, migration or information flows. A multi-tagged item can occur in several cells. Denominator is all selected items tagged with that origin country. Largest 200 populated cells shown.",
-      });
+      return pagedCells(
+        {
+          ...base,
+          view: "attention",
+          note: "Publication-country metadata × mentioned place tags, not routes, migration or information flows. A multi-tagged item can occur in several cells. Denominator is all selected items tagged with that origin country. Cells are ordered by count; page on with offset.",
+        },
+        rows.map((row) => ({ origin: String(row.origin), destination: String(row.destination), count: Number(row.count), denominator: Number(row.denominator) })),
+        200,
+        { offset, limit },
+      );
     },
   );
 }
