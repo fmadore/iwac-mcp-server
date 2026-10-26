@@ -127,23 +127,28 @@ Download the latest [iwac-mcp-skill.zip](https://github.com/fmadore/iwac-mcp-ser
 
 #### The server also serves the skill (`skill://`)
 
-Every build embeds the research skill as MCP resources, including the Docker
-image. The [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
-is finalized (SEP-2640); clients supporting it can discover the same catalogue
-through `skills/list` and `skills/get` under `io.modelcontextprotocol/skills`.
-Clients without that extension can use ordinary `resources/read`:
+Every build embeds the research skill, including the Docker image, and serves it
+through the MCP SDK's implementation of the
+[Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
+(SEP-2640, `io.modelcontextprotocol/skills`). Clients supporting it discover the
+skill through `skills/list` and `skills/get`, browse it with
+`resources/directory/read`, and check every file they read against the
+manifest's SHA-256 digests. Clients without the extension see every file in
+`resources/list`, each with a title and a one-line summary, and read it with
+ordinary `resources/read`:
 
 | Resource | Content |
 | --- | --- |
-| `skill://iwac-mcp` | Catalogue with byte sizes and SHA-256 digests |
 | `skill://iwac-mcp/SKILL.md` | Research workflow |
-| `skill://iwac-mcp/references/…` | Reference files, read on demand |
+| `skill://iwac-mcp/references/…` | Four reference files, read on demand |
+| `skill://iwac-mcp` | The skill's directory, for `resources/directory/read` |
 
-The optional `resources/directory/read` method is not advertised. The bare
-`skill://iwac-mcp` URI is a catalogue document, not a directory. Skill content is
-a build-time snapshot; editing the source requires a rebuild. The release zip
-remains available for clients that install skills locally. Remote clients can
-read the same workflow without downloading a release artifact.
+The bare `skill://iwac-mcp` URI is a directory, no longer the JSON catalogue
+that releases up to v4.1.0 served there; `skills/list` carries the same sizes
+and digests. Skill
+content is a build-time snapshot; editing the source requires a rebuild. The
+release zip remains available for clients that install skills locally. Remote
+clients can read the same workflow without downloading a release artifact.
 
 ## What it gives Claude
 
@@ -312,7 +317,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 4.1.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 4.2.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -320,7 +325,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {4.1.0},
+  version   = {4.2.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

@@ -9,9 +9,7 @@ type McpServer = import("@modelcontextprotocol/server").McpServer;
  * a module reaching for any other member would escape the replay. Typing it
  * this narrowly makes that a compile error rather than a startup crash.
  */
-export type Server = Pick<McpServer, "registerTool" | "registerResource" | "registerPrompt"> & {
-  server: Pick<McpServer["server"], "setRequestHandler">;
-};
+export type Server = Pick<McpServer, "registerTool" | "registerResource" | "registerPrompt">;
 
 // -----------------------------------------------------------------------------
 // Tool result / annotation helpers

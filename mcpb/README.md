@@ -51,8 +51,9 @@ npm run test:tokens -- --update             # re-baseline the token budget after
 synthetic parquet fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1`,
 `test/http-server.test.mjs` does the same over the `--http` transport
 (bearer auth, /health, body cap, a real Streamable-HTTP MCP call),
-`test/skills.test.mjs` reads every `skill://` resource back off the wire and
-compares it byte-for-byte against the file on disk, and
+`test/skills.test.mjs` reads every skill file back through the SDK's
+`SkillsClient` (which verifies each digest) and compares it byte-for-byte
+against the file on disk, and
 `test/token-budget.test.mjs` gates what the server costs a model — no network,
 runs in seconds. `npm run test:live` (smoke-test.mjs) exercises every tool
 against the real Hugging Face dataset; its pinned counts double as a
@@ -193,7 +194,7 @@ Environment variables (all transports unless noted):
 | `biome.json`                 | Lint configuration (`npm run lint`)             |
 | `src/viewContract.ts`        | The one constant shared by the server and app bundles |
 | `scripts/bundle.mjs`         | esbuild config (single-file bundle)             |
-| `scripts/collect-skills.mjs` | Collect `.agents/skills/` for the `skill://` resources |
+| `scripts/collect-skills.mjs` | Collect `.agents/skills/` for the SDK's Skills extension |
 | `scripts/duckdb-bindings.mjs`| Shared helper: fetch/extract platform bindings  |
 | `scripts/install-duckdb-bindings.mjs` | Fetch the 4 macOS/Windows bindings     |
 | `scripts/pack-platforms.mjs` | Build one `.mcpb` per OS (Windows, macOS) from a staged runtime-only tree, then unpack and verify it |
@@ -325,11 +326,20 @@ Environment variables (all transports unless noted):
   `get_field_distribution` 79% on `values`, but there the dense field *is* the
   answer. See [`../docs/mcp-apps-roadmap.md`](../docs/mcp-apps-roadmap.md) §2.4.
 - Skills over MCP: `scripts/collect-skills.mjs` embeds `../.agents/skills/`
-  at build time. Missing or empty skill sources fail the build. Ordinary
-  `skill://` resources and the finalized [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
-  share one catalogue with UTF-8 byte sizes and SHA-256 digests. `skills/list`
-  and `skills/get` have cache metadata; the optional directory-read capability
-  is not advertised. Rebuild after changing skill sources. Docker builds use
+  at build time as a `{ path: text }` record plus a title, summary and MIME type
+  per file. `src/tools/skills.ts` builds the entries with the SDK's
+  `SkillsExtension.load(memorySkillFiles(...))`, which computes sizes and
+  digests and checks frontmatter and limits, then serves them through a small
+  `SkillSource` attached to every server the factory builds. The SDK serves
+  `skills/list`, `skills/get`, `resources/directory/read` and the
+  `skill://{+path}` template, and declares the capability (`directoryRead`
+  included). The source exists for one reason: the SDK's own catalogue lists one
+  `resources/list` entry per skill, and hosts without the extension find the
+  reference files there. The bundler loads the same record under `strict`, so
+  missing, empty or invalid skill sources fail the build. `attach()` is
+  experimental, so the SDK is pinned to its minor (`~2.4.0`) and
+  `test/skills.test.mjs` covers the contract through `SkillsClient`. Rebuild
+  after changing skill sources. Docker builds use
   the repository root as context so the same skill ships on both transports.
 - Prompts: `iwac_research` (brief/extended) and `iwac_overview` in
   `src/prompts.ts` carry the skill's workflow to clients that cannot install the

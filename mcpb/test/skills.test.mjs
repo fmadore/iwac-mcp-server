@@ -1,137 +1,164 @@
-// `skill://` resources and the SEP-2640 `skills/*` methods: the Agent Skill
-// served from the server itself.
+// The SEP-2640 Skills extension: the Agent Skill served from the server itself,
+// checked from the client side with the SDK's own SkillsClient.
 //
 // The point of this test is INTEGRITY, not that a resource exists. The skill is
 // inlined into the bundle at build time (scripts/collect-skills.mjs), so the
 // bytes a client reads have travelled: disk → esbuild define → JSON string →
-// resource handler. Anything along that path could mangle a heredoc, drop a
-// non-ASCII character (the skill is French-heavy), or serve a stale copy from an
-// earlier build. So every assertion here re-reads the ORIGINAL file from disk
-// and compares against what came over the wire, and re-computes each digest
-// rather than trusting the one the catalogue reports.
+// SDK catalogue → resources/read. Anything along that path could mangle a
+// heredoc, drop a non-ASCII character (the skill is French-heavy), or serve a
+// stale copy from an earlier build. SkillsClient.read() checks every file against
+// the manifest's size and digest; on top of that, every assertion here re-reads
+// the ORIGINAL file from disk, so a manifest computed from mangled bytes fails too.
+//
+// `attach()` is @experimental in the SDK, so this file is also the contract test
+// that a minor SDK bump has not rewired it.
 //
 // Run via `npm run test:skills`. Requires a prior `npm run build`.
 import { createHash } from "node:crypto";
-import { createReporter } from "./_harness.mjs";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
+import { SkillsClient } from "@modelcontextprotocol/client/ext/skills";
+import { createReporter } from "./_harness.mjs";
 import { collectSkills, SKILLS_DIR } from "../scripts/collect-skills.mjs";
 import { withFixtureScope } from "./_fixture-client.mjs";
 
-await withFixtureScope(async (fixtures) => {
-  /** `skills/*` are extension methods, absent from the client's spec table. */
-  // Final SEP-2640 fields are required; extra future metadata remains allowed.
-  const SKILL = z.looseObject({
-    uri: z.string(),
-    frontmatter: z.looseObject({ name: z.string(), description: z.string() }),
-    resources: z.array(z.looseObject({
-      uri: z.string(), digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-      size: z.number().int().nonnegative(),
-    })),
-  });
-  const CACHE = { ttlMs: z.number().int().nonnegative(), cacheScope: z.enum(["public", "private"]) };
-  const LIST = z.looseObject({ ...CACHE, skills: z.array(SKILL) });
-  const GET = z.looseObject({ ...CACHE, skill: SKILL });
+const EXTENSION = "io.modelcontextprotocol/skills";
 
+await withFixtureScope(async (fixtures) => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
   const reporter = createReporter();
   const { fail } = reporter;
 
+  // Source of truth: the tree on disk, collected exactly as the bundler did,
+  // grouped as { skill name: [relative paths] }.
+  const collected = collectSkills(root);
+  const onDisk = new Map();
+  for (const key of Object.keys(collected.files)) {
+    const [name, ...rest] = key.split("/");
+    onDisk.set(name, [...(onDisk.get(name) ?? []), rest.join("/")]);
+  }
+  if (onDisk.size === 0) fail(`no skills found under ${SKILLS_DIR}: the fixture for this test is missing`);
+  const diskBytes = (name, rel) => readFileSync(path.join(root, ...SKILLS_DIR.split("/"), name, ...rel.split("/")));
+
   const { client, close: closeClient } = await fixtures.connect({
     name: "skills-test", clientOptions: { versionNegotiation: { mode: { pin: "2026-07-28" } } },
   });
+  const skills = new SkillsClient(client);
 
-  // Source of truth: the tree on disk, collected exactly as the bundler did.
-  const onDisk = collectSkills(root);
-  if (onDisk.skills.length === 0) fail(`no skills found under ${SKILLS_DIR}: the fixture for this test is missing`);
+  // --- capability ----------------------------------------------------------------
+  if (!skills.supported) fail(`the ${EXTENSION} capability is not declared`);
+  // The SDK catalogue serves resources/directory/read, so it is advertised; the
+  // bare skill://<name> URI is that skill's directory, not a JSON document.
+  if (!skills.directoryRead) fail("directoryRead is not advertised");
+  const caps = client.getServerCapabilities();
+  // Declaring an extension must not cost the capabilities McpServer derives.
+  if (!caps?.tools || !caps?.resources) fail("declaring extensions dropped the tools/resources capabilities");
+  if (caps?.resources?.listChanged !== false) fail(`resources.listChanged became ${caps?.resources?.listChanged}`);
 
-  const listed = (await client.listResources()).resources;
-  const byUri = new Map(listed.map((r) => [r.uri, r]));
+  // --- skills/list -----------------------------------------------------------------
+  const listing = await skills.list();
+  if (listing.invalid.length) fail(`skills/list returned invalid entries: ${JSON.stringify(listing.invalid)}`);
+  if (listing.skills.length !== onDisk.size) {
+    fail(`skills/list returned ${listing.skills.length} skill(s), disk has ${onDisk.size}`);
+  }
+  if (listing.cacheScope !== "public" || !(listing.ttlMs > 0)) fail("skills/list carries no public cache hint");
 
-  for (const skill of onDisk.skills) {
-    const catalogueUri = `skill://${skill.name}`;
-
-    // --- the catalogue -------------------------------------------------------
-    if (!byUri.has(catalogueUri)) fail(`${catalogueUri} is not in resources/list`);
-
-    const catRes = await client.readResource({ uri: catalogueUri });
-    const catBody = catRes.contents?.[0]?.text ?? "";
-    let catalogue = null;
-    try {
-      catalogue = JSON.parse(catBody);
-    } catch {
-      fail(`${catalogueUri}: body is not valid JSON`);
+  for (const [name, paths] of onDisk) {
+    const entryUri = `skill://${name}/SKILL.md`;
+    const entry = listing.skills.find((s) => s.uri === entryUri);
+    if (!entry) {
+      fail(`skills/list has no entry at ${entryUri}`);
+      continue;
     }
+    if (entry.frontmatter.name !== name) fail(`${entryUri}: frontmatter name '${entry.frontmatter.name}'`);
 
-    if (catalogue) {
-      if (catalogue.name !== skill.name) fail(`${catalogueUri}: name is '${catalogue.name}', expected '${skill.name}'`);
-      if (catalogue.entry !== `skill://${skill.name}/SKILL.md`) {
-        fail(`${catalogueUri}: entry is '${catalogue.entry}', expected the SKILL.md URI`);
-      }
-      if (catalogue.description !== skill.description) {
-        fail(`${catalogueUri}: description does not match SKILL.md frontmatter`);
-      }
-      if ((catalogue.resources ?? []).length !== skill.files.length) {
-        fail(`${catalogueUri}: lists ${catalogue.resources?.length} files, disk has ${skill.files.length}`);
-      }
-      // The catalogue must not smuggle the content it exists to summarise; that
-      // would make reading it cost as much as reading every file.
-      for (const r of catalogue.resources ?? []) {
-        if ("text" in r) fail(`${catalogueUri}: entry ${r.uri} carries inline text; the catalogue must be metadata only`);
-      }
+    // The manifest must be complete: every file exactly once, SKILL.md included,
+    // each digest and size matching the file on disk.
+    const manifest = entry.resources;
+    if (manifest.length !== paths.length) {
+      fail(`${entryUri}: manifest lists ${manifest.length} files, disk has ${paths.length}`);
     }
-
-    // --- every file ----------------------------------------------------------
-    for (const file of skill.files) {
-      const meta = byUri.get(file.uri);
-      if (!meta) {
-        fail(`${file.uri} is not in resources/list`);
+    for (const rel of paths) {
+      const uri = `skill://${name}/${rel}`;
+      const listed = manifest.find((r) => r.uri === uri);
+      if (!listed) {
+        fail(`${entryUri}: ${uri} missing from the manifest`);
         continue;
       }
-      if (meta.mimeType !== file.mimeType) {
-        fail(`${file.uri}: resources/list says mimeType '${meta.mimeType}', expected '${file.mimeType}'`);
-      }
-      if (!meta.description) fail(`${file.uri}: no description in resources/list, so a host cannot tell what it is`);
+      const bytes = diskBytes(name, rel);
+      const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+      if (listed.digest !== digest) fail(`${uri}: manifest digest ${listed.digest} != ${digest} on disk`);
+      if (listed.size !== bytes.byteLength) fail(`${uri}: manifest size ${listed.size} != ${bytes.byteLength} on disk`);
 
-      const res = await client.readResource({ uri: file.uri });
-      const served = res.contents?.[0]?.text;
-      if (typeof served !== "string") {
-        fail(`${file.uri}: read returned no text`);
-        continue;
+      // SkillsClient.read verifies size and digest against the entry (and, for
+      // SKILL.md, the frontmatter); the disk comparison catches a manifest that
+      // was itself computed from mangled bytes.
+      try {
+        const file = await skills.read(entry, rel);
+        if (!file.verified) fail(`${uri}: read was not verified`);
+        if (file.text !== bytes.toString("utf8")) fail(`${uri}: served text differs from the file on disk`);
+      } catch (err) {
+        fail(`${uri}: ${err?.message ?? err}`);
       }
+    }
 
-      // Byte-for-byte against the file on disk, not against the collector's copy
-      // of it: this is the assertion that catches a mangled build.
-      const diskPath = path.join(root, ...SKILLS_DIR.split("/"), skill.name, ...file.path.split("/"));
-      const expected = readFileSync(diskPath, "utf8");
-      if (served !== expected) {
-        fail(`${file.uri}: served content differs from ${diskPath} (${served.length} vs ${expected.length} chars)`);
-      }
+    // skills/get answers for the same skill, identically.
+    const got = await skills.get(entryUri);
+    if (got.cacheScope !== "public" || got.ttlMs !== listing.ttlMs) fail(`skills/get ${entryUri}: cache hints differ`);
+    if (JSON.stringify(got.skill) !== JSON.stringify(entry)) {
+      fail(`skills/get ${entryUri}: entry differs from the one skills/list returned`);
+    }
 
-      // Digest recomputed here, so a catalogue that reports a digest it did not
-      // actually derive from the content fails.
-      const digest = `sha256:${createHash("sha256").update(served).digest("hex")}`;
-      const claimed = catalogue?.resources?.find((r) => r.uri === file.uri);
-      if (!claimed) fail(`${file.uri}: absent from the catalogue`);
-      else {
-        if (claimed.digest !== digest) fail(`${file.uri}: catalogue digest ${claimed.digest} != actual ${digest}`);
-        if (claimed.bytes !== Buffer.byteLength(served)) {
-          fail(`${file.uri}: catalogue says ${claimed.bytes} bytes, served ${Buffer.byteLength(served)}`);
-        }
+    // Directory reads cover every file, walking down from the skill's root.
+    const seen = [];
+    const walk = async (dirUri) => {
+      for (const child of (await skills.readDirectory(dirUri)).resources) {
+        if (child.mimeType === "inode/directory") await walk(child.uri);
+        else seen.push(child.uri);
       }
+    };
+    await walk(`skill://${name}`);
+    const expected = paths.map((rel) => `skill://${name}/${rel}`).sort();
+    if (JSON.stringify(seen.sort()) !== JSON.stringify(expected)) {
+      fail(`directory reads under skill://${name} found ${seen.length} files, disk has ${expected.length}`);
     }
   }
 
-  // --- the namespace split -----------------------------------------------------
-  // The catalogue sits at the bare `skill://<name>` precisely because no file can
-  // live there. If a skill ever gained a file whose URI collided, one would
-  // silently shadow the other.
-  const uris = listed.map((r) => r.uri);
+  // --- what a host without the extension sees ----------------------------------------
+  // Claude Desktop and Claude Code do not speak SEP-2640: they list resources and
+  // read them by URI. SKILL.md names its references by relative path, so EVERY
+  // file must be listed, not only SKILL.md (the SDK's own catalogue lists one entry
+  // per skill), and each must say what it is.
+  const resources = (await client.listResources()).resources;
+  const uris = resources.map((r) => r.uri);
   if (new Set(uris).size !== uris.length) fail("resources/list contains duplicate URIs");
+  for (const [name, paths] of onDisk) {
+    const skill = listing.skills.find((s) => s.uri === `skill://${name}/SKILL.md`);
+    for (const rel of paths) {
+      const uri = `skill://${name}/${rel}`;
+      const listed = resources.find((r) => r.uri === uri);
+      if (!listed) {
+        fail(`${uri} is not in resources/list`);
+        continue;
+      }
+      const { mimeType } = collected.described[`${name}/${rel}`];
+      if (listed.mimeType !== mimeType) fail(`${uri}: resources/list says mimeType '${listed.mimeType}', expected '${mimeType}'`);
+      if (listed.size !== diskBytes(name, rel).byteLength) fail(`${uri}: resources/list size ${listed.size}`);
+      if (rel === "SKILL.md") {
+        // The entry point is described by its frontmatter: the activation text.
+        if (listed.description !== skill?.frontmatter.description) {
+          fail(`${uri}: resources/list description is not the SKILL.md frontmatter`);
+        }
+      } else if (!listed.title || !listed.description) {
+        fail(`${uri}: no title or description in resources/list, so a host cannot tell what it is`);
+      }
+    }
+  }
+  const templates = (await client.listResourceTemplates()).resourceTemplates.map((t) => t.uriTemplate);
+  if (!templates.includes("skill://{+path}")) fail(`skill://{+path} is not in resources/templates/list: ${templates}`);
 
-  // --- unknown URIs still fail -------------------------------------------------
+  // --- unknown URIs still fail ---------------------------------------------------------
   // A typo must not resolve to something plausible-looking.
   try {
     await client.readResource({ uri: "skill://iwac-mcp/references/does-not-exist.md" });
@@ -139,85 +166,9 @@ await withFixtureScope(async (fixtures) => {
   } catch {
     // expected
   }
-
-  // --- SEP-2640 methods --------------------------------------------------------
-  // The methods and the resources read ONE catalogue, so the thing worth asserting
-  // is that they cannot disagree: every digest `skills/list` reports is recomputed
-  // here from the file on disk, and the frontmatter it reports is re-parsed from
-  // the real SKILL.md. A manifest that drifts from the bytes served is exactly the
-  // failure a host reads as tampering, and it would be silent from our side.
-  const caps = client.getServerCapabilities();
-  if (caps?.extensions?.["io.modelcontextprotocol/skills"] === undefined) {
-    fail("the io.modelcontextprotocol/skills capability is not declared");
-  }
-  // `directoryRead` is deliberately withheld: the bare skill:// URI is the
-  // catalogue document here and cannot also be a directory resource.
-  if (caps?.extensions?.["io.modelcontextprotocol/skills"]?.directoryRead) {
-    fail("directoryRead is advertised but resources/directory/read is not implemented");
-  }
-  // Declaring an extension must not cost the capabilities McpServer derives.
-  if (!caps?.tools || !caps?.resources) fail("declaring extensions dropped the tools/resources capabilities");
-
-  const list = await client.request({ method: "skills/list", params: {} }, LIST);
-  if ((list.skills ?? []).length !== onDisk.skills.length) {
-    fail(`skills/list returned ${list.skills?.length} skill(s), disk has ${onDisk.skills.length}`);
-  }
-  if (list.cacheScope !== "public" || !(list.ttlMs > 0)) fail("skills/list carries no cache hint");
-
-  for (const skill of onDisk.skills) {
-    const entryUri = `skill://${skill.name}/SKILL.md`;
-    const listed = (list.skills ?? []).find((s) => s.uri === entryUri);
-    if (!listed) {
-      fail(`skills/list has no entry at ${entryUri}`);
-      continue;
-    }
-
-    // Frontmatter is compared field by field by a conformant host, so a subset
-    // (or a stale copy) is a verification failure rather than a warning.
-    const front = listed.frontmatter ?? {};
-    if (front.name !== skill.name) fail(`skills/list ${entryUri}: frontmatter name '${front.name}'`);
-    if (front.description !== skill.description) {
-      fail(`skills/list ${entryUri}: frontmatter description does not match SKILL.md`);
-    }
-    const skillMd = readFileSync(path.join(root, ...SKILLS_DIR.split("/"), skill.name, "SKILL.md"), "utf8");
-    for (const key of Object.keys(front)) {
-      if (!new RegExp(`^${key}:`, "m").test(skillMd)) {
-        fail(`skills/list ${entryUri}: frontmatter reports '${key}', which is not in SKILL.md`);
-      }
-    }
-
-    // The manifest must be complete: every file exactly once, SKILL.md included.
-    const manifest = listed.resources ?? [];
-    if (manifest.length !== skill.files.length) {
-      fail(`skills/list ${entryUri}: manifest lists ${manifest.length} files, disk has ${skill.files.length}`);
-    }
-    if (new Set(manifest.map((r) => r.uri)).size !== manifest.length) {
-      fail(`skills/list ${entryUri}: manifest lists a file more than once`);
-    }
-    for (const file of skill.files) {
-      const entry = manifest.find((r) => r.uri === file.uri);
-      if (!entry) {
-        fail(`skills/list ${entryUri}: ${file.uri} missing from the manifest`);
-        continue;
-      }
-      const diskPath = path.join(root, ...SKILLS_DIR.split("/"), skill.name, ...file.path.split("/"));
-      const digest = `sha256:${createHash("sha256").update(readFileSync(diskPath, "utf8")).digest("hex")}`;
-      if (entry.digest !== digest) fail(`skills/list: ${file.uri} digest ${entry.digest} != ${digest} on disk`);
-      const expectedBytes = readFileSync(diskPath).byteLength;
-      if (entry.size !== expectedBytes) fail(`skills/list: ${file.uri} size ${entry.size} != ${expectedBytes} on disk`);
-    }
-
-    // skills/get answers for the same skill, identically.
-    const got = await client.request({ method: "skills/get", params: { uri: entryUri } }, GET);
-    if (got.cacheScope !== "public" || got.ttlMs !== list.ttlMs) fail(`skills/get ${entryUri}: cache hints differ`);
-    if (JSON.stringify(got.skill) !== JSON.stringify(listed)) {
-      fail(`skills/get ${entryUri}: entry differs from the one skills/list returned`);
-    }
-  }
-
   // A URI that identifies no served skill is -32602, per the SEP.
   try {
-    await client.request({ method: "skills/get", params: { uri: "skill://absent/SKILL.md" } }, GET);
+    await skills.get("skill://absent/SKILL.md");
     fail("skills/get resolved an unknown skill instead of erroring");
   } catch (err) {
     if (err?.code !== -32602) fail(`skills/get unknown skill: code ${err?.code}, expected -32602`);
@@ -225,17 +176,25 @@ await withFixtureScope(async (fixtures) => {
 
   await closeClient();
 
-  // The optional extension remains readable by existing 2025-era clients.
+  // --- 2025-era clients ------------------------------------------------------------------
+  // The extension works on both protocol eras; only the cache fields are modern.
   const legacy = await fixtures.connect({ name: "skills-test-legacy" });
-  const legacyList = await legacy.client.request(
-    { method: "skills/list", params: {} }, z.looseObject({ ...CACHE, skills: z.array(SKILL) }),
-  );
-  if (JSON.stringify(legacyList.skills) !== JSON.stringify(list.skills)) fail("legacy and modern skill manifests differ");
+  const legacySkills = new SkillsClient(legacy.client);
+  const legacyListing = await legacySkills.list();
+  if (JSON.stringify(legacyListing.skills) !== JSON.stringify(listing.skills)) {
+    fail("legacy and modern skill manifests differ");
+  }
+  for (const skill of legacyListing.skills) {
+    const text = (await legacy.client.readResource({ uri: skill.uri })).contents?.[0]?.text;
+    if (text !== diskBytes(skill.frontmatter.name, "SKILL.md").toString("utf8")) {
+      fail(`${skill.uri}: plain resources/read over a legacy connection differs from disk`);
+    }
+  }
   await legacy.close();
 
-  const total = onDisk.skills.reduce((a, s) => a + s.files.length, 0);
+  const total = [...onDisk.values()].reduce((a, p) => a + p.length, 0);
   if (reporter.failures()) {
     console.error(`\nskills: ${reporter.failures()} failure(s)`);
     process.exitCode = 1;
-  } else console.log(`skills: OK. ${onDisk.skills.length} skill(s), ${total} files served and verified byte-for-byte`);
+  } else console.log(`skills: OK. ${onDisk.size} skill(s), ${total} files served and verified byte-for-byte`);
 });

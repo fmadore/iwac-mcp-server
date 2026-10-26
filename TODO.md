@@ -98,20 +98,13 @@
 - [ ] **Add `screenshots/`** showing a research query in Claude Desktop — the
   directory listing surfaces these.
 
-- [ ] **Drop the `@hono/node-server` override once the SDK catches up** —
-  `mcpb/package.json` forces `@hono/node-server` to `^2.1.3` via `overrides`
-  because the entire 1.x line carries GHSA-frvp-7c67-39w9 (Windows
-  `serve-static` path traversal) with no backport, while
-  `@modelcontextprotocol/node` still declares `^1.19.9` (re-checked at 2.1.0,
-  2026-10-02). Running a
-  transitive dep a major above what upstream asks for is safe *here* — the SDK
-  imports exactly one symbol, `getRequestListener`, which v2 still exports, v2
-  wants Node ≥20 against this project's ≥24, and it peers on `hono ^4` — and the
-  advisory was never reachable anyway (`serveStatic` appears nowhere in the
-  built bundle; `src/http.ts` drives Node's own `http.createServer` rather than
-  hono's `serve()`). Once `@modelcontextprotocol/node` widens its own range,
-  *remove* the override rather than bumping it, so the resolved version goes
-  back to being upstream's problem.
+- [x] **Drop the `@hono/node-server` override once the SDK catches up**:
+  done with SDK 2.4.0 ([#54](https://github.com/fmadore/iwac-mcp-server/issues/54)).
+  `@modelcontextprotocol/node` 2.1.2 declares `^1.19.9 || ^2.1.3`, so the
+  override is gone and npm resolves 2.1.3 on its own: the version is back to
+  being upstream's problem. The 1.x line still carries GHSA-frvp-7c67-39w9
+  (Windows `serve-static` path traversal), unreachable here because
+  `serveStatic` appears nowhere in the built bundle.
 
 - [x] **Move the chart UI to `@modelcontextprotocol/ext-apps` 2.x** — upgraded
   to 2.0.3 with Zod 4.6.5. A self-contained gzip inline bundle keeps the resource
@@ -191,6 +184,20 @@
   match SEP-2640. Docker includes the same embedded skill as desktop builds.
   Optional directory reads remain unadvertised; ordinary resource access and
   installable zip delivery remain available.
+
+- [x] **Serve the skill through the SDK's Skills extension** in v4.2.0, on SDK 2.4.0
+  ([#54](https://github.com/fmadore/iwac-mcp-server/issues/54)).
+  `src/tools/skills.ts` builds the entries with
+  `SkillsExtension.load(memorySkillFiles(...))` and attaches the extension
+  instead of hand-registering resources and `skills/*` handlers. Two decisions:
+  `directoryRead` is now advertised and the bare `skill://iwac-mcp` URI is the
+  skill's directory, retiring the JSON catalogue document (`skills/list` carries
+  the same manifest); and every file stays in `resources/list` with its title
+  and summary, through a small `SkillSource` whose `listResources()` lists them,
+  because the SDK's catalogue lists only SKILL.md and hosts without the
+  extension find the references there. The SDK is pinned to `~2.4.0` because
+  `attach()` is experimental; `test/skills.test.mjs` verifies through
+  `SkillsClient`.
 
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 

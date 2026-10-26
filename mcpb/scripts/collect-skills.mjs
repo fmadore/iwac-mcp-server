@@ -1,17 +1,16 @@
-// Collect the repo's Agent Skills into an embeddable catalogue.
+// Collect the repo's Agent Skills into an embeddable record of files.
 //
 // Shared by scripts/bundle.mjs (which injects the result as a `define`) and by
 // test/skills.test.mjs (which re-reads the tree from disk and asserts the served
 // bytes match). Keeping it in one place is what makes that test meaningful: the
-// test would prove nothing if it rebuilt the catalogue with different logic.
+// test would prove nothing if it rebuilt the record with different logic.
 //
-// Shape follows SEP-2640 ("Skills over MCP", still a draft PR against the spec):
-// a skill is a directory holding a `SKILL.md` with `name` + `description`
-// frontmatter, plus arbitrary supporting files. Each file is addressed as
-// `skill://<skill-name>/<relative-path>` and carries a SHA-256 digest so a host
-// can verify what it loaded. See src/tools/skills.ts for why this ships as
-// plain resources rather than the SEP's `skills/list` / `skills/get` methods.
-import { createHash } from "node:crypto";
+// `files` is the input of the SDK's `memorySkillFiles` adapter: keys are
+// `<skill>/<relative path>`, values the file text. Everything SEP-2640 derives
+// from it (URIs, digests, sizes, frontmatter checks) is computed by the SDK's
+// skills extension; see src/tools/skills.ts. `described` adds what the SDK does
+// not carry: a MIME type, title and one-line summary per file, for the
+// `resources/list` entries that hosts without the extension browse.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix, relative, sep } from "node:path";
 
@@ -19,7 +18,7 @@ import { join, posix, relative, sep } from "node:path";
 export const SKILLS_DIR = "../.agents/skills";
 
 /** Extension → MIME type. Skills are markdown today; the map keeps binary
- * assets (a diagram, a CSV template) from silently being served as text. */
+ * assets (a diagram, a CSV template) from silently being listed as text. */
 const MIME = {
   ".md": "text/markdown",
   ".txt": "text/plain",
@@ -34,59 +33,8 @@ function mimeFor(path) {
   return (dot === -1 ? null : MIME[path.slice(dot).toLowerCase()]) ?? "application/octet-stream";
 }
 
-/** Every file under `dir`, recursively, as repo-relative POSIX paths. Sorted so
- * the catalogue (and therefore the bundle and its digests) is deterministic. */
-function walk(dir) {
-  const out = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walk(full));
-    else if (entry.isFile()) out.push(full);
-  }
-  return out.sort();
-}
-
 /**
- * Parse the leading YAML frontmatter of a SKILL.md.
- *
- * Deliberately NOT a YAML parser: the frontmatter contract is two scalar keys
- * (`name`, `description`), where `description` is routinely a `|` block spanning
- * a dozen lines. Pulling in a YAML dependency to read two keys at build time
- * would be the tail wagging the dog. Anything richer than that is ignored
- * rather than mis-parsed, and a missing `name`/`description` throws.
- */
-function parseFrontmatter(text, path) {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
-  if (!match) throw new Error(`${path}: no YAML frontmatter block`);
-
-  const fields = {};
-  const lines = match[1].split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const kv = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/.exec(lines[i]);
-    if (!kv) continue;
-    const [, key, rawValue] = kv;
-    const value = rawValue.trim();
-    // Block scalar (`|`, `>`, with optional chomping indicator): consume the
-    // following more-indented lines.
-    if (/^[|>][-+]?$/.test(value)) {
-      const block = [];
-      while (i + 1 < lines.length && (lines[i + 1].trim() === "" || /^\s/.test(lines[i + 1]))) {
-        block.push(lines[++i].replace(/^ {1,4}/, ""));
-      }
-      fields[key] = block.join("\n").trim();
-    } else {
-      fields[key] = value.replace(/^["']|["']$/g, "");
-    }
-  }
-
-  for (const required of ["name", "description"]) {
-    if (!fields[required]) throw new Error(`${path}: frontmatter is missing '${required}'`);
-  }
-  return fields;
-}
-
-/**
- * One-line summary of a supporting file, for its `resources/list` entry.
+ * Title and one-line summary of a supporting file, for its `resources/list` entry.
  *
  * Derived from the document rather than hand-maintained in a map, so a new
  * reference file describes itself and an edited one cannot go stale. Markdown
@@ -116,14 +64,30 @@ function summarise(text) {
   return { title, summary };
 }
 
+/** Every file under `dir`, recursively, as absolute paths. Sorted so the record
+ * (and therefore the bundle) is deterministic. Hidden entries are skipped, as the
+ * SDK's catalogue scan skips them: they would be inlined and never served. */
+function walk(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walk(full));
+    else if (entry.isFile()) out.push(full);
+  }
+  return out.sort();
+}
+
 /**
- * Build the catalogue of every skill under `rootDir`/`SKILLS_DIR`.
+ * Collect every skill under `rootDir`/`SKILLS_DIR`.
  *
- * Returns `{ skills: [{ name, description, frontmatter, entry, files: [...] }] }`,
- * where each file carries `{ uri, path, mimeType, bytes, digest, text }`. `text` is the
- * file content; the server bundle inlines it, because a `.mcpb` ships a
- * single-file server with no sibling assets to read at runtime (the same
- * constraint that forces the chart HTML inline; see scripts/bundle.mjs).
+ * Returns `{ files, described }`, both keyed `<skill>/<path>`, one key per file of
+ * each directory that holds a SKILL.md. `files` holds the text, `described`
+ * `{ mimeType, title, summary }`; SKILL.md gets none of the latter two, because
+ * its frontmatter describes it. The whole record is inlined into the server
+ * bundle, because a `.mcpb` ships a single-file server with no sibling assets to
+ * read at runtime (the same constraint that forces the chart HTML inline; see
+ * scripts/bundle.mjs).
  */
 export function collectSkills(rootDir) {
   const base = join(rootDir, ...SKILLS_DIR.split("/"));
@@ -135,60 +99,28 @@ export function collectSkills(rootDir) {
     throw err;
   }
 
+  const files = {};
+  const described = {};
   const skills = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     const skillDir = join(base, entry.name);
-    const skillMd = join(skillDir, "SKILL.md");
     try {
-      if (!statSync(skillMd).isFile()) continue;
+      if (!statSync(join(skillDir, "SKILL.md")).isFile()) continue;
     } catch {
       continue; // A directory without a SKILL.md is not a skill.
     }
-
-    const front = parseFrontmatter(readFileSync(skillMd, "utf8"), `${entry.name}/SKILL.md`);
-    // The frontmatter name is authoritative for the URI: it is what the host
-    // installs the skill as, and a mismatch with the directory would make
-    // `skill://<name>/...` unresolvable against the catalogue.
-    if (front.name !== entry.name) {
-      throw new Error(`${entry.name}/SKILL.md: frontmatter name '${front.name}' does not match its directory`);
+    skills.push(entry.name);
+    for (const full of walk(skillDir)) {
+      const key = relative(base, full).split(sep).join(posix.sep);
+      files[key] = readFileSync(full, "utf8");
+      const isEntry = key === `${entry.name}/SKILL.md`;
+      described[key] = { mimeType: mimeFor(key), ...(isEntry ? {} : summarise(files[key])) };
     }
-
-    const files = walk(skillDir).map((full) => {
-      const rel = relative(skillDir, full).split(sep).join(posix.sep);
-      const text = readFileSync(full, "utf8");
-      // SKILL.md is described by its own frontmatter, because that text is the skill's
-      // activation contract and is what a host matches a task against. Only the
-      // supporting files get a derived summary.
-      const described = rel === "SKILL.md" ? { title: front.name, summary: front.description } : summarise(text);
-      return {
-        uri: `skill://${front.name}/${rel}`,
-        path: rel,
-        mimeType: mimeFor(rel),
-        bytes: Buffer.byteLength(text),
-        digest: `sha256:${createHash("sha256").update(text).digest("hex")}`,
-        ...described,
-        text,
-      };
-    });
-
-    skills.push({
-      name: front.name,
-      description: front.description,
-      // The WHOLE parsed frontmatter, not just the two required keys. A host
-      // verifying a SEP-2640 `skills/list` entry re-reads SKILL.md and compares
-      // frontmatter field by field; reporting a subset would read as a
-      // discrepancy the moment anyone adds a `license:` or `compatibility:`
-      // line. `name`/`description` stay hoisted because the catalogue document
-      // and the instructions block index on them.
-      frontmatter: front,
-      entry: `skill://${front.name}/SKILL.md`,
-      files,
-    });
   }
 
-  if (!skills.some((skill) => skill.name === "iwac-mcp")) {
+  if (!skills.includes("iwac-mcp")) {
     throw new Error(`Required iwac-mcp research skill is missing from ${base}`);
   }
-  return { skills: skills.sort((a, b) => a.name.localeCompare(b.name)) };
+  return { files, described };
 }

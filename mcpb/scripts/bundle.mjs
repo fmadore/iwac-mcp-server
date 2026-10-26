@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { memorySkillFiles, SkillsExtension } from "@modelcontextprotocol/server/ext/skills";
 import { collectSkills } from "./collect-skills.mjs";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -203,20 +204,24 @@ console.log(`  ui resource   ${(Buffer.byteLength(uiHtml) / 1024).toFixed(1)}kb 
 console.log(`  ui JavaScript ${(Buffer.byteLength(uiScript) / 1024).toFixed(1)}kb decoded; ${(uiCompressed.length / 1024).toFixed(1)}kb gzip`);
 
 // --- Agent Skills ----------------------------------------------------------
-// The repo's skill tree, inlined as `skill://` resources (see src/tools/skills.ts
-// for why it is served from the server at all). Same single-file constraint as
-// the UI above: a .mcpb has no sibling assets to read at runtime.
+// The repo's skill tree, inlined for the SDK's Skills extension (see
+// src/tools/skills.ts for why it is served from the server at all). Same
+// single-file constraint as the UI above: a .mcpb has no sibling assets to read
+// at runtime.
+//
+// Loaded here through the SDK under the same `strict` the server uses, so a
+// frontmatter or naming problem fails the build instead of shipping a server
+// that serves no skill.
 //
 // This is content, not code, so esbuild's output summary would hide it exactly
 // as it hides the UI string. Report it for the same reason: a new reference
 // file is one `git add` away from doubling it.
 const skills = collectSkills(rootDir);
-const skillsJson = JSON.stringify(skills);
-for (const skill of skills.skills) {
-  const kb = skill.files.reduce((a, f) => a + f.bytes, 0) / 1024;
-  console.log(`  skill         ${skill.name}: ${skill.files.length} files, ${kb.toFixed(1)}kb`);
+const skillCatalogue = await SkillsExtension.load(memorySkillFiles(skills.files), { strict: true });
+for (const skill of skillCatalogue.entries) {
+  const kb = skill.resources.reduce((a, f) => a + f.size, 0) / 1024;
+  console.log(`  skill         ${skill.frontmatter.name}: ${skill.resources.length} files, ${kb.toFixed(1)}kb`);
 }
-if (skills.skills.length === 0) console.log("  skill         (none found, skill:// resources will be absent)");
 
 const pcaWorker = await esbuild.build({
   absWorkingDir: rootDir,
@@ -267,7 +272,7 @@ await esbuild.build({
     __IWAC_ENCODER_WORKER__: JSON.stringify(encoderWorker.outputFiles[0].text),
     __IWAC_VERSION__: JSON.stringify(pkg.version),
     __IWAC_UI_CHARTS__: JSON.stringify(uiHtml),
-    __IWAC_SKILLS__: JSON.stringify(skillsJson),
+    __IWAC_SKILLS__: JSON.stringify(JSON.stringify(skills)),
   },
   logLevel: "info",
 });

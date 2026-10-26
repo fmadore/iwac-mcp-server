@@ -2,7 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { registerServerFeatures } from "./tools/register.js";
-import { SKILLS_CAPABILITY, servesSkills } from "./tools/skills.js";
+import { attachSkills } from "./tools/skills.js";
 import { startHttpServer } from "./http.js";
 import { stopSharedWork } from "./request.js";
 import { config } from "./config.js";
@@ -105,13 +105,14 @@ export function createServer(): McpServer {
         tools: { listChanged: false },
         resources: { listChanged: false },
         prompts: { listChanged: false },
-        // Final SEP-2640, declared only when this build actually carries a skill,
-        // so a host never negotiates the extension against an empty catalogue.
-        ...(servesSkills() ? { extensions: SKILLS_CAPABILITY } : {}),
       },
     },
   );
   registerServerFeatures(server);
+  // The SEP-2640 Skills extension declares its own capability on attach, and
+  // only when this build carries a skill: a host never negotiates the
+  // extension against an empty catalogue.
+  attachSkills(server);
   return server;
 }
 

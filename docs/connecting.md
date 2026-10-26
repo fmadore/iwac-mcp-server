@@ -101,18 +101,17 @@ skill is matched against your question automatically, before any tool runs.
 <summary>The server also serves the skill as <code>skill://</code> resources</summary>
 
 Every build embeds the skill and exposes it as MCP resources:
-`skill://iwac-mcp/SKILL.md`, its four `skill://iwac-mcp/references/…` files, and
-a `skill://iwac-mcp` catalogue listing them with SHA-256 digests. A client that
-has not installed the skill can read it from the server instead. Nothing is
-loaded until something asks for it.
+`skill://iwac-mcp/SKILL.md` and its four `skill://iwac-mcp/references/…` files,
+each listed with a title and a short summary. A client that has not installed
+the skill can read it from the server instead. Nothing is loaded until
+something asks for it.
 
-A host that implements the finalized Skills extension can also discover the same catalogue
-through its `skills/list` / `skills/get` methods, which the server declares via
-the `io.modelcontextprotocol/skills` capability.
-
-The server implements the [finalized Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
-with manifest byte sizes, SHA-256 digests and cache metadata. Extension-aware
-clients can use `skills/*`; other clients can read the ordinary resources.
+The server implements the [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
+(SEP-2640) through the MCP SDK and declares it as `io.modelcontextprotocol/skills`.
+A host that supports it can discover the skill with `skills/list` / `skills/get`,
+browse it with `resources/directory/read` (`skill://iwac-mcp` is the skill's
+directory), and check each file against the manifest's byte sizes and SHA-256
+digests. Other clients read the ordinary resources.
 
 </details>
 

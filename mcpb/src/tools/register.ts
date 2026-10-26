@@ -15,7 +15,6 @@ import { registerDiscoveryResource } from "./discovery.js";
 import { registerResearchTools } from "./research.js";
 import { registerSearchTools } from "./search.js";
 import { registerAppResources } from "./appUi.js";
-import { registerSkillResources } from "./skills.js";
 import { registerPrompts } from "../prompts.js";
 import type { Server } from "./_shared.js";
 
@@ -24,10 +23,6 @@ function registerAll(server: Server): void {
   // The one ui:// resource every chart renders from. Registered before the
   // tools so the resource exists by the time a tool advertises it in `_meta`.
   registerAppResources(server);
-  // The `skill://` tree plus the SEP-2640 `skills/*` methods over the same
-  // catalogue: the research workflow, served alongside the tools it documents
-  // so remote-HTTP callers need no separate download.
-  registerSkillResources(server);
   registerDiscoveryResource(server);
   // Unified search/fetch first: they satisfy the OpenAI Deep Research contract and
   // are the entry point for skill-less clients (see INSTRUCTIONS in index.ts).
@@ -118,7 +113,7 @@ let replays: Replay[] | undefined;
  * is shared at module scope.
  *
  * The recorder answers exactly the `Server` surface. That type is narrowed
- * to these four members for this reason, so a register function cannot reach
+ * to these three members for this reason, so a register function cannot reach
  * past the recorder unnoticed.
  */
 function recordRegistrations(): Replay[] {
@@ -152,11 +147,6 @@ function recordRegistrations(): Replay[] {
     registerPrompt(...args: Parameters<McpServer["registerPrompt"]>) {
       memoizeJsonSchema(args[1].argsSchema);
       recorded.push((s) => s.registerPrompt(...args));
-    },
-    server: {
-      setRequestHandler(...args: Parameters<McpServer["server"]["setRequestHandler"]>) {
-        recorded.push((s) => s.server.setRequestHandler(...args));
-      },
     },
   };
   // The one cast in this scheme: the recorder's methods return nothing where
