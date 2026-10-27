@@ -112,7 +112,7 @@ export function pipeValueFilterIfExists(
 export function pipeValueEquals(colExpr: string): string {
   return (
     `list_contains(list_transform(str_split(coalesce(${colExpr}, ''), '|'), ` +
-    `x -> strip_accents(lower(trim(x)))), strip_accents(lower(trim(?))))`
+    `lambda x: strip_accents(lower(trim(x)))), strip_accents(lower(trim(?))))`
   );
 }
 

@@ -183,8 +183,8 @@ export function registerSemanticTools(server: Server): void {
       // Avoid sum-of-squares: finite extreme values can overflow when squared.
       const validVector = `coalesce(
         len(${embCol}) > 0 AND list_count(${embCol}) = len(${embCol})
-        AND list_sum(list_transform(${embCol}, x -> CASE WHEN isfinite(x) THEN 0 ELSE 1 END)) = 0
-        AND list_sum(list_transform(${embCol}, x -> CASE WHEN x <> 0 THEN 1 ELSE 0 END)) > 0,
+        AND list_sum(list_transform(${embCol}, lambda x: CASE WHEN isfinite(x) THEN 0 ELSE 1 END)) = 0
+        AND list_sum(list_transform(${embCol}, lambda x: CASE WHEN x <> 0 THEN 1 ELSE 0 END)) > 0,
         FALSE)`;
       const counts = await query(
         `SELECT len(${embCol}) AS dim, ${embCol} IS NULL AS missing, ${validVector} AS valid, COUNT(*) AS n
@@ -426,8 +426,8 @@ export function registerSemanticTools(server: Server): void {
                    AND len(${q(embeddingCol)}) = (SELECT len(${q(embeddingCol)}) FROM ${viewName(subset)} WHERE CAST("o:id" AS VARCHAR) = ? LIMIT 1)
                    AND list_count(${q(embeddingCol)}) = len(${q(embeddingCol)})
                    AND len(${q(embeddingCol)}) > 0
-                   AND list_sum(list_transform(${q(embeddingCol)}, x -> CASE WHEN isfinite(x) THEN 0 ELSE 1 END)) = 0
-                   AND list_sum(list_transform(${q(embeddingCol)}, x -> x::DOUBLE * x::DOUBLE)) > 0
+                   AND list_sum(list_transform(${q(embeddingCol)}, lambda x: CASE WHEN isfinite(x) THEN 0 ELSE 1 END)) = 0
+                   AND list_sum(list_transform(${q(embeddingCol)}, lambda x: x::DOUBLE * x::DOUBLE)) > 0
                ),
                target AS MATERIALIZED (SELECT v FROM src WHERE id = ? LIMIT 1)
                SELECT id, title${extraSel}, list_cosine_similarity(v, (SELECT v FROM target)) AS score

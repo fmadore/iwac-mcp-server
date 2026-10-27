@@ -133,7 +133,7 @@ async function main() {
       replacements.push(
         `CASE WHEN length(trim(coalesce(related_articles, ''))) = 0 THEN related_articles
               ELSE array_to_string(list_transform(string_split(related_articles, '|'),
-                     e -> ((split_part(e, ':', 1)::BIGINT * 1000) + r)::VARCHAR || ':' || split_part(e, ':', 2)), '|')
+                     lambda e: ((split_part(e, ':', 1)::BIGINT * 1000) + r)::VARCHAR || ':' || split_part(e, ':', 2)), '|')
          END AS related_articles`,
       );
     }
