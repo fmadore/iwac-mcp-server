@@ -61,7 +61,7 @@
     "test:browser": "node test/app.browser.test.mjs"
   },
   "dependencies": {
-    "@duckdb/node-api": "^1.5.6-r.1",
+    "@duckdb/node-api": "^2.0.0-r.1",
     "@huggingface/tokenizers": "^0.2.0",
     "@modelcontextprotocol/node": "^2.1.2",
     "@modelcontextprotocol/server": "~2.4.0",
@@ -69,10 +69,10 @@
     "zod": "^4.6.7"
   },
   "optionalDependencies": {
-    "@duckdb/node-bindings-darwin-arm64": "^1.5.6-r.1",
-    "@duckdb/node-bindings-darwin-x64": "^1.5.6-r.1",
-    "@duckdb/node-bindings-win32-arm64": "^1.5.6-r.1",
-    "@duckdb/node-bindings-win32-x64": "^1.5.6-r.1"
+    "@duckdb/node-bindings-darwin-arm64": "^2.0.0-r.1",
+    "@duckdb/node-bindings-darwin-x64": "^2.0.0-r.1",
+    "@duckdb/node-bindings-win32-arm64": "^2.0.0-r.1",
+    "@duckdb/node-bindings-win32-x64": "^2.0.0-r.1"
   },
   "overrides": {
     "tmp": "^0.2.7"
