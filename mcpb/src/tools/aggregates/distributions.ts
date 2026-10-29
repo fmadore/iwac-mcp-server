@@ -49,7 +49,7 @@ export function registerDistributionsTools(server: Server): void {
       description:
         "Rank exact metadata values, splitting pipe-separated tags. Reports missing metadata and optional coverage over time. Choose spatial for mentioned places, country for stored country tags, or subject/author/language.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         field: z.string().describe(RANKABLE_FIELDS.join(" | ")),
         subset: z.string().optional().describe("articles (default) | publications | references"),
         ...filterInputs(),
@@ -151,7 +151,7 @@ export function registerDistributionsTools(server: Server): void {
       description:
         "Count pairs of metadata values co-tagged on the same items. Matrix/network views show descriptive associations, not causal links. Filters apply before pair counting; top_n caps the vocabulary.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         field: z.string().optional().describe("subject (default) | spatial | author | language"),
         subset: z.string().optional().describe("articles (default) | publications | references"),
         ...filterInputs(),

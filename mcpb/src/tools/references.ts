@@ -10,12 +10,13 @@ import {
   countryParam,
   detailResult,
   errorResult,
-  keywordFilter,
+  allTermsFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  didYouMean,
   TEXT_COLS,
   textResult,
   toolMeta,
@@ -33,11 +34,10 @@ export function registerReferenceTools(server: Server): void {
       ...toolMeta("Search academic references"),
       description:
         "Search academic references (journal articles, book chapters, theses, books, reports) by keyword and metadata. " +
-        "`keyword` is a single substring match over title + abstract, so search ONE term per call " +
-        "(combined terms like 'pèlerinage Mecque' miss results). References are multilingual: try French and English title/abstract keywords when relevant; metadata/filter values such as `reference_type` and `language` use French labels. " +
+        "`keyword` requires every word in the title + abstract (\"quote\" a phrase). References are multilingual: try French and English title/abstract keywords when relevant; metadata/filter values such as `reference_type` and `language` use French labels. " +
         "Results include a short abstract snippet — use get_reference for the full abstract and bibliographic detail.",
-      inputSchema: z.object({
-        keyword: z.string().optional().describe("One French or English concept keyword; substring match on title + abstract (one term per call, accent-insensitive)"),
+      inputSchema: z.strictObject({
+        keyword: z.string().optional().describe('French or English concept keyword; every word must occur in the title + abstract; "quote" a phrase'),
         author: z.string().optional(),
         reference_type: z
           .string()
@@ -68,7 +68,8 @@ export function registerReferenceTools(server: Server): void {
       const where: string[] = [];
       const params: Bindable[] = [];
 
-      keywordFilter(schema, where, params, TEXT_COLS.references, args.keyword);
+      const keywordError = allTermsFilter(schema, where, params, TEXT_COLS.references, args.keyword);
+      if (keywordError) return errorResult({ error: keywordError });
       likeFilterIfExists(schema, where, params, "author", args.author);
       likeFilterIfExists(schema, where, params, "type", args.reference_type);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
@@ -76,17 +77,17 @@ export function registerReferenceTools(server: Server): void {
       pipeValueFilterIfExists(schema, where, params, "language", args.language);
       yearRangeFilter(schema, where, params, args.date_from, args.date_to);
 
-      return textResult(
-        await runListQuery({
-          subset: "references",
-          where,
-          params,
-          cols: colsFor("references", schema, "summary"),
-          orderBy: pubDateOrder(schema),
-          limit,
-          offset,
-        }),
-      );
+      const env = await runListQuery({
+        subset: "references",
+        where,
+        params,
+        cols: colsFor("references", schema, "summary"),
+        orderBy: pubDateOrder(schema),
+        limit,
+        offset,
+      });
+      if (env.total_matches === 0) Object.assign(env, await didYouMean("references", schema, args));
+      return textResult(env);
     },
   );
 
@@ -98,7 +99,7 @@ export function registerReferenceTools(server: Server): void {
       description:
         "Full bibliographic record for one academic reference (by id), including the complete abstract " +
         "(present for ~51% of references), subjects, DOI/URL, and host-work details (book, volume, issue, pages).",
-      inputSchema: z.object({ reference_id: z.number().int() }),
+      inputSchema: z.strictObject({ reference_id: z.number().int() }),
     },
     ({ reference_id }) => detailResult("references", "Reference", reference_id),
   );
@@ -114,7 +115,7 @@ export function registerReferenceTools(server: Server): void {
       description:
         "Semantic search over academic references by title + abstract, across languages. Only references with an " +
         `abstract (about half) are covered; use search_references for the rest. ${SEMANTIC_NOTE}`,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
         reference_type: z.string().optional().describe("French type label, substring (e.g. Thèse de doctorat)"),
         country: countryParam({ nigeria: true }),

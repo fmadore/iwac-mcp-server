@@ -160,6 +160,30 @@ tools, the aggregates, `list_periodicals`, and `get_sentiment_distribution` also
 return MCP structured content (`outputSchema` + `structuredContent`), which the
 ChatGPT connector contract requires.
 
+The tool contract, as of v5.0.0:
+
+- **One keyword rule.** Every search and aggregate requires every word of a
+  keyword, in any order; a `"quoted phrase"` must occur as written, and
+  `keyword_mode: "literal"` keeps the single-substring match of earlier
+  releases. A one-word keyword is unchanged.
+- **Strict arguments.** An unknown argument name is an error, never an
+  unfiltered search; strings are bounded at 2,000 characters.
+- **Coded errors.** Every error carries a stable `code` (`invalid_argument`,
+  `not_found`, `unavailable`, `data_error`) beside its message.
+- **Self-explaining empty results.** A filtered list that matches nothing says
+  so (`hint`), and the article, publication and reference searches suggest close
+  stored `subject` and `newspaper` values (`did_you_mean`). Pages stop early at
+  ~40,000 characters (`response_limited`, with an exact `next_offset`).
+- **Linked exports.** `explore_corpus` with `link: true` returns one
+  `iwac://export/…` resource link holding a whole selection (up to 5,000 items)
+  as a manifest, CSL-JSON or BibTeX file, instead of 50-item pages in the
+  conversation.
+- **Compact provenance.** The model reads the snapshot id, revision, access mode
+  and subsets; file identities stay in `_meta` and `iwac://datasets/{subset}`.
+- **Profiles.** `IWAC_TOOL_PROFILE=core|analysis|search` serves a smaller tool
+  surface for hosts that pay for every definition on every turn; the
+  instructions name only the tools a profile registers.
+
 | Group        | Tools                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------- |
 | Cross-subset | `search`, `fetch`, `explore_corpus`                                                                           |
@@ -274,6 +298,12 @@ capabilities. See [the interaction contract](docs/mcp-apps-roadmap.md#9-current-
   self-hosting the HTTP endpoint — see
   [`mcpb/README.md`](mcpb/README.md#remote-http--docker-deployment) for the
   required env vars and token setup.
+- **Provenance**: from v5.0.0 the release workflow attests the build provenance
+  (SLSA, through GitHub's Sigstore) of both desktop bundles, the skill zip,
+  `server.json` and the image. Verify a download with
+  `gh attestation verify iwac-mcp-server-windows.mcpb -R fmadore/iwac-mcp-server`,
+  or the image with
+  `gh attestation verify oci://ghcr.io/fmadore/iwac-mcp-server:5.0.0 -R fmadore/iwac-mcp-server`.
 
 ## Develop
 
@@ -317,7 +347,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 4.3.1) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 5.0.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -325,7 +355,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {4.3.1},
+  version   = {5.0.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

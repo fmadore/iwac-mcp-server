@@ -1,10 +1,12 @@
 # Weekly dependency PRs. Grouped so related packages land together and the
 # volume stays reviewable for a single maintainer.
 #
-# The `docker` ecosystem is deliberately absent: the Node major is coordinated
-# across mcpb/Dockerfile, ci.yml, docker-publish.yml (NODE_VERSION) and the
-# `engines` field, and Dependabot would bump only the Dockerfile — desyncing the
-# image from the runtime its tests ran on. Bump Node by hand, in all four places.
+# The `docker` ecosystem refreshes the digest that pins node:24-bookworm-slim
+# in mcpb/Dockerfile, so base-image security fixes arrive as PRs. It is barred
+# from major updates: the Node major is coordinated across mcpb/Dockerfile,
+# ci.yml, the release workflows and the `engines` field, and Dependabot would
+# bump only the Dockerfile, desyncing the image from the runtime its tests ran
+# on. Bump the Node major by hand, in all of those places.
 #
 # Security updates are a separate repo setting (Settings → Advanced Security →
 # Dependabot security updates); they fire on advisories and ignore this schedule.
@@ -46,3 +48,12 @@ updates:
       actions:
         patterns:
           - "*"
+
+  - package-ecosystem: docker
+    directory: /mcpb
+    schedule:
+      interval: weekly
+      day: monday
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

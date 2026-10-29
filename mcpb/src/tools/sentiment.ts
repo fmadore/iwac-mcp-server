@@ -123,7 +123,7 @@ export function registerSentimentTools(server: Server): void {
         'same articles and often disagree; get_sentiment_distribution with model:"all" shows by how much. ' +
         "`subjectivity` is much the weakest of the three scales, so treat a set selected on it as a lead to read " +
         "rather than as a finding.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         polarity: z
           .string()
           .optional()
@@ -225,7 +225,7 @@ export function registerSentimentTools(server: Server): void {
         "Cohen's kappa and quadratic weighted kappa, with explicit denominators. Labels are interpretations, not ground truth; " +
         "subjectivity is weak evidence and its caveat must accompany findings.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         ...filterInputs(),
         model: z.string().optional().describe(
           `${SENTIMENT_MODEL_IDS.join(" | ")} | all | consensus; default ${DEFAULT_SENTIMENT_MODEL.id}. Vendor aliases accepted; retired models rejected.`,

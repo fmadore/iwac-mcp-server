@@ -177,7 +177,8 @@ Environment variables (all transports unless noted):
 | `PORT` | `8000` | HTTP mode only: listen port |
 | `IWAC_MCP_BEARER_TOKEN` | — | HTTP mode only: the bearer token clients must send |
 | `IWAC_MCP_TOKEN_FILE` | `/run/secrets/iwac_mcp_token` | HTTP mode only: read the token from a mounted secret file instead |
-| `IWAC_MCP_ALLOWED_ORIGINS` | — | HTTP mode only: comma-separated exact HTTP(S) origins permitted when a request carries `Origin`; origin-less server clients remain allowed |
+| `IWAC_MCP_ALLOWED_ORIGINS` | — | HTTP mode only: comma-separated exact HTTP(S) origins permitted when a request carries `Origin`; origin-less server clients and loopback origins (`localhost`, `127.0.0.1`, `[::1]`, any port) remain allowed |
+| `IWAC_TOOL_PROFILE` | `full` | Register a smaller tool surface: `core` (finding and reading sources), `analysis` (statistics, aggregates, sentiment, workbench) or `search` (`search`, `fetch`, `get_collection_stats`). See `src/toolProfiles.ts`; an unknown name refuses to start |
 | `IWAC_PRIVATE_DATASET` | `false` | Read the private full mirror instead of the public dataset (needs `IWAC_HF_TOKEN` or `HF_TOKEN`) |
 | `IWAC_ALLOW_PRIVATE_HTTP` | `false` | HTTP mode only: permit serving the private mirror; without it, HTTP mode refuses to start in private mode |
 

@@ -7,7 +7,7 @@ import {
   countryParam,
   detailResult,
   errorResult,
-  keywordFilter,
+  allTermsFilter,
   pipeValueFilterIfExists,
   pubDateOrder,
   resolveLimit,
@@ -29,8 +29,8 @@ export function registerDocumentTools(server: Server): void {
       description:
         "Search the small archival-documents subset (~26 items: Islamic association reports, flyers, project " +
         "documents — mostly Burkina Faso). Use French concept keywords regardless of the user's report language. Most have OCR text and an AI description. Call with no arguments to list all.",
-      inputSchema: z.object({
-        keyword: z.string().optional().describe("Concept keyword; substring match on title, OCR, the French and English AI descriptions, and subject (accent-insensitive)"),
+      inputSchema: z.strictObject({
+        keyword: z.string().optional().describe('Concept keyword; every word must occur in the title, OCR, French/English AI descriptions or subject; "quote" a phrase'),
         country: countryParam({ nigeria: true, note: "Corpus is mostly Burkina Faso/Togo/Benin" }),
         limit: z.number().int().optional().describe("Default 15, max 50"),
         offset: z.number().int().optional(),
@@ -45,7 +45,8 @@ export function registerDocumentTools(server: Server): void {
       const where: string[] = [];
       const params: Bindable[] = [];
 
-      keywordFilter(schema, where, params, TEXT_COLS.documents, args.keyword);
+      const keywordError = allTermsFilter(schema, where, params, TEXT_COLS.documents, args.keyword);
+      if (keywordError) return errorResult({ error: keywordError });
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
 
       return textResult(
@@ -71,7 +72,7 @@ export function registerDocumentTools(server: Server): void {
         "Get one archival document (by id): full metadata, AI description, and OCR text, in 25k-char parts " +
         "(follow `next_offset`). Pass a `keyword` to get ~2000-char excerpts around each match instead, " +
         "useful for long documents.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         document_id: z.number().int(),
         keyword: z
           .string()

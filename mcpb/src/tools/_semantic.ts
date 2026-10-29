@@ -90,6 +90,8 @@ export async function runSemanticSearchTool(opts: {
       results,
     });
   } catch (err) {
-    return errorResult({ error: String((err as Error).message ?? err) });
+    // The encoder or its corpus contract refused the query: nothing the caller
+    // can correct in its arguments.
+    return errorResult({ error: String((err as Error).message ?? err) }, "unavailable");
   }
 }

@@ -1,0 +1,65 @@
+name: Bug report
+description: A tool returns something wrong, the server fails to start, or a client cannot connect.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        If a **record** is wrong on islam.zmo.de itself, that is a curation
+        matter rather than a bug here — see the links on the previous page.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release tag, or `version` from `manifest.json`.
+      placeholder: v5.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: How are you running it?
+      options:
+        - Claude Desktop extension (.mcpb)
+        - Hosted endpoint (https://islam.zmo.de/mcp/)
+        - stdio (node server/index.js)
+        - HTTP (node server/index.js --http)
+        - Docker image
+        - Other MCP client
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: Client and OS
+      placeholder: Claude Desktop on Windows 11 / ChatGPT connector / custom SDK client
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: >-
+        Name the tool and the arguments you called it with, then what came back
+        versus what you expected. Paste the JSON result, including its `code`
+        if it is an error and the `snapshot_id` from its provenance block.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server output
+      description: Anything the server wrote to stderr — startup lines, refresh warnings, stack traces.
+      render: text
+
+  - type: checkboxes
+    id: mode
+    attributes:
+      label: Dataset mode
+      options:
+        - label: I am using the private full mirror (IWAC_PRIVATE_DATASET)
+        - label: Semantic search is off (IWAC_SEMANTIC_SEARCH_ENABLED=false)

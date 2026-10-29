@@ -58,7 +58,11 @@
   (DigiCert / SSL.com, ~$100/yr) so Claude Desktop stops showing the generic
   "grants access to everything" warning. Self-signed certs don't help — Claude
   Desktop only trusts real CAs. Command:
-  `mcpb sign iwac-mcp-server.mcpb --cert prod.pem --key prod.key`
+  `mcpb sign iwac-mcp-server.mcpb --cert prod.pem --key prod.key`.
+  Since v5.0.0 every release file and the image carry a free SLSA
+  build-provenance attestation (`gh attestation verify`), which proves where the
+  bytes were built but does not silence the desktop warning. The AMIRA server
+  dropped `mcpb sign` over the node-forge advisory; recheck it before signing.
 
 - [x] **Zero-config semantic search with a free local model**: shipped in
   v4.0.0 ([#5](https://github.com/fmadore/iwac-mcp-server/issues/5),

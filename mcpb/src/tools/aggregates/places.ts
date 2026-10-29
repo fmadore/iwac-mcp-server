@@ -31,7 +31,7 @@ export function registerPlacesTools(server: Server): void {
       description:
         "Place tags joined to authority coordinates. Separates publication countries from mentioned places; missing geocodes are counted explicitly.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         subset: z.string().optional().describe("articles (default) | publications | references"),
         ...filterInputs(),
         top_n: z.number().int().optional().describe("Geocoded places returned (default 60, max 200)"),

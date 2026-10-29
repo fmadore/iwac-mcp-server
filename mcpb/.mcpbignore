@@ -19,10 +19,11 @@
 /probe-cols.mjs
 /download-all.mjs
 
-# Container and lint config: the desktop bundle runs none of them
+# Container, lint and CI config: the desktop bundle runs none of them
 /Dockerfile
 /.dockerignore
 /biome.json
+/conformance-baseline.yml
 
 # Built bundles (never pack a bundle inside another bundle)
 *.mcpb
@@ -38,6 +39,8 @@ node_modules/@anthropic-ai/
 node_modules/@types/
 node_modules/@esbuild/
 node_modules/esbuild/
+node_modules/fast-check/
+node_modules/pure-rand/
 node_modules/typescript/
 node_modules/@typescript/
 node_modules/@biomejs/

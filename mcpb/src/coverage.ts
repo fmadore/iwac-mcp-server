@@ -11,13 +11,17 @@ import { config } from "./config.js";
 
 const PRIVATE = config.privateDataset;
 
-/** The full-text sentences of the handshake's COVERAGE AND ERRORS paragraph. */
-export const FULLTEXT_INSTRUCTIONS = PRIVATE
-  ? "This server reads the PRIVATE full mirror, so OCR ships for restricted items too; metadata and available " +
-    "AI summaries remain searchable. New arrivals can lack enrichment. Keyword counts come close to a census of " +
-    "the archive's text, though OCR errors still hide some matches."
-  : "The public dataset omits restricted OCR; metadata and available AI summaries remain searchable. New " +
-    "arrivals can lack enrichment. Keyword counts are a floor.";
+/** The handshake's full-text sentences for each mirror. Both are exported so
+ * the instructions length test can measure every mode without restarting. */
+export const FULLTEXT_INSTRUCTIONS_PRIVATE =
+  "This server reads the PRIVATE full mirror, so OCR ships for restricted items too. New arrivals can lack " +
+  "enrichment. Keyword counts approach a census, though OCR errors hide some matches.";
+export const FULLTEXT_INSTRUCTIONS_PUBLIC =
+  "The public dataset omits restricted OCR; metadata and available AI summaries remain searchable. New " +
+  "arrivals can lack enrichment. Keyword counts are a floor.";
+
+/** The full-text sentences of the handshake's INTERPRETATION paragraph. */
+export const FULLTEXT_INSTRUCTIONS = PRIVATE ? FULLTEXT_INSTRUCTIONS_PRIVATE : FULLTEXT_INSTRUCTIONS_PUBLIC;
 
 /** The coverage clause of the research prompts' disclosure rule. */
 export const FULLTEXT_PROMPT_RULE = PRIVATE

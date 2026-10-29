@@ -109,7 +109,7 @@ export function registerStatsTools(server: Server): void {
         "subset actually carry searchable full text in this dataset. Read that before treating any " +
         "keyword count as a full-text census.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({}),
+      inputSchema: z.strictObject({}),
       outputSchema: COLLECTION_STATS_OUTPUT,
     },
     async () => {
@@ -229,7 +229,7 @@ export function registerStatsTools(server: Server): void {
       ...toolMeta("Newspaper statistics"),
       description: "Per-newspaper article counts and date ranges.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         country: countryParam(),
       }),
       outputSchema: NEWSPAPER_STATS_OUTPUT,
@@ -288,7 +288,7 @@ export function registerStatsTools(server: Server): void {
         `Compare article counts, newspaper counts, date ranges, and ${DEFAULT_SENTIMENT_MODEL.id} polarity ` +
         "across countries.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({}),
+      inputSchema: z.strictObject({}),
       outputSchema: COUNTRY_COMPARISON_OUTPUT,
     },
     async () => {
@@ -367,7 +367,7 @@ export function registerStatsTools(server: Server): void {
       description:
         "Counts by Gregorian or Hijri year/month, or pooled lunar month. Group by country/newspaper. Partial dates and missing lunar dates are disclosed. normalize_by returns numerator counts and per-bucket denominators in the same country/outlet/date scope, removing thematic filters. Shares describe IWAC holdings.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         ...filterInputs(),
         normalize_by: z
           .enum(["scope", "searchable"])

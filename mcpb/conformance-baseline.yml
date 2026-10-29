@@ -1,0 +1,81 @@
+# Expected failures for the MCP conformance suite
+# (@modelcontextprotocol/conformance 0.2.0-alpha.12, `--requirements 2026-07-28`),
+# run by the `conformance` job in .github/workflows/ci.yml against the HTTP
+# server behind scripts/auth-proxy.mjs (the suite cannot send the bearer token).
+#
+# Every entry names one check (`scenario:check-id`), never a whole scenario, so
+# the rest of each scenario, including the wire-schema check on every message
+# the server sends, still gates. The runner fails on an unbaselined failure and
+# on a baselined check that starts passing, so this file has to shrink with
+# every fix. The same list, for the same reason, gates the AMIRA server.
+#
+# Triage, 28 October 2026: every entry is a check that calls the suite's own
+# reference fixtures (test_* tools, prompts and test:// resources, or
+# diagnostic hooks). This read-only archive server does not and should not
+# expose them. IWAC's own prompts, completion, resources and resource templates
+# are covered by test/fixture-client.test.mjs and test/fixture-server.test.mjs.
+#
+# The one real finding was fixed rather than listed: a browser page on a
+# loopback origin (localhost, 127.0.0.1, [::1]) was refused unless allowlisted.
+# Loopback origins are now accepted, as on the AMIRA server
+# (dns-rebinding-protection:localhost-host-valid-accepted).
+#
+# Not listed, because a revision's requirements never score them, so they
+# cannot fail the run: the Tasks extension scenarios (tasks-*, reason
+# "extension"; this server has no long-running work), json-schema-2020-12 and
+# http-custom-header-server-validation (reason "pending"; both need fixture
+# tools).
+
+server:
+  # Fixture tools test_simple_text, test_image_content, test_audio_content,
+  # test_embedded_resource, test_multiple_content_types, test_error_handling,
+  # test_tool_with_progress.
+  - tools-call-simple-text:tools-call-simple-text
+  - tools-call-image:tools-call-image
+  - tools-call-audio:tools-call-audio
+  - tools-call-embedded-resource:tools-call-embedded-resource
+  - tools-call-mixed-content:tools-call-mixed-content
+  - tools-call-error:tools-call-error
+  - tools-call-with-progress:tools-call-with-progress
+
+  # Fixture resources test://static-text, test://static-binary and the
+  # test://template/{id}/data template.
+  - resources-read-text:resources-read-text
+  - resources-read-binary:resources-read-binary
+  - resources-templates-read:resources-templates-read
+
+  # Fixture prompts test_simple_prompt, test_prompt_with_arguments,
+  # test_prompt_with_embedded_resource, test_prompt_with_image. Completion is
+  # probed on test_prompt_with_arguments only.
+  - prompts-get-simple:prompts-get-simple
+  - prompts-get-with-args:prompts-get-with-args
+  - prompts-get-embedded-resource:prompts-get-embedded-resource
+  - prompts-get-with-image:prompts-get-with-image
+  - completion-complete:completion-complete
+
+  # SEP-2322 input-required results need fixture tools that ask the client for
+  # elicitation, sampling or roots. IWAC never asks the client for input, and
+  # SEP-2577 deprecates sampling and roots.
+  - input-required-result-basic-elicitation:sep-2322-elicitation-incomplete
+  - input-required-result-basic-sampling:sep-2322-sampling-incomplete
+  - input-required-result-basic-list-roots:sep-2322-list-roots-incomplete
+  - input-required-result-request-state:sep-2322-request-state-incomplete
+  - input-required-result-multiple-input-requests:sep-2322-multiple-inputs-incomplete
+  - input-required-result-multi-round:sep-2322-multi-round-r1
+  - input-required-result-non-tool-request:sep-2322-non-tool-incomplete
+  - input-required-result-result-type:sep-2322-result-type-included
+  - input-required-result-tampered-state:sep-2322-reject-tampered-state
+  - input-required-result-capability-check:sep-2322-respect-client-capabilities
+  # Warnings, which count as failures once a baseline is in use. Both call
+  # fixture tools: the "tool not found" error is read as a refusal to ignore
+  # extra params or to re-request missing input.
+  - input-required-result-ignore-extra-params:sep-2322-ignore-unexpected-params
+  - input-required-result-missing-input-response:sep-2322-missing-response-rerequests
+
+  # Reported as "Not testable": they need the diagnostic tools
+  # test_missing_capability, test_streaming_elicitation and test_logging_tool.
+  # The other server-stateless checks pass and still gate.
+  - server-stateless:sep-2575-server-rejects-undeclared-capability
+  - server-stateless:sep-2575-missing-capability-http-400
+  - server-stateless:sep-2575-http-server-no-independent-requests-on-stream
+  - server-stateless:sep-2575-server-no-log-without-loglevel

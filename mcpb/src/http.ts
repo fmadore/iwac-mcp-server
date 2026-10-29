@@ -35,7 +35,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import http from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { config } from "./config.js";
+import { config, isLoopbackOrigin } from "./config.js";
 import { warmEncoder } from "./onnxEncoder.js";
 
 /** Cap on request body size — MCP JSON-RPC payloads are tiny; larger is abuse. */
@@ -148,10 +148,13 @@ export function startHttpServer(createServer: () => McpServer): void {
 
     // Browsers always send Origin on cross-origin fetches. An absent header is
     // normal for server-to-server MCP clients; a present one must be explicitly
-    // trusted. Never reflect it or fall back to Host — either would defeat the
-    // DNS-rebinding protection this check exists to provide.
+    // trusted, or be a loopback page (a browser sets Origin itself, so only a
+    // page served from this machine can claim one; the AMIRA server and the MCP
+    // conformance suite expect local development clients to connect). Never
+    // reflect it or fall back to Host — either would defeat the DNS-rebinding
+    // protection this check exists to provide.
     const origin = req.headers.origin;
-    if (origin !== undefined && !allowedOrigins.has(origin)) {
+    if (origin !== undefined && !allowedOrigins.has(origin) && !isLoopbackOrigin(origin)) {
       sendJson(res, 403, rpcError(-32000, "Forbidden: Origin is not allowed"), {
         Vary: "Origin",
       });

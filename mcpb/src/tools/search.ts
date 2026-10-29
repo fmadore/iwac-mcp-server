@@ -304,7 +304,7 @@ export function registerSearchTools(server: Server): void {
         "not 'sharia', Maouloud not 'Mawlid'). Returns {results:[{id,title,url,category}], ranking}; each result's " +
         "`category` names its subset and the `ranking` field documents the ordering. Pass an id to `fetch` to read " +
         "the full text. For filtered queries (by country, date, or newspaper) use the search_* tools instead.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         query: z
           .string()
           .min(1)
@@ -440,7 +440,7 @@ export function registerSearchTools(server: Server): void {
         "item's OCR / abstract / transcription / description, `url` is the canonical islam.zmo.de link to cite, " +
         "and `metadata` holds the remaining fields (author, date, country, newspaper, AI sentiment, …). " +
         "Categories: articles, publications, references, documents, index, audiovisual, images.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         id: z.string().describe("Item id from search, e.g. 'articles:28576' or 'references:11045'"),
       }),
       outputSchema: FETCH_OUTPUT,

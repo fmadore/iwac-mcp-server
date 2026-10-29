@@ -127,7 +127,7 @@ The 5,072 index entries (persons, organizations, places, events, subjects) repre
 
 ## 8. Search Limitations
 
-- **Substring matching only** — no wildcards, fuzzy matching, or Boolean operators. One term per call; run variants as separate searches.
+- **Every word must occur** (accent-insensitive substrings, any order); a `"quoted phrase"` must occur as written. No wildcards, fuzzy matching or Boolean operators; run variants as separate searches or `keyword_aliases`. Before server 5.0.0 a multi-word keyword matched only as one exact substring, so counts for multi-word keywords from earlier runs are not comparable (`analysis_version` changed from `iwac-research-v2` to `iwac-research-v3`).
 - **Keyword scope varies by tool:** articles = title + OCR + AI abstracts (**both languages**); publications = title + subject + table of contents + OCR; references = title + abstract. Keyword does NOT search the spatial field — use `subject` for curated tags.
 - **An English keyword can match a French article through its AI abstract.** Articles and documents carry two AI summaries, French and English, and keyword search matches both — so `keyword: "pilgrimage"` returns French-language articles about the hajj even though that word appears nowhere in the source. This is deliberate: it is the only English-language entry point into a francophone corpus. But it means a keyword hit does **not** imply the term is attested in the item itself. For what the sources actually say, read the OCR; for counting how often a word appears *in the press*, AI abstracts are not evidence. Only one summary (the French one) is returned in responses.
 - **Accents and case are folded** (server ≥ 0.6.0): `pelerinage`, `Bénin`, `These` all match. Spelling differences still matter.

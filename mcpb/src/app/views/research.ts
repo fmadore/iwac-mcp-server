@@ -93,9 +93,10 @@ export function recordsView(payload: BasePayload): ViewResult {
           ]
         : []),
       exportRows(p, ["id", "title", "date", "country", "newspaper", "url", "alternate_titles", ...(p.mode === "concordance" ? ["excerpts", "matched_terms", "match_count", "contexts", "source_field", "source_text_sha256", "source_offsets_available"] : [])]),
-      ...(exported ? [{
+      // A linked export holds no content here: the host reads its resource.
+      ...(typeof exported?.content === "string" ? [{
         id: "export", label: `Download ${exported.format}`, capability: "download" as const,
-        run: (ctx: ViewContext) => ctx.download(exported.filename, exported.mime_type, exported.content),
+        run: (ctx: ViewContext) => ctx.download(exported.filename, exported.mime_type, exported.content ?? ""),
       }] : []),
     ],
     wire(root, ctx) {

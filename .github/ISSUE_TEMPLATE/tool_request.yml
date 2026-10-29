@@ -1,0 +1,31 @@
+name: Tool or result request
+description: A research question the tools cannot answer yet, or a result that should carry more.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Every tool definition is paid for on every turn of every conversation,
+        so the first question is whether an existing tool, a parameter, a prompt
+        or a resource can answer it.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: The research question
+      description: What you were trying to find out, in your own words.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: The tool calls you made and why their results fell short.
+      render: text
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: What would answer it
+      description: A new parameter, a field on an existing result, an aggregate, an export format…

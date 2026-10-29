@@ -174,7 +174,9 @@ test("full-text failure remains visible with zero hits and useful metadata hits"
       const { client } = await scope.connect({ name: "fault-search", cacheDir: directory, stderr: "ignore" });
       for (const query of ["notawordxyz", "pèlerinage"]) {
         const r = payload(
-          await client.callTool({ name: "search", arguments: { query, category: "articles", limit: 10 } }),
+          // `search` has no category filter; the coverage checks below read the
+          // articles entry of a cross-subset search.
+          await client.callTool({ name: "search", arguments: { query, limit: 10 } }),
         );
         assert.equal(r.search_coverage.articles.metadata, "searched");
         assert.equal(r.search_coverage.articles.fulltext, "unavailable");

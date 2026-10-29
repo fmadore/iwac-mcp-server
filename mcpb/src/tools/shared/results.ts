@@ -15,9 +15,15 @@ export type Server = Pick<McpServer, "registerTool" | "registerResource" | "regi
 // Tool result / annotation helpers
 // -----------------------------------------------------------------------------
 
-export function annotate(title: string) {
+/**
+ * The behaviour hints every IWAC tool shares. The display name lives in the
+ * tool's own top-level `title`, which hosts prefer over `annotations.title`;
+ * repeating it here cost ~6 tokens per tool on every turn (the AMIRA server
+ * dropped the same duplicate). The explicit read-only, non-destructive and
+ * closed-world hints stay: ChatGPT's connector review reads them.
+ */
+export function annotate() {
   return {
-    title,
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
@@ -26,12 +32,11 @@ export function annotate(title: string) {
 }
 
 /**
- * Standard registerTool metadata: a top-level `title` (what current clients
- * display) plus the read-only annotation set (which older clients read the
- * title from). Spread into every tool's config.
+ * Standard registerTool metadata: a top-level `title` plus the read-only
+ * annotation set. Spread into every tool's config.
  */
 export function toolMeta(title: string, options: { openWorldHint?: boolean } = {}): { title: string; annotations: ReturnType<typeof annotate> } {
-  return { title, annotations: { ...annotate(title), ...options } };
+  return { title, annotations: { ...annotate(), ...options } };
 }
 
 function bigintReplacer(_key: string, value: unknown): unknown {
@@ -143,16 +148,45 @@ export function viewResult(
 }
 
 /**
+ * Stable machine codes for tool errors, so a model (or a test) can branch on
+ * the kind of failure rather than parse its wording:
+ *   invalid_argument  the call can be corrected (bad value, missing field, typo)
+ *   not_found         the id names no record in the loaded snapshot
+ *   unavailable       this dataset revision or configuration cannot answer it
+ *                     (missing column, semantic search off or unable to run)
+ *   data_error        stored data failed validation; retrying will not help
+ */
+export type ErrorCode = "invalid_argument" | "not_found" | "unavailable" | "data_error";
+
+/** The code an uncoded `{ error }` message implies. Explicit codes win. */
+export function inferErrorCode(message: string): ErrorCode {
+  if (/\bnot found\b|^No \S+ item with id/i.test(message)) return "not_found";
+  if (/embedding validation|invalid or zero embedding|no readable result/i.test(message)) return "data_error";
+  if (/dataset revision|^No (?:body text|full-text) column|^No publication date in|not enabled|cannot run/i.test(message))
+    return "unavailable";
+  return "invalid_argument";
+}
+
+/**
  * Like `textResult`, but marks the result as a tool-level error (`isError: true`)
  * per MCP guidance, so the model recognises the failure and can self-correct
  * (e.g. a missing id, semantic search disabled) rather than treating the error
  * JSON as a successful result. Reserve this for genuine failures — an empty or
  * "no matches" result is a successful call and should use `textResult`.
+ *
+ * Every `{ error: "…" }` payload gains a stable `code` (see ErrorCode),
+ * given explicitly or inferred from the message. The `error` text and its
+ * companions (`valid_values`, `hint`, …) are unchanged, so the addition
+ * breaks no reader of the existing shape.
  */
-export function errorResult(payload: unknown): {
+export function errorResult(payload: unknown, code?: ErrorCode): {
   content: { type: "text"; text: string }[];
   isError: true;
 } {
-  return { content: textResult(payload).content, isError: true };
+  const coded =
+    payload && typeof payload === "object" && typeof (payload as { error?: unknown }).error === "string"
+      ? { code: code ?? inferErrorCode((payload as { error: string }).error), ...(payload as Record<string, unknown>) }
+      : payload;
+  return { content: textResult(coded).content, isError: true };
 }
 

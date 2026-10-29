@@ -121,6 +121,11 @@ try {
     body: "{}",
   });
   if (allowedOrigin.status !== 401) fail(`allowlisted Origin should proceed to auth and 401, got ${allowedOrigin.status}`);
+  // A loopback page needs no allowlist entry; a look-alike host still does.
+  for (const [origin, expected] of [["http://localhost:5173", 401], ["http://127.0.0.1", 401], ["http://localhost.attacker.example", 403]]) {
+    const local = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: "{}" });
+    if (local.status !== expected) fail(`Origin ${origin} should answer ${expected}, got ${local.status}`);
+  }
 
   // The v2 handler owns protocol/media validation. These raw checks guard the
   // adapter boundary around it, including the local pre-parsing of JSON bodies.

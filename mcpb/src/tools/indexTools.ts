@@ -11,6 +11,8 @@ import {
   foldedLike,
   INDEX_TYPES,
   indexFreqOrder,
+  keywordTerms,
+  MAX_KEYWORD_TERMS,
   pipeValueEquals,
   pipeValueFilterIfExists,
   resolveLimit,
@@ -30,8 +32,8 @@ export function registerIndexTools(server: Server): void {
       description:
         "Search the IWAC authority index (persons, places, organisations, events, subjects) by name. " +
         "Accent/case-insensitive.",
-      inputSchema: z.object({
-        keyword: z.string().describe("Search term matched against the entry title"),
+      inputSchema: z.strictObject({
+        keyword: z.string().describe('Every word must occur in the entry title (any order); "quote" a phrase, or give a whole alternate title'),
         index_type: z
           .string()
           .optional()
@@ -49,19 +51,25 @@ export function registerIndexTools(server: Server): void {
       if (indexType.err) return errorResult(indexType.err);
       const limit = resolveLimit(args.limit, 20, 100);
       const offset = capOffset(args.offset);
-      // Asymmetric on purpose: the canonical title matches as a substring
-      // ("Dahomey" finds "Bénin (Dahomey)"-style entries), while alternate
-      // titles are a pipe-separated controlled list matched whole so a partial
-      // alias never drags in unrelated entries.
+      // Asymmetric on purpose: the canonical title must contain every term of
+      // the keyword ("Dahomey" finds "Bénin (Dahomey)"-style entries, "Niasse
+      // Ibrahim" finds "Ibrahim Niasse"), while alternate titles are a
+      // pipe-separated controlled list matched whole so a partial alias never
+      // drags in unrelated entries.
+      const terms = keywordTerms(args.keyword);
+      if (terms.length > MAX_KEYWORD_TERMS)
+        return errorResult({ error: `A keyword matches at most ${MAX_KEYWORD_TERMS} terms; quote a phrase or narrow it` });
       const namePredicates: string[] = [];
       const params: Bindable[] = [];
+      // A blank keyword keeps matching every entry, as the bare substring did.
+      const titleTerms = terms.length ? terms : [""];
       if (schema.has("Titre")) {
-        namePredicates.push(foldedLike(q("Titre")));
-        params.push(`%${escapeLike(args.keyword)}%`);
+        namePredicates.push(`(${titleTerms.map(() => foldedLike(q("Titre"))).join(" AND ")})`);
+        for (const term of titleTerms) params.push(`%${escapeLike(term)}%`);
       }
       if (schema.has("Titre alternatif")) {
         namePredicates.push(pipeValueEquals(q("Titre alternatif")));
-        params.push(args.keyword);
+        params.push(args.keyword.replaceAll('"', "").trim());
       }
       if (namePredicates.length === 0) {
         return errorResult({ error: "The index subset has no title columns in this dataset revision" });
@@ -89,7 +97,7 @@ export function registerIndexTools(server: Server): void {
       ...toolMeta("Get index entry details"),
       description:
         "Get full details of an index entry by id (raw dataset columns, French names — Titre, Prénom, Coordonnées…).",
-      inputSchema: z.object({ entry_id: z.number().int() }),
+      inputSchema: z.strictObject({ entry_id: z.number().int() }),
     },
     async ({ entry_id }) => {
       await ensureView("index");
@@ -185,7 +193,7 @@ function registerIndexListTool(
       name,
       {
         ...meta,
-        inputSchema: z.object({
+        inputSchema: z.strictObject({
           ...commonSchema,
           country: countryParam({
             nigeria: true,
@@ -196,6 +204,6 @@ function registerIndexListTool(
       handler,
     );
   } else {
-    server.registerTool(name, { ...meta, inputSchema: z.object(commonSchema) }, handler);
+    server.registerTool(name, { ...meta, inputSchema: z.strictObject(commonSchema) }, handler);
   }
 }

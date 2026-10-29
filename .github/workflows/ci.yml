@@ -37,6 +37,7 @@ jobs:
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: mcpb
@@ -55,6 +56,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Runtime dependencies only: what ships in the bundles and the image.
+      # The development tree carries one advisory without a fix, in a copy of
+      # zod nested inside the @anthropic-ai/mcpb packer, which never ships.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Check version consistency (package.json, manifest.json, CITATION.cff, README citation)
         run: |
@@ -108,9 +115,22 @@ jobs:
       run-tests: false
 
 
+  # The finished bundle on two runtimes: the floor manifest.json declares, and
+  # the newest LTS line, which desktop hosts and the image reach before the
+  # declared floor moves (Node 26 became Active LTS on 28 October 2026).
   runtime-floor:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
+    name: Built bundle on Node ${{ matrix.label }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: declared floor
+            node: ""
+          - label: "26"
+            node: "26"
     defaults:
       run:
         working-directory: mcpb
@@ -144,19 +164,88 @@ jobs:
           ')
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Set up declared runtime floor
+      - name: Set up the test runtime
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: ${{ steps.runtime.outputs.version }}
+          node-version: ${{ matrix.node || steps.runtime.outputs.version }}
 
-      - name: Test built bundle at declared floor
+      - name: Test the built bundle
         run: |
           node --version
           npm test
 
+  # The official MCP conformance suite against the HTTP server, scored against
+  # what the 2026-07-28 revision requires. The suite cannot send the bearer
+  # token, so scripts/auth-proxy.mjs adds it on loopback, as nginx does in
+  # production. conformance-baseline.yml lists, check by check, the failures
+  # only the suite's reference fixtures could pass; any other failure, or a
+  # baselined check that starts passing, fails the run. Still continue-on-error
+  # until a CI run confirms the local result (exit 0 on 28 October 2026).
+  # 0.2.0-alpha.12 is pinned on purpose: `latest` (0.1.x) predates 2026-07-28.
+  conformance:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    name: MCP conformance (2026-07-28, non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: mcpb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+      - name: Build and generate offline fixtures
+        run: |
+          npm ci
+          npm run build
+          node scripts/make-fixtures.mjs
+      - name: Start the HTTP server behind the token proxy
+        env:
+          IWAC_MCP_BEARER_TOKEN: ci-conformance
+          IWAC_OFFLINE: "1"
+          IWAC_SEMANTIC_SEARCH_ENABLED: "false"
+          PORT: "8001"
+        run: |
+          export IWAC_CACHE_DIR="$PWD/test/fixtures"
+          nohup node server/index.js --http > "$RUNNER_TEMP/iwac-http.log" 2>&1 &
+          nohup node scripts/auth-proxy.mjs 8000 8001 > "$RUNNER_TEMP/iwac-proxy.log" 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:8001/health; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/iwac-http.log"
+          exit 1
+      - name: Run the conformance suite
+        run: >-
+          npx --yes @modelcontextprotocol/conformance@0.2.0-alpha.12 server
+          --url http://127.0.0.1:8000/mcp
+          --requirements 2026-07-28
+          --expected-failures conformance-baseline.yml
+          --output-dir conformance-results
+      - name: Collect the server log
+        if: always()
+        run: |
+          mkdir -p conformance-results
+          cp "$RUNNER_TEMP/iwac-http.log" "$RUNNER_TEMP/iwac-proxy.log" conformance-results/ 2>/dev/null || true
+      - name: Upload conformance results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: conformance-results
+          path: mcpb/conformance-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
   live-smoke:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: mcpb

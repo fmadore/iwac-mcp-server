@@ -128,12 +128,14 @@ export function foldText(s: string): string {
     .replace(/[À-ɏḀ-ỿ]/g, (c) => c.normalize("NFD")[0] ?? c);
 }
 
-/** TOC entries (paragraph-separated) that contain `keyword`, accent-insensitively. */
-export function extractMatchingTocEntries(toc: string, keyword: string): string {
-  if (!toc || !keyword) return "";
-  const kw = foldText(keyword);
+/** The table-of-contents entries (paragraph-separated) containing the keyword,
+ * accent-insensitively, or any of the terms a keyword requires (a record
+ * matches when its text holds every term, but one TOC entry rarely does). */
+export function extractMatchingTocEntries(toc: string, keyword: string | readonly string[]): string {
+  const needles = (typeof keyword === "string" ? [keyword] : keyword).map(foldText).filter(Boolean);
+  if (!toc || !needles.length) return "";
   const entries = toc.split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
-  return entries.filter((e) => foldText(e).includes(kw)).join("\n\n");
+  return entries.filter((e) => needles.some((kw) => foldText(e).includes(kw))).join("\n\n");
 }
 
 export interface ExcerptResult {

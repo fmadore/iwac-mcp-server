@@ -8,12 +8,58 @@ import { q, type Bindable } from "../../db.js";
 // derived from the SUBSET_FIELDS descriptor below (fields tagged `searchable`).
 
 /**
- * Append the standard keyword predicate — ONE literal substring, OR-ed across
- * the subset's text columns (those present in this dataset revision), accent-
- * and case-insensitive. This is the single-substring semantics documented on
- * every search_* tool ("one term per call"); the unified `search` tokenizes
- * instead.
+ * Append ONE literal-substring predicate, OR-ed across the subset's text
+ * columns (those present in this dataset revision), accent- and
+ * case-insensitive. The building block of allTermsFilter below, which is what
+ * the search tools apply to a keyword.
  */
+export type KeywordMode = "literal" | "all_terms";
+
+/** Most terms one keyword may split into, so a pasted paragraph cannot build
+ * a WHERE clause of hundreds of LIKE scans. */
+export const MAX_KEYWORD_TERMS = 12;
+
+/**
+ * The substrings a keyword requires, all of which must occur in a record.
+ *
+ * The default (no mode) is the rule every IWAC search shares with the unified
+ * `search` and with the AMIRA server: every word must occur, anywhere in the
+ * record's text, and a "quoted phrase" must occur as written. Before v5 the
+ * search_* tools matched the whole keyword as ONE substring, so
+ * `pèlerinage Mecque` found only that exact sequence; that is `literal` now.
+ * `all_terms` splits on whitespace and ignores quotes, as it always has.
+ * A one-word keyword means the same thing in every mode.
+ */
+export function keywordTerms(keyword: string | undefined, mode?: KeywordMode): string[] {
+  const text = keyword?.trim() ?? "";
+  if (!text) return [];
+  if (mode === "literal") return [text];
+  if (mode === "all_terms") return text.split(/\s+/);
+  const terms: string[] = [];
+  for (const match of text.matchAll(/"([^"]*)"|(\S+)/g)) {
+    const term = (match[1] ?? match[2] ?? "").trim();
+    if (term) terms.push(term);
+  }
+  return terms;
+}
+
+/** Require every term of `keyword` (see keywordTerms) across `cols`. Returns
+ * an error message when the keyword splits into too many terms. */
+export function allTermsFilter(
+  schema: Set<string>,
+  where: string[],
+  params: Bindable[],
+  cols: readonly string[],
+  keyword: string | undefined,
+  mode?: KeywordMode,
+): string | undefined {
+  const terms = keywordTerms(keyword, mode);
+  if (terms.length > MAX_KEYWORD_TERMS)
+    return `A keyword matches at most ${MAX_KEYWORD_TERMS} terms; quote a phrase or narrow it`;
+  for (const term of terms) keywordFilter(schema, where, params, cols, term);
+  return undefined;
+}
+
 export function keywordFilter(
   schema: Set<string>,
   where: string[],

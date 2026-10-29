@@ -20,6 +20,8 @@ import {
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  didYouMean,
+  keywordTerms,
   textOffsetParam,
   textResult,
   toolMeta,
@@ -47,13 +49,13 @@ export function registerPublicationTools(server: Server): void {
         "(TOC hits come back as matching_toc_entries); use French concept keywords regardless of the user's report language. " +
         "Filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
         "get_publication_fulltext for keyword excerpts from a single issue.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         ...exactInput(),
         keyword: z
           .string()
           .optional()
           .describe(
-            "French concept keyword; substring match on title + subject + table of contents + OCR (accent-insensitive)",
+            'French concept keyword; every word must occur in the title, subject, table of contents or OCR; "quote" a phrase',
           ),
         newspaper: z.string().optional().describe("Periodical/series title (see list_periodicals)"),
         subject: z.string().optional().describe("Subject tag (~87% of issues are tagged)"),
@@ -94,13 +96,17 @@ export function registerPublicationTools(server: Server): void {
         offset,
       });
       if (args.keyword) {
+        const needles = args.keyword_aliases?.length
+          ? [args.keyword, ...args.keyword_aliases]
+          : keywordTerms(args.keyword, args.keyword_mode);
         for (const r of env.results) {
           const toc = r.table_of_contents ? String(r.table_of_contents) : "";
-          const matching = extractMatchingTocEntries(toc, args.keyword);
+          const matching = extractMatchingTocEntries(toc, needles);
           delete r.table_of_contents;
           if (matching) r.matching_toc_entries = matching;
         }
       }
+      if (env.total_matches === 0) Object.assign(env, await didYouMean("publications", schema, args));
       return textResult(env);
     },
   );
@@ -114,7 +120,7 @@ export function registerPublicationTools(server: Server): void {
         "List the Islamic periodical/series titles in the publications subset, with issue counts and year ranges. " +
         "Use the returned newspaper value as the `newspaper` filter on search_publications.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         country: countryParam(),
       }),
       outputSchema: PERIODICALS_OUTPUT,
@@ -157,7 +163,7 @@ export function registerPublicationTools(server: Server): void {
       description:
         "Full OCR text of a publication in 25k-char parts (follow `next_offset`), or ~2000-char excerpts " +
         "around keyword matches (accent-insensitive; capped: see match_count vs excerpts_returned).",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         publication_id: z.number().int(),
         keyword: z.string().optional(),
         context_chars: z.number().int().optional().describe("Default 2000, max 5000"),
@@ -222,7 +228,7 @@ export function registerPublicationTools(server: Server): void {
         "Semantic search over publication tables of contents, present for ~40% of issues (none for An-Nasr " +
         "Vendredi, 130 of 695 Islam Info issues): use search_publications for the rest. Rows show the first " +
         `600 characters of each table. Query in any language. ${SEMANTIC_NOTE}`,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
         country: countryParam(),
         limit: z.number().int().optional().describe("Default 10, max 50"),

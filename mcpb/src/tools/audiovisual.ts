@@ -8,7 +8,7 @@ import {
   detailResult,
   equalsFilterIfExists,
   errorResult,
-  keywordFilter,
+  allTermsFilter,
   likeFilterIfExists,
   MEDIUM_VALUES,
   pipeValueFilterIfExists,
@@ -32,8 +32,8 @@ export function registerAudiovisualTools(server: Server): void {
       ...toolMeta("Search audiovisual materials"),
       description:
         "Search audiovisual materials by keyword and metadata: francophone web video from Burkina Faso, Togo and Benin (TV reports, association and campus recordings), plus deposited Nigerian Hausa/Arabic recordings. Keyword matches title, creator, publisher, subject, spatial, language, source, the item's own description (the richest text most of these items have) and its transcription where one exists. Each row says which population it is from (`source_type`) and carries either `external_url` (a video to watch) or `media_url` (a file), never both.",
-      inputSchema: z.object({
-        keyword: z.string().optional().describe("Substring match across audiovisual title/metadata fields"),
+      inputSchema: z.strictObject({
+        keyword: z.string().optional().describe('Every word must occur across the title/metadata fields; "quote" a phrase'),
         country: countryParam({ nigeria: true, note: "Burkina Faso, Togo, Benin and Nigeria only — no Niger or Ivorian items" }),
         language: z.string().optional().describe("Exact language value, e.g. Français | Haoussa | Arabe | Anglais | Mooré"),
         medium: z.string().optional().describe("Exact carrier medium: Vidéo sur le web | DVD | CD (validated, accents optional)"),
@@ -70,7 +70,8 @@ export function registerAudiovisualTools(server: Server): void {
       const where: string[] = [];
       const params: Bindable[] = [];
 
-      keywordFilter(schema, where, params, TEXT_COLS.audiovisual, args.keyword);
+      const keywordError = allTermsFilter(schema, where, params, TEXT_COLS.audiovisual, args.keyword);
+      if (keywordError) return errorResult({ error: keywordError });
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "language", args.language);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
@@ -99,7 +100,7 @@ export function registerAudiovisualTools(server: Server): void {
       ...toolMeta("List audiovisual materials"),
       description:
         "List audiovisual materials, newest first (francophone web video from Burkina Faso, Togo and Benin; deposited Nigerian Hausa/Arabic recordings). Filter by country, publishing channel or `source_type`.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         country: countryParam({ nigeria: true, note: "Burkina Faso, Togo, Benin and Nigeria only — no Niger or Ivorian items" }),
         publisher: z
           .string()
@@ -153,7 +154,7 @@ export function registerAudiovisualTools(server: Server): void {
       // No context_chars/max_excerpts: the excerpt window keeps get_document's
       // defaults. `offset` is not optional in the same way: without it, a
       // transcription past 25k characters cannot be read whole at all.
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         audiovisual_id: z.number().int(),
         keyword: z.string().optional(),
         offset: textOffsetParam(),

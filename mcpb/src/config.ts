@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { resolveToolProfile } from "./toolProfiles.js";
 
 export const DATASET_REPO = "fmadore/islam-west-africa-collection";
 export const PRIVATE_DATASET_REPO = `${DATASET_REPO}-full`;
@@ -69,6 +70,19 @@ export function parseRefreshHours(v: string | undefined, fallback = 24): number 
 export interface ParsedOrigins {
   allowed: ReadonlySet<string>;
   invalid: string[];
+}
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** True for an exact `http(s)://` loopback origin, any port: allowed without
+ * configuration, since only a page served from this machine can send one. */
+export function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.origin === origin && LOOPBACK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 /** Parse the exact HTTP(S) origins allowed to reach the MCP endpoint.
@@ -145,6 +159,9 @@ export const config = {
   // otherwise serves the data it started with until it is restarted.
   refreshIntervalMs: parseRefreshHours(envString("IWAC_REFRESH_HOURS")) * 3_600_000,
   semanticSearchEnabled: parseBool(envString("IWAC_SEMANTIC_SEARCH_ENABLED"), true),
+  // Which tools to register: full (default), core, analysis or search
+  // (src/toolProfiles.ts). Fixed for the process; restart to change.
+  toolProfile: resolveToolProfile(envString("IWAC_TOOL_PROFILE")),
   // `onnx` runs the corpus model in this process; `local` posts queries to an
   // OpenAI-compatible endpoint serving that model. Any other value, notably the
   // retired `gemini`, is kept verbatim so semantic search can refuse it by name

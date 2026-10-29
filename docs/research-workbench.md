@@ -27,11 +27,14 @@ article/publication search.
 }
 ```
 
-- `keyword` defaults to one accent-insensitive literal substring. Set
-  `keyword_mode: "all_terms"` to require every whitespace-separated term
-  (maximum 12) somewhere in the searchable text fields.
+- `keyword` requires every word (maximum 12) somewhere in the searchable text
+  fields, accent-insensitively; a `"quoted phrase"` must occur as written. This
+  is the rule of every IWAC search since 5.0.0. `keyword_mode: "literal"`
+  matches the whole keyword as one substring, the default before 5.0.0;
+  `keyword_mode: "all_terms"` splits on whitespace and ignores quotes.
 - `keyword_aliases: ["variant", "other variant"]` explicitly ORs alternatives
-  with a literal keyword. It cannot be combined with `all_terms`.
+  with the keyword, each matched as one literal phrase. It cannot be combined
+  with `all_terms`.
 - `subject` matches a complete pipe-separated subject tag. `newspaper` keeps its
   historical substring semantics. Use `exact.newspaper` for a complete title.
 - `exact` intersects fields **and values within each field**. For example,
@@ -131,15 +134,22 @@ without open-link capability display a selectable canonical URL.
 
 ## Dataset provenance and cache behavior
 
-Every successful tool response includes a separate provenance text block and
+Every successful tool response carries the full provenance record in
 `_meta["islam.zmo.de/provenance"]`. The main `structuredContent` contract is
-unchanged. Provenance includes:
+unchanged. The full record includes:
 
 - a SHA-256 snapshot identifier derived from repository, requested revision and
   the content identities of the files actually loaded;
 - subset file identities, access mode, load time and freshness status;
 - applied tool arguments and analysis-method version;
 - the embedding contract for semantic-query tools.
+
+The model reads a compact summary in a separate last text block: the snapshot
+identifier, requested revision, access mode, the subsets read, their freshness
+when a subset was not verified against the Hub, and the embedding model for
+semantic queries. The full record stays out of the conversation because it cost
+more than the answer on multi-subset calls. Apps and exports read `_meta`, and
+`iwac://datasets/{subset}` returns the full record for one subset on request.
 
 `main` is a moving revision name, **not** a resolved commit. Exported file content
 identities distinguish its snapshots. Set `IWAC_DATASET_REVISION` to a full Hub

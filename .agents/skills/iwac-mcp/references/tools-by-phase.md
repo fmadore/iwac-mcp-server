@@ -106,7 +106,7 @@ The 25 Islamic periodical/series titles in the publications subset, with issue c
 
 ### search_articles
 Primary search tool for the ~16,700 newspaper articles.
-- `keyword` (optional): substring match on **title + OCR + AI abstracts, French and English** (does NOT search subject/spatial — use the `subject` parameter for curated tags). An English term can therefore match a French article via its English summary
+- `keyword` (optional): every word must occur in **title + OCR + AI abstracts, French and English** (does NOT search subject/spatial — use the `subject` parameter for curated tags). An English term can therefore match a French article via its English summary
 - `country` (optional): exact name — Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo
 - `newspaper` (optional): substring match
 - `subject` (optional): substring match on the pipe-separated curated tags
@@ -144,7 +144,7 @@ Filter articles by **`gpt-5-6-luna`** sentiment labels (exact match, accents opt
 
 ### search_publications
 Search the 1,501 Islamic publications (mostly complete periodical issues; OCR is 97% filled, median ~16k tokens/issue).
-- `keyword` (optional): substring match on title + subject + **table of contents** + OCR
+- `keyword` (optional): every word must occur in title + subject + **table of contents** + OCR
 - `newspaper` (optional): periodical/series title — discover via `list_periodicals`
 - `subject` (optional): ~87% of issues are tagged
 - `country` (optional, exact name)
@@ -155,7 +155,7 @@ Search the 1,501 Islamic publications (mostly complete periodical issues; OCR is
 
 ### search_references
 Search the 864 academic references. The records are multilingual: search title/abstract keywords in French and English when relevant. Metadata/filter values such as `reference_type` and `language` use French labels.
-- `keyword` (optional): substring on title + abstract. **One term per call** ("pèlerinage Mecque" as one string misses results with only one word). Try French and English concept terms when searching abstracts.
+- `keyword` (optional): every word must occur in the title + abstract; quote a phrase to match it as written. Try French and English concept terms when searching abstracts.
 - `author` (optional)
 - `reference_type` (optional), substring match. Values: Article de revue (298) | Chapitre de livre (246) | Livre (101) | Mémoire de maitrise (62) | Rapport (49) | Thèse de doctorat (42) | Communication scientifique | Compte rendu de livre | Article d'encyclopédie | Mémoire de licence | Article de blog | Working paper. Use the full label — "Livre" alone also matches "Chapitre de livre" and "Compte rendu de livre".
 - `subject` (optional): sparse, ~27% tagged
@@ -171,7 +171,7 @@ Semantic similarity over references' **title + abstract**, across languages (a F
 
 ### search_documents
 Search the 26 archival documents (Islamic association reports, flyers, project documents — 19 Burkina Faso, 4 Togo, 2 Benin). All have OCR + AI description.
-- `keyword` (optional): substring on title + OCR + AI description + subject
+- `keyword` (optional): every word must occur in title + OCR + AI description + subject
 - `country` (optional, exact name), `limit` (default 15, max 50), `offset`
 - Call with no arguments to list all 26.
 
@@ -188,14 +188,14 @@ AI summaries are empty for all 1,771 and only 50 transcriptions ship publicly, s
 
 ### search_audiovisual
 Search the audiovisual subset by title/metadata, **description** and **transcription**. Carrying the description roughly doubles keyword reach (measured 2026-08-17: "ramadan" 190 → 317 items, "imam" 230 → 358).
-- `keyword` (optional): substring over title, creator, publisher, subject, spatial, language, source, the description (1,465/1,771 rows), the transcription (`OCR`, 50/1,771) and AI description where present
+- `keyword` (optional): every word must occur in title, creator, publisher, subject, spatial, language, source, the description (1,465/1,771 rows), the transcription (`OCR`, 50/1,771) and AI description where present
 - `country` (optional), `language` (optional exact pipe value — Français 1,715, Haoussa ~43, Mooré 10, Arabe, Anglais), `medium` (Vidéo sur le web | DVD | CD — carrier media, validated, accents optional), `publisher` (optional substring: the channel or broadcaster — RTB 639, AEEM Togo 532, CERFI 409), `source_type` (`youtube` | `deposited`, validated), `subject` (optional exact tag, but only 27 rows carry one), `limit` (default 20, max 50), `offset`
 - Returns the same summary fields as `list_audiovisual`
 - **Prefer `publisher` over `subject` here.** 1,769 of 1,771 rows name a channel and only 27 carry a subject tag, so the channel is the one facet that actually partitions this subset — and it is a meaningful one: a state broadcaster (RTB) and a student association (AEEM Togo) are different kinds of source, not just different names
 
 ### search_images *(new July 2026)*
 The 30 fieldwork photographs (mosques, radio stations, schools, signage, street scenes). Captions are almost absent (2/30), so prefer `subject`/`spatial` filters or `semantic_search_images` over keywords.
-- `keyword` (optional): substring over title, creator, subject, spatial and the rare caption
+- `keyword` (optional): every word must occur in title, creator, subject, spatial or the rare caption
 - `country`, `subject` (exact pipe value), `spatial` (exact pipe value), `creator` (substring), `date_from`, `date_to`, `limit` (default 20, max 50), `offset`
 - Returns: id, title, creator, date, country, spatial, coordinates (`"lat, lng"`), subject, image_url, url
 
@@ -267,7 +267,7 @@ Counts of matching items per year (or month) — one call replaces paging throug
 - `subset` (optional, validated): articles (default) | publications | references | documents | audiovisual | images
 - `granularity` (optional, validated): year (default) | month | **lunar_month** *(v1.3.0+)* — items dated only to a year keep a bare-year key even at month granularity
 - `calendar` (optional, validated) *(v1.3.0+)*: gregorian (default) | hijri
-- `keyword` (optional): ONE substring over the subset's text fields (same semantics as the subset's search tool)
+- `keyword` (optional): every word over the subset's text fields, quoted phrases as written (same rule as the subset's search tool; `keyword_mode: "literal"` for one exact substring)
 - `country` / `newspaper` / `subject` / `date_from` / `date_to` (optional): same semantics as the subset's search tool
 - `group_by` (optional, validated): country | newspaper — returns `distribution_by_group` (one map per group) instead of `distribution`
 - Returns `total_matches`, `dated_count`, `undated_count` (undated items are counted, never silently dropped), and the `distribution` map sorted by year

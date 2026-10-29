@@ -105,11 +105,15 @@ export function researchExport(
   };
   const citations = rows.map((row) => citationItem(subset, row));
   const content = mode === "bibtex" ? bibliography(citations) : JSON.stringify(mode === "csl_json" ? citations : manifest, null, 2);
+  return { ...exportFile(mode, subset, String(pagination.offset)), content, ...(mode !== "manifest" ? { manifest } : {}) };
+}
+
+/** Format, media type and file name of an export; `label` tells pages apart
+ * (their offset) from a linked whole-selection export ("all"). */
+export function exportFile(mode: ExportMode, subset: Subset, label: string) {
   return {
     format: mode,
     mime_type: mode === "bibtex" ? "application/x-bibtex" : mode === "csl_json" ? "application/vnd.citationstyles.csl+json" : "application/json",
-    filename: `iwac-${subset}-${pagination.offset}-${mode}.${mode === "bibtex" ? "bib" : "json"}`,
-    content,
-    ...(mode !== "manifest" ? { manifest } : {}),
+    filename: `iwac-${subset}-${label}-${mode}.${mode === "bibtex" ? "bib" : "json"}`,
   };
 }

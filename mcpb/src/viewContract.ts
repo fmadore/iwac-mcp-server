@@ -389,7 +389,9 @@ export interface RecordsPayload extends ResearchPayload<RecordRow> {
   offset?: number;
   limit?: number;
   has_more?: boolean;
-  export?: { format: string; mime_type: string; filename: string; content: string; manifest?: unknown };
+  /** A page export carries `content`; a linked export carries the `uri` of the
+   * `iwac://export/…` resource that holds the whole selection instead. */
+  export?: { format: string; mime_type: string; filename: string; content?: string; uri?: string; items?: number; manifest?: unknown };
 }
 export interface CoverageRow extends Record<string, unknown> {
   source: string;

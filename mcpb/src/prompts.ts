@@ -11,6 +11,7 @@
 // five phases, call and token budgets, chart policy, confidence grading,
 // citation rule). When one changes, change the other, the same rule the
 // INSTRUCTIONS block carries.
+import { completable } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { FULLTEXT_PROMPT_RULE } from "./coverage.js";
 import type { Server } from "./tools/_shared.js";
@@ -58,8 +59,8 @@ const BRIEF_STEPS =
   "1. SCOPE in one parallel batch, calling only what the question needs (get_collection_stats, " +
   "get_country_comparison, get_temporal_distribution, list_subjects).\n" +
   "2. SEARCH with one primary query per filter combination — `limit=10` and `with_description=true` so each " +
-  "hit carries its AI abstract. Remember the search_* `keyword` filter is ONE substring: search one term per " +
-  "call.\n" +
+  "hit carries its AI abstract. A search_* `keyword` needs every word; quote a phrase to match it as written, " +
+  "and run real synonyms as separate searches.\n" +
   "3. READ 2-3 of the most relevant items in full (get_article / get_document / get_publication_fulltext), " +
   "triaged on `description_ai`. Never skip this step — a metadata-only answer is not research.\n" +
   "4. SYNTHESISE concisely but substantively, opening with a one-line evidence ledger: how many items were " +
@@ -96,10 +97,13 @@ export function registerPrompts(server: Server): void {
         "extended), following the five-phase method: scope, search, read, triangulate, synthesise.",
       argsSchema: z.object({
         question: z.string().describe("The research question, in any language"),
-        depth: z
-          .string()
-          .optional()
-          .describe("brief (default: counts, key titles, 2-3 close readings) | extended (full five-phase analysis)"),
+        // Hosts offer the two depths as the user types (`completion/complete`),
+        // as the AMIRA prompts complete authority names. The SDK unwraps
+        // .optional() before it looks for the completer, so it sits inside.
+        depth: completable(
+          z.string().describe("brief (default: counts, key titles, 2-3 close readings) | extended (full five-phase analysis)"),
+          (value) => ["brief", "extended"].filter((depth) => depth.startsWith((value ?? "").trim().toLowerCase())),
+        ).optional(),
       }),
     },
     ({ question, depth }) => {

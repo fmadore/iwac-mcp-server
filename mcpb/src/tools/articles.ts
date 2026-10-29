@@ -17,6 +17,7 @@ import {
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  didYouMean,
   textOffsetParam,
   textResult,
   toolMeta,
@@ -34,13 +35,13 @@ export function registerArticleTools(server: Server): void {
       description:
         "Search IWAC newspaper articles by keyword (title + OCR + AI abstracts, French and English), country, newspaper, subject, " +
         "and date range. Use French concept keywords regardless of the user's report language. Matching is accent- and case-insensitive.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         ...exactInput(),
         keyword: z
           .string()
           .optional()
           .describe(
-            "Concept keyword; substring match on title, OCR text, and the French and English AI abstracts. Prefer French for the OCR; an English term still matches via the English abstract",
+            'Concept keyword; every word must occur (any order) in the title, OCR or French/English AI abstracts; "quote" a phrase. Prefer French for the OCR; an English term still matches via the English abstract',
           ),
         country: countryParam(),
         newspaper: z.string().optional(),
@@ -87,18 +88,18 @@ export function registerArticleTools(server: Server): void {
       if (selection.err) return errorResult(selection.err);
       const { where, params } = selection;
 
-      return textResult(
-        await runListQuery({
-          subset: "articles",
-          where,
-          params,
-          // `triage` = the summary row plus the AI abstract (with_description).
-          cols: colsFor("articles", schema, args.with_description ? "triage" : "summary"),
-          orderBy: pubDateOrder(schema),
-          limit,
-          offset,
-        }),
-      );
+      const env = await runListQuery({
+        subset: "articles",
+        where,
+        params,
+        // `triage` = the summary row plus the AI abstract (with_description).
+        cols: colsFor("articles", schema, args.with_description ? "triage" : "summary"),
+        orderBy: pubDateOrder(schema),
+        limit,
+        offset,
+      });
+      if (env.total_matches === 0) Object.assign(env, await didYouMean("articles", schema, args));
+      return textResult(env);
     },
   );
 
@@ -110,7 +111,7 @@ export function registerArticleTools(server: Server): void {
       description:
         "Get one article (by id): full metadata, the AI abstract (description_ai), AI sentiment, and OCR text, " +
         "in 25k-char parts (follow `next_offset`). Pass a `keyword` to get ~2000-char excerpts around each match instead.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         article_id: z.number().int(),
         keyword: z
           .string()
@@ -140,7 +141,7 @@ export function registerArticleTools(server: Server): void {
     {
       ...toolMeta("Semantic search for articles"),
       description: `Semantic search over article title + full text, including articles whose OCR is not public. Query in any language. ${SEMANTIC_NOTE}`,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
         country: countryParam(),
         newspaper: z.string().optional(),

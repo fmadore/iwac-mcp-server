@@ -4,7 +4,7 @@ import type { Subset } from "../../config.js";
 import { EXACT_FIELDS, type Selection } from "../../selection.js";
 import { resolveSentimentModel, sentimentCols } from "../shared/sentiment.js";
 import { q, query, viewName } from "../../db.js";
-import { foldedEquals, pipeValueEquals } from "../shared/filters.js";
+import { foldedEquals, keywordTerms, MAX_KEYWORD_TERMS, pipeValueEquals } from "../shared/filters.js";
 import { hijriFilter, requireHijriColumns, resolveHijriMonth } from "../shared/calendar.js";
 import {
   COUNTRIES,
@@ -150,13 +150,17 @@ export function aggregateFilters(
     }
   }
 
-  const terms =
-    args.keyword_mode === "all_terms"
-      ? (args.keyword?.trim().split(/\s+/).filter(Boolean) ?? [])
-      : args.keyword
-        ? [args.keyword]
-        : [];
-  if (terms.length > 12) return { where, params, echo, err: { error: "all_terms supports at most 12 terms" } };
+  // Aliases are whole-phrase alternatives, so a keyword that carries them is
+  // read literally unless all_terms says otherwise (which is refused below).
+  const mode = args.keyword_aliases?.length ? (args.keyword_mode ?? "literal") : args.keyword_mode;
+  const terms = keywordTerms(args.keyword, mode);
+  if (terms.length > MAX_KEYWORD_TERMS)
+    return {
+      where,
+      params,
+      echo,
+      err: { error: `A keyword matches at most ${MAX_KEYWORD_TERMS} terms; quote a phrase or narrow it` },
+    };
   if (args.keyword_aliases?.length) {
     if (!args.keyword || args.keyword_mode === "all_terms")
       return { where, params, echo, err: { error: "Aliases require a literal keyword" } };
@@ -192,7 +196,10 @@ export function filterInputs() {
 
 export function exactInput() {
   return {
-    keyword_mode: z.enum(["literal", "all_terms"]).optional(),
+    keyword_mode: z
+      .enum(["literal", "all_terms"])
+      .optional()
+      .describe("literal: the whole keyword as one substring"),
     keyword_aliases: z.array(z.string().trim().min(1)).max(12).optional(),
     exact: z
       .record(z.string(), z.array(z.string()).min(1).max(20))

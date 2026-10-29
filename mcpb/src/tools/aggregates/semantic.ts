@@ -129,7 +129,7 @@ export function registerSemanticTools(server: Server): void {
       description:
         "Stable-hash sample of matching stored embeddings, projected with PCA. Reports eligible, invalid, missing and capped counts, seed and explained variance. Group counts describe the sample. Coordinates are chart-only; this is not the published UMAP landscape. Needs no API key.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         subset: z.string().optional().describe("articles (default) | documents | publications | references"),
         ...filterInputs(),
         color_by: z
@@ -308,7 +308,7 @@ export function registerSemanticTools(server: Server): void {
       description:
         "Nearest stored embeddings by cosine similarity. Articles and documents lead with the dataset's published top 10. Scores run high (unrelated ~0.7) and rank reading candidates; >= 0.97 suggests a near-duplicate, but no threshold proves a reprint. Returns source IDs and dates. Corpus-wide candidate generation belongs offline.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         id: z
           .string()
           .describe("Item id — either a bare o:id ('3064') or the namespaced form search returns ('articles:3064')"),

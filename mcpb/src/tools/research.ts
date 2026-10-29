@@ -1,6 +1,6 @@
 /** Research workbench: one selection contract, all subsets, source-backed views. */
 import { chartResult } from "./shared/chartResults.js";
-import { viewResult } from "./shared/results.js";
+import { structuredResult, viewResult } from "./shared/results.js";
 import { z } from "zod";
 import { ALL_SUBSETS, type Subset } from "../config.js";
 import type { ComparisonRow, ComparisonSelection } from "../viewContract.js";
@@ -8,14 +8,17 @@ import { ensureView, q, query, queryScalarSingle, viewName } from "../db.js";
 import { aggregateFilters, filterInputs } from "./aggregates/shared.js";
 import { bodyColumn, embeddingColumn } from "./shared/research.js";
 import { colsFor, itemUrl, TITLE_COL } from "./shared/fields.js";
+import { keywordTerms } from "./shared/filters.js";
 import { annotate, errorResult, type Server } from "./_shared.js";
 import { CHARTS_UI_META } from "./appUi.js";
 import { SENTIMENT_MODELS, sentimentCols } from "./shared/sentiment.js";
 import { concordanceContexts } from "./research/concordance.js";
 import { comparisonTimeline } from "./research/comparison.js";
-import { EXPORT_MODES, citationProjection, isExportMode, researchExport } from "./researchExports.js";
+import { EXPORT_MODES, type ExportMode, citationProjection, exportFile, isExportMode, researchExport } from "./researchExports.js";
+import { INVALID_PARAMS, ProtocolError, ResourceTemplate } from "@modelcontextprotocol/server";
+import { withRequest } from "../request.js";
 
-const selectionSchema = z.object({
+const selectionSchema = z.strictObject({
   ...filterInputs(),
   hijri_month: z.string().optional(),
   hijri_year: z.number().int().optional(),
@@ -45,6 +48,33 @@ const output = z.object({
 const whereSql = (where: string[]) => (where.length ? where.join(" AND ") : "TRUE");
 const count = async (v: string, f: ReturnType<typeof aggregateFilters>) =>
   Number(await queryScalarSingle(`SELECT COUNT(*) FROM ${v} WHERE ${whereSql(f.where)}`, f.params));
+
+/**
+ * Most items a linked export holds. A paged export puts up to 50 citations in
+ * the conversation per call; a link puts none there, and the host reads the
+ * whole selection as one file (the AMIRA server's `export` links work the same
+ * way). Larger selections still page through the tool.
+ */
+export const EXPORT_LINK_MAX = 5_000;
+
+/** `iwac://export/{mode}/{subset}/{selection}`, the selection as base64url JSON. */
+export function exportUri(mode: ExportMode, subset: Subset, selection: Record<string, unknown>): string {
+  return `iwac://export/${mode}/${subset}/${Buffer.from(JSON.stringify(selection)).toString("base64url")}`;
+}
+
+/** The citation rows of one export page, ids namespaced and URLs filled in. */
+async function exportRows(subset: Subset, schema: Set<string>, v: string, f: ReturnType<typeof aggregateFilters>, limit: number, offset: number) {
+  const rows = await query(
+    `SELECT ${citationProjection(subset, schema)} FROM ${v} WHERE ${whereSql(f.where)} ORDER BY ${schema.has("pub_date") ? "pub_date DESC NULLS LAST, " : ""}"o:id" LIMIT ? OFFSET ?`,
+    [...f.params, limit, offset],
+  );
+  for (const row of rows) {
+    const id = String(row.id);
+    row.id = `${subset}:${id}`;
+    row.url ||= itemUrl(id);
+  }
+  return rows;
+}
 const present = (col: string | undefined) =>
   col ? `NULLIF(TRIM(CAST(${q(col)} AS VARCHAR)), '') IS NOT NULL` : "FALSE";
 
@@ -67,26 +97,79 @@ function pagedCells<R>(
   );
 }
 
+/**
+ * The whole-selection export a linked `explore_corpus` call points at. Reading
+ * it re-runs the selection against the snapshot loaded now, so its manifest
+ * (provenance included) says which files the export came from.
+ */
+function registerExportResource(server: Server): void {
+  server.registerResource(
+    "iwac-export",
+    new ResourceTemplate("iwac://export/{mode}/{subset}/{selection}", { list: undefined }),
+    {
+      title: "IWAC selection export",
+      description: "A whole explore_corpus selection as a manifest, CSL-JSON or BibTeX file",
+      cacheHint: { ttlMs: 0, cacheScope: "private" },
+    },
+    async (uri, variables, context) => {
+      const { mode, subset, selection: encoded } = variables;
+      if (typeof mode !== "string" || !isExportMode(mode)) throw new ProtocolError(INVALID_PARAMS, "Unknown export mode");
+      if (typeof subset !== "string" || !(ALL_SUBSETS as string[]).includes(subset))
+        throw new ProtocolError(INVALID_PARAMS, "Unknown IWAC dataset subset");
+      let decoded: unknown;
+      try {
+        decoded = JSON.parse(Buffer.from(String(encoded), "base64url").toString("utf8"));
+      } catch {
+        throw new ProtocolError(INVALID_PARAMS, "The export selection is not valid base64url JSON");
+      }
+      const parsed = selectionSchema.safeParse(decoded);
+      if (!parsed.success) throw new ProtocolError(INVALID_PARAMS, "The export selection does not match explore_corpus");
+      return withRequest(context.mcpReq.signal, async () => {
+        const selected = subset as Subset;
+        const schema = await ensureView(selected),
+          v = viewName(selected);
+        const f = aggregateFilters(selected, schema, parsed.data);
+        if (f.err) throw new ProtocolError(INVALID_PARAMS, String(f.err.error));
+        const total = await count(v, f);
+        if (total > EXPORT_LINK_MAX)
+          throw new ProtocolError(INVALID_PARAMS, `The selection now holds ${total} items, over the ${EXPORT_LINK_MAX}-item export limit`);
+        const rows = await exportRows(selected, schema, v, f, EXPORT_LINK_MAX, 0);
+        const exported = researchExport(mode as ExportMode, selected, rows, f.echo, { offset: 0, limit: rows.length, total_matches: total });
+        return {
+          contents: [
+            { uri: uri.href, mimeType: exported.mime_type, text: exported.content },
+            ...(exported.manifest
+              ? [{ uri: `${uri.href}#manifest`, mimeType: "application/json", text: JSON.stringify(exported.manifest, null, 2) }]
+              : []),
+          ],
+        };
+      });
+    },
+  );
+}
+
 export function registerResearchTools(server: Server): void {
+  registerExportResource(server);
   server.registerTool(
     "explore_corpus",
     {
       title: "Research workbench",
-      annotations: annotate("Research workbench"),
+      annotations: annotate(),
       _meta: CHARTS_UI_META,
       description:
         "Selection workbench: items, concordance, coverage, compare (requires comparison), attention, aliases, or paginated manifest/CSL-JSON/BibTeX exports. Exact filters intersect. limit/offset also page compare/coverage/attention cells. Coverage measures archive availability. Exports identify this page and dataset snapshot; compare snapshot IDs across pages. Schema discovery: iwac://datasets/{subset}.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         mode: z.enum(["items", "concordance", "coverage", "compare", "attention", "aliases", ...EXPORT_MODES]).default("items"),
         subset: z.enum(ALL_SUBSETS as [Subset, ...Subset[]]).default("articles"),
         selection: selectionSchema.optional(),
         comparison: selectionSchema.optional(),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(50).default(20),
+        link: z.boolean().optional().describe(`Export modes: link the whole selection (≤${EXPORT_LINK_MAX}) as one file instead of a page`),
       }),
       outputSchema: output,
     },
-    async ({ mode, subset: requested, selection = {}, comparison, offset, limit }) => {
+    async ({ mode, subset: requested, selection = {}, comparison, offset, limit, link }) => {
       if (mode === "concordance" && !selection.keyword?.trim())
         return errorResult({ error: "Concordance requires nonempty selection.keyword" });
       const subset = mode === "aliases" ? "index" : requested;
@@ -96,16 +179,27 @@ export function registerResearchTools(server: Server): void {
       if (f.err) return errorResult(f.err);
       const total = await count(v, f);
       const base = { subset, filters: f.echo, total_matches: total };
+      if (isExportMode(mode) && link) {
+        if (total > EXPORT_LINK_MAX)
+          return errorResult({
+            error: `This selection holds ${total} items; a linked export holds at most ${EXPORT_LINK_MAX}. Narrow it, or page without link.`,
+          });
+        const uri = exportUri(mode, subset, selection);
+        const file = exportFile(mode, subset, "all");
+        const result = structuredResult({
+          ...base, view: "records", mode, rows: [], export: { ...file, uri, items: total },
+          note: "The linked file holds the whole selection, read when the resource is opened; its manifest records the snapshot it was read from.",
+        });
+        return {
+          ...result,
+          content: [
+            ...result.content,
+            { type: "resource_link" as const, uri, name: file.filename, mimeType: file.mime_type, description: `${total} ${subset} items, ${mode}` },
+          ],
+        };
+      }
       if (isExportMode(mode)) {
-        const rows = await query(
-          `SELECT ${citationProjection(subset, schema)} FROM ${v} WHERE ${whereSql(f.where)} ORDER BY ${schema.has("pub_date") ? "pub_date DESC NULLS LAST, " : ""}"o:id" LIMIT ? OFFSET ?`,
-          [...f.params, limit, offset],
-        );
-        for (const row of rows) {
-          const id = String(row.id);
-          row.id = `${subset}:${id}`;
-          row.url ||= itemUrl(id);
-        }
+        const rows = await exportRows(subset, schema, v, f, limit, offset);
         const exported = researchExport(mode, subset, rows, f.echo, { offset, limit, total_matches: total });
         if (Buffer.byteLength(JSON.stringify(exported), "utf8") > 64_000)
           return errorResult({ error: "Export page exceeds 64 kB; reduce limit or narrow selection" });
@@ -138,10 +232,12 @@ export function registerResearchTools(server: Server): void {
           r.id = `${subset}:${r.id}`;
           r.url ||= itemUrl(String(r.id).split(":")[1]);
           if (mode === "concordance") {
-            const terms =
-              selection.keyword_mode === "all_terms"
-                ? (selection.keyword ?? "").trim().split(/\s+/)
-                : [selection.keyword ?? "", ...(selection.keyword_aliases ?? [])];
+            // The contexts follow the selection's own matching rule
+            // (aggregateFilters): aliases are whole-phrase alternatives,
+            // otherwise each required term gets its contexts.
+            const terms = selection.keyword_aliases?.length
+              ? [selection.keyword ?? "", ...selection.keyword_aliases]
+              : keywordTerms(selection.keyword, selection.keyword_mode);
             Object.assign(r, concordanceContexts(String(r.context_text ?? ""), terms, body ?? ""));
             delete r.context_text;
           }

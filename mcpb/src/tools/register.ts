@@ -1,4 +1,4 @@
-import { requestProvenance, PROVENANCE_META_KEY } from "../provenance.js";
+import { provenanceSummary, requestProvenance, PROVENANCE_META_KEY } from "../provenance.js";
 import { withRequest } from "../request.js";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { registerArticleTools } from "./articles.js";
@@ -16,7 +16,9 @@ import { registerResearchTools } from "./research.js";
 import { registerSearchTools } from "./search.js";
 import { registerAppResources } from "./appUi.js";
 import { registerPrompts } from "../prompts.js";
-import type { Server } from "./_shared.js";
+import { errorResult, type Server } from "./_shared.js";
+import { config } from "../config.js";
+import { allowedTools } from "../toolProfiles.js";
 
 /** Register all IWAC tools, resources and prompts, grouped by domain. */
 function registerAll(server: Server): void {
@@ -39,6 +41,40 @@ function registerAll(server: Server): void {
   registerAudiovisualTools(server);
   registerImageTools(server);
   registerPrompts(server);
+}
+
+/**
+ * The entry tools the instructions send a model to first. Hosts that defer
+ * tool loading (Claude Code's tool search) keep these loaded, so the workflow
+ * the instructions describe works before any search for tools.
+ */
+export const ALWAYS_LOAD = new Set(["search", "fetch", "get_collection_stats"]);
+const ALWAYS_LOAD_META_KEY = "anthropic/alwaysLoad";
+
+/**
+ * Longest string any argument may carry. Not advertised as `maxLength` in the
+ * schemas: ~150 string fields would add ~900 tokens to every turn, past the
+ * footprint ceiling, for a bound no legitimate call comes near (the longest
+ * real inputs are semantic queries describing a photograph). Checked here, once,
+ * for every tool and nested field, before any query runs.
+ */
+export const MAX_INPUT_STRING_CHARS = 2_000;
+
+/** The path of the first string in `value` longer than `max`, if any. */
+export function overlongString(value: unknown, max = MAX_INPUT_STRING_CHARS, path = ""): string | undefined {
+  if (typeof value === "string") return value.length > max ? path || "(argument)" : undefined;
+  if (Array.isArray(value)) {
+    for (const [i, item] of value.entries()) {
+      const hit = overlongString(item, max, `${path}[${i}]`);
+      if (hit) return hit;
+    }
+  } else if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      const hit = overlongString(item, max, path ? `${path}.${key}` : key);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
 }
 
 /** One recorded registration call, ready to apply to a fresh server. */
@@ -97,6 +133,7 @@ export function memoizeJsonSchema(schema: unknown): void {
 }
 
 let replays: Replay[] | undefined;
+let toolNames: string[] = [];
 
 /**
  * Run `registerAll` ONCE against a recorder, keeping each call's arguments.
@@ -118,14 +155,26 @@ let replays: Replay[] | undefined;
  */
 function recordRegistrations(): Replay[] {
   const recorded: Replay[] = [];
+  // Tools outside IWAC_TOOL_PROFILE are never recorded, so no server the
+  // factory builds lists or answers them.
+  const allowed = allowedTools(config.toolProfile);
+  const names: string[] = [];
   const recorder = {
     registerTool(...args: Parameters<McpServer["registerTool"]>) {
-      memoizeJsonSchema(args[1].inputSchema);
-      memoizeJsonSchema(args[1].outputSchema);
-      const [name, definition, callback] = args;
+      const [name, registered, callback] = args;
+      if (allowed && !allowed.has(name)) return;
+      names.push(name);
+      memoizeJsonSchema(registered.inputSchema);
+      memoizeJsonSchema(registered.outputSchema);
+      const definition = ALWAYS_LOAD.has(name)
+        ? { ...registered, _meta: { ...registered._meta, [ALWAYS_LOAD_META_KEY]: true } }
+        : registered;
       recorded.push((s) =>
         s.registerTool(name, definition, (input, extra) =>
           withRequest(extra.mcpReq.signal, async () => {
+            const overlong = overlongString(input);
+            if (overlong)
+              return errorResult({ error: `'${overlong}' exceeds ${MAX_INPUT_STRING_CHARS} characters` }, "invalid_argument");
             const result = await callback(input, extra);
             if (result.isError) return result;
             const provenance = requestProvenance(name, input);
@@ -134,7 +183,7 @@ function recordRegistrations(): Replay[] {
               _meta: { ...result._meta, [PROVENANCE_META_KEY]: provenance },
               content: [
                 ...(Array.isArray(result.content) ? result.content : []),
-                { type: "text" as const, text: JSON.stringify({ provenance }) },
+                { type: "text" as const, text: JSON.stringify({ provenance: provenanceSummary(provenance) }) },
               ],
             };
           }),
@@ -152,6 +201,7 @@ function recordRegistrations(): Replay[] {
   // The one cast in this scheme: the recorder's methods return nothing where
   // McpServer's return the registered handle, which no caller here reads.
   registerAll(recorder as unknown as Server);
+  toolNames = names;
   return recorded;
 }
 
@@ -160,4 +210,11 @@ function recordRegistrations(): Replay[] {
 export function registerServerFeatures(server: McpServer): void {
   replays ??= recordRegistrations();
   for (const replay of replays) replay(server);
+}
+
+/** The tools every server this process builds registers (after the profile
+ * and the semantic-search switch), in registration order. */
+export function registeredToolNames(): ReadonlySet<string> {
+  replays ??= recordRegistrations();
+  return new Set(toolNames);
 }

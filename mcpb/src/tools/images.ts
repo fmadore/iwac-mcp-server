@@ -20,7 +20,7 @@ import {
   dateRangeFilter,
   detailResult,
   errorResult,
-  keywordFilter,
+  allTermsFilter,
   likeFilterIfExists,
   pipeValueFilterIfExists,
   pubDateOrder,
@@ -46,11 +46,11 @@ export function registerImageTools(server: Server): void {
         "Each result carries `image_url` (the full-resolution file), `coordinates` ('lat, lng' where known) and " +
         "the canonical IWAC page. Call with no arguments to list all. Captions are almost never present, so " +
         "prefer subject/place filters over keywords, or semantic_search_images when it is enabled.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         keyword: z
           .string()
           .optional()
-          .describe("French concept keyword; substring match on title, creator, subject, place and caption"),
+          .describe('French concept keyword; every word must occur in the title, creator, subject, place or caption; "quote" a phrase'),
         country: countryParam({ nigeria: true }),
         subject: z.string().optional().describe("Exact subject tag (pipe-aware)"),
         spatial: z.string().optional().describe("Exact place name, e.g. Ouagadougou (pipe-aware)"),
@@ -72,7 +72,8 @@ export function registerImageTools(server: Server): void {
       const where: string[] = [];
       const params: Bindable[] = [];
 
-      keywordFilter(schema, where, params, TEXT_COLS.images, args.keyword);
+      const keywordError = allTermsFilter(schema, where, params, TEXT_COLS.images, args.keyword);
+      if (keywordError) return errorResult({ error: keywordError });
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       pipeValueFilterIfExists(schema, where, params, "subject", args.subject);
       pipeValueFilterIfExists(schema, where, params, "spatial", args.spatial);
@@ -102,7 +103,7 @@ export function registerImageTools(server: Server): void {
       description:
         "Get one photograph by id: title, photographer, capture date, place and coordinates, subjects, rights, " +
         "the IIIF manifest, and the full-resolution `image_url`. The server returns URLs, not image bytes.",
-      inputSchema: z.object({ image_id: z.number().int() }),
+      inputSchema: z.strictObject({ image_id: z.number().int() }),
     },
     ({ image_id }) => detailResult("images", "Image", image_id),
   );
@@ -120,7 +121,7 @@ export function registerImageTools(server: Server): void {
         "signage in Arabic'). This is cross-modal: the ranking runs against a multimodal embedding of the " +
         "photograph itself, not against a caption, so it works even though only 2 of the 30 images have one. " +
         SEMANTIC_NOTE,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         query: z.string().trim().min(1).max(8192).describe("Description of the visual content, any language"),
         country: countryParam({ nigeria: true }),
         limit: z.number().int().optional().describe("Default 10, max 30"),

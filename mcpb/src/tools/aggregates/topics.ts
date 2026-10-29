@@ -33,7 +33,7 @@ export function registerTopicsTools(server: Server): void {
       description:
         "Counts of offline LDA topic assignments, optionally over time. Topic labels are interpretive model outputs; exact topic_id filters select assignments rather than keyword matches. Reports unclassified coverage.",
       _meta: CHARTS_UI_META,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         subset: z.string().optional().describe("articles (default) | references"),
         ...filterInputs(),
         min_prob: z.number().optional().describe("0-1; keep only assignments at or above this probability"),
