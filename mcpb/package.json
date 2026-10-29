@@ -80,7 +80,7 @@
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "^2.1.2",
-    "@biomejs/biome": "^2.6.2",
+    "@biomejs/biome": "^2.6.3",
     "@modelcontextprotocol/client": "~2.4.0",
     "@modelcontextprotocol/ext-apps": "^2.0.3",
     "@types/node": "^24.19.2",
