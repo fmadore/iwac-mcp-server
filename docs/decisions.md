@@ -23,3 +23,4 @@ items in [TODO.md](../TODO.md).
 | D14 | **The Node major is coordinated by hand** across the Dockerfile, the workflows, `engines` and `@types/node`; Dependabot never moves it. |
 | D15 | **Releases are immutable**: a version published on GitHub or the MCP Registry is never replaced; fix with a new version. The published bytes are the tested bytes. |
 | D16 | **The skill has one source**, `.agents/skills/iwac-mcp/`, embedded at build time and served over SEP-2640. |
+| D17 | **One named default sentiment model** (v6.0.0: `claude-haiku-5-5`, for reach), chosen by id; single-model surfaces name it, the consensus is never a model, and moving it is a major version. |

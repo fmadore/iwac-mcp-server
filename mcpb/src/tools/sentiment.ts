@@ -12,6 +12,7 @@ import {
   colsFor,
   CONSENSUS_COLS,
   CONSENSUS_DISPUTE_COL,
+  CONSENSUS_INSTRUMENT_COL,
   countryParam,
   DEFAULT_SENTIMENT_MODEL,
   DISPUTE_FIELDS,
@@ -38,16 +39,16 @@ import {
 } from "./_shared.js";
 
 /**
- * Shipped with every subjectivity block. Pairwise κ across the five generation-2
- * models, measured on the whole 2026-08-25 revision, runs 0.16-0.52 — the
- * weakest of the three scales by a wide margin (centrality runs 0.45-0.74 on the
- * same rows) — and on the 2026-07-29 pilot one model reproduced its own answer
+ * Shipped with every subjectivity block. Pairwise κ across the six generation-2
+ * models, measured upstream on the whole 2026-10-27 revision, runs 0.16-0.52 —
+ * the weakest of the three scales by a wide margin (centrality runs 0.44-0.74 on
+ * the same rows) — and on the 2026-07-29 pilot one model reproduced its own answer
  * on a re-run only 47% of the time. That is weak enough that a reader who gets
  * the number without the caveat will over-read it, and the number is cheap
  * enough to ship that withholding it entirely is worse.
  */
 const SUBJECTIVITY_CAVEAT =
-  "Weakest of the three scales: inter-model agreement κ 0.16-0.52 across the five models, and self-consistency as " +
+  "Weakest of the three scales: inter-model agreement κ 0.16-0.52 across the six models, and self-consistency as " +
   "low as 47% on re-run. Treat as weak evidence and never report it without this caveat; polarity and centrality " +
   "are far stronger.";
 
@@ -75,6 +76,7 @@ const SENTIMENT_DISTRIBUTION_OUTPUT = z.object({
   consensus: z.looseObject({}).optional(),
   subjectivity_median_rank: z.looseObject({}).optional(),
   disputed: z.looseObject({}).optional(),
+  instrument_ids: z.record(z.string(), z.number()).optional(),
   note: z.string().optional(),
 });
 
@@ -462,12 +464,22 @@ export function registerSentimentTools(server: Server): void {
               "a value. Read the articles behind these with search_by_sentiment(disputed=…).",
           };
         }
+        if (schema.has(CONSENSUS_INSTRUMENT_COL)) {
+          const rows = await query(
+            `SELECT ${q(CONSENSUS_INSTRUMENT_COL)} AS k, COUNT(*) AS c FROM ${viewName("articles")} ${whereSql}
+             GROUP BY 1 ORDER BY 2 DESC LIMIT 5`,
+            params,
+          );
+          const ids = rows.filter((r) => r.k !== null && r.k !== "").map((r) => [String(r.k), Number(r.c)]);
+          if (ids.length) out.instrument_ids = Object.fromEntries(ids);
+        }
         out.coverage = coverage;
         out.note =
-          "Majority of the generation-2 panel, computed upstream and served as stored. The threshold follows " +
+          "Majority of the generation-2 panel, computed upstream and served as stored; instrument_ids fingerprints " +
+          "the panel and rule behind each row. The threshold follows " +
           "the votes ACTUALLY CAST (over half, minimum two), so an article one model skipped is still decided " +
           "by the rest, and these counts can exceed agreement.scored_by_all. An empty polarity or centrality " +
-          "value means NO MAJORITY formed, never 'not computed'. No single model produced these, so do not " +
+          "value means NO MAJORITY formed (or fewer than two models voted), never 'not computed'. No single model produced these, so do not " +
           "attribute them to one.";
         return out;
       };
@@ -524,7 +536,9 @@ export function registerSentimentTools(server: Server): void {
         // the same base: articles all listed models scored. That is what makes
         // the pairs comparable with one another, and it is also why a model
         // with thinner coverage shrinks the base for pairs it is not part of.
-        // Say so, and carry any short model's own caveat, rather than leaving a
+        // Say so, and carry the caveat of any model whose coverage differs (a
+        // short one shrinks the base; a wide one has rows the base leaves out)
+        // rather than leaving a
         // reader to assume the base is the whole corpus.
         const shortfalls = models.filter((m) => m.caveat);
         payload.agreement = {
@@ -575,7 +589,7 @@ export function registerSentimentTools(server: Server): void {
       }
 
       // "How often do they concur" is only half the question; the other half is
-      // what the panel concluded. Attached here so a caller comparing the five
+      // what the panel concluded. Attached here so a caller comparing the six
       // readings does not have to know a second call exists.
       if (schema.has(CONSENSUS_COLS.polarity)) payload.consensus = await consensusBlock();
 

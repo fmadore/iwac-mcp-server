@@ -21,15 +21,16 @@ export interface SentimentModel {
 }
 
 /**
- * The five models of the generation-2 annotation campaign. All ran the same
+ * The six models of the generation-2 annotation campaign. All ran the same
  * prompt (fingerprint d14ace9ac192), which is what makes them comparable to each
  * other and not to generation 1.
  *
  * Coverage is NOT uniform, and that is the one thing to know before comparing
  * their counts. Four of them score all 12,298 French- and English-language
- * articles (the 51 Ewé/Kabiyè/Dendi/untagged ones are skipped deliberately: the
- * prompt is French, and a French-prompted model returns confident but unusable
- * output for them). qwen3-8-27b scores 12,098 — see its entry below.
+ * articles the subset held when they ran (the 51 Ewé/Kabiyè/Dendi/untagged ones
+ * are skipped deliberately: the prompt is French, and a French-prompted model
+ * returns confident but unusable output for them). qwen3-8-27b falls short of
+ * that and claude-haiku-5-5 reaches past it; see their entries below.
  *
  * Generation 1 (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) is
  * NOT served here. Its columns still exist on the Hub, but the archive's own
@@ -70,10 +71,26 @@ export const SENTIMENT_MODELS: SentimentModel[] = [
     // subjectivity label where Islam is marginal while the prompt licenses
     // declining only where Islam is absent.
     caveat:
-      "Scores 12,098 articles where the other four score 12,298. The 200-article gap is deliberate (retired " +
+      "Scores 12,098 articles where four other models score 12,298. The 200-article gap is deliberate (retired " +
       "after four attempts each), and concentrates on articles peripheral to Islam — 6.2% of `Marginal` " +
       "articles are unscored against ~1% of `Central` ones — so any base restricted to articles all models " +
       "scored leans slightly toward material where Islam is central.",
+  },
+  // The sixth member (2026-10-27), and the first whose coverage gap runs the
+  // other way: its pass ran after the subset had grown, so it reaches 4,366
+  // French articles no other member has read. Those rows carry one vote, which
+  // is why they have no consensus and sit outside every all-model agreement
+  // base. A caveat rather than silence because a ring 4,300 articles larger
+  // than its neighbours reads as "Haiku sees more of everything".
+  {
+    id: "claude-haiku-5-5",
+    prefix: "claude_haiku_5_5",
+    aliases: ["claude", "anthropic", "haiku"],
+    caveat:
+      "Scores 16,617 articles where the others score at most 12,298: 4,366 French articles carry its vote " +
+      "alone, so its counts are not on the same base as the other models', those articles fall outside any " +
+      "all-model agreement base, and they have no consensus (one vote is not a majority). It joined without a " +
+      "pilot, so no self-consistency figure covers it.",
   },
 ];
 
@@ -100,29 +117,38 @@ export const RETIRED_SENTIMENT_MODELS: Record<string, string> = {
  * get_country_comparison. Those name it explicitly rather than implying a
  * consensus — get_sentiment_distribution with model:"all" is the tool for that.
  *
- * gpt-5-6-luna and not one of the other four, for three reasons that have held
- * through two panel additions:
+ * claude-haiku-5-5 since v6.0.0, chosen for reach. It is the only member that
+ * has read the newest arrivals: 16,617 of 16,715 articles against 12,298 for
+ * Luna, the default until then. Under Luna every inline `polarity` on an
+ * article from the last ~4,400 arrivals was empty, and search_by_sentiment and
+ * get_country_comparison silently left those articles out.
  *
- *  - It is complete on all three fields — its only subjectivity gaps are exactly
- *    its `Non abordé` rows, a principled abstention rather than a dropped answer
- *    — where deepseek-v4-flash-0731 omits ~489 scores it owed.
- *  - It sits near the centre of the panel rather than at an edge: mean pairwise
- *    polarity agreement 65.7% against Mistral Small's 54.6%, and the Mistral
- *    family is a persistent outlier on centrality, which is a bad thing for a
- *    default to make invisible.
- *  - Moving the default is not a neutral act. Every inline `polarity` value this
- *    server has ever returned is Luna's, and re-pointing it would silently
- *    re-label all of them while nothing in the payload shape changed.
+ * What the switch costs, and what the payloads must keep saying:
  *
- * ADDING a model must therefore leave this line alone. gemma-4-31b-it is equally
- * complete (its 294 unscored subjectivity rows are likewise exactly its
- * `Non abordé` ones) and "as good as the default" is not a reason to become it.
- * qwen3-8-27b agrees with Luna more closely than any other pair on polarity
- * (κ 0.54) and on subjectivity (κ 0.52), which makes it the most tempting
- * candidate yet and still not one: it is 200 articles short, so promoting it
- * would put a silent hole in every inline polarity this server returns.
+ *  - Those ~4,366 extra rows are ONE model's reading. No other member has
+ *    scored them, so they have no consensus and no agreement figure; a default
+ *    answer that leans on recent material leans on a single rater. The
+ *    registry caveat travels with every single-model answer for that reason.
+ *  - Haiku joined without a pilot, so no self-consistency figure covers it.
+ *    It does read the construct the way the panel does (highest mean polarity
+ *    κ, 0.499 against the other five; mid-panel on centrality and subjectivity),
+ *    which is what made the switch defensible at all.
+ *  - It is complete where it reached: its 505 unscored subjectivity rows are
+ *    exactly its `Non abordé` ones, the same principled abstention as Luna's.
+ *    It has 47 articles Luna scored and it did not.
+ *  - Moving the default re-labels every inline value this server returns while
+ *    the payload shape stays the same. That is why it is a major version, and
+ *    why the single-model surfaces name the model (`sentiment_model`,
+ *    `polarity_model`) rather than implying "the AI".
+ *
+ * The default is picked by id, not by position, so the panel order in
+ * SENTIMENT_MODELS (and therefore in model:"all") stays chronological.
  */
-export const DEFAULT_SENTIMENT_MODEL: SentimentModel = SENTIMENT_MODELS[0];
+export const DEFAULT_SENTIMENT_MODEL: SentimentModel = (() => {
+  const m = SENTIMENT_MODELS.find((model) => model.id === "claude-haiku-5-5");
+  if (!m) throw new Error("the default sentiment model is missing from the registry");
+  return m;
+})();
 
 /** Canonical ids, for `valid_values` in an error and for tool descriptions. */
 export const SENTIMENT_MODEL_IDS: string[] = SENTIMENT_MODELS.map((m) => m.id);
@@ -180,22 +206,34 @@ export function retiredSentimentModel(input: string): string | undefined {
  * The three fields do not behave alike, and assuming they do is the trap:
  *
  *  - polarity and centrality are MAJORITY LABELS. Empty means one of two
- *    different things — no majority formed, or nobody voted — and only
- *    CONSENSUS_DISPUTE_COL tells them apart. Empty NEVER means "not computed".
+ *    different things — no majority formed, or fewer than two models voted —
+ *    and only CONSENSUS_DISPUTE_COL tells them apart. Empty NEVER means "not computed".
  *  - subjectivity is a MEDIAN RANK on the 1-5 scale stored as a float. A median
  *    resolves whenever at least one model voted, so its coverage is HIGHER than
  *    the majority fields', and an even number of voters yields a half-rank
  *    (1.5, 2.5, …) that maps to no label at all. Never render it as a label,
  *    and never join it to SUBJECTIVITY_VALUES.
+ *
+ * These are the `_g2_` columns, recomputed upstream whenever the panel changes.
+ * The unversioned `consensus_*` / `sentiment_disagreement` columns still exist
+ * but were cleared when Claude Haiku 5.5 joined (2026-10-27) and hold only a few
+ * dozen leftover rows: reading them reports a consensus on 37 articles.
  */
 export const CONSENSUS_COLS = {
-  polarity: "consensus_polarite",
-  centrality: "consensus_centralite",
-  subjectivity: "consensus_subjectivite_score",
+  polarity: "consensus_g2_polarite",
+  centrality: "consensus_g2_centralite",
+  subjectivity: "consensus_g2_subjectivite_score",
 } as const;
 
 /** Pipe-joined list of the fields the panel split on, empty where it did not. */
-export const CONSENSUS_DISPUTE_COL = "sentiment_disagreement";
+export const CONSENSUS_DISPUTE_COL = "sentiment_g2_disagreement";
+
+/**
+ * Fingerprint of the panel and rule that produced each consensus row. One value
+ * across the corpus today; two would mean a selection mixes, say, five-voter and
+ * six-voter majorities, which a 3-3 tie makes a different instrument.
+ */
+export const CONSENSUS_INSTRUMENT_COL = "consensus_g2_instrument_id";
 
 /**
  * The field names as they appear inside CONSENSUS_DISPUTE_COL. French, matching

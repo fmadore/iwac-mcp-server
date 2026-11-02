@@ -29,7 +29,7 @@ test("empty or degenerate marginals do not produce misleading kappa or NaN", () 
 
 test("inline sentiment identifies its scorer only when a label is projected", () => {
   const schema = new Set(["o:id", sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity]);
-  assert.match(colsFor("articles", schema, "summary"), /'gpt-5-6-luna' AS sentiment_model/);
+  assert.match(colsFor("articles", schema, "summary"), /'claude-haiku-5-5' AS sentiment_model/);
   assert.doesNotMatch(colsFor("articles", new Set(["o:id"]), "summary"), /sentiment_model/);
 });
 

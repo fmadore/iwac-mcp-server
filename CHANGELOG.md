@@ -6,6 +6,13 @@ full notes, which are also its GitHub Release body, live in
 Git history and on the [releases page](https://github.com/fmadore/iwac-mcp-server/releases).
 [docs/decisions.md](docs/decisions.md) records the decisions in force.
 
+## 6.0.0 — 2026-11-02
+
+Claude Haiku 5.5 joins the sentiment panel as its sixth model and becomes the
+default reader, because it alone has read the newest arrivals (16,617 of 16,715
+articles). The consensus moves to the `consensus_g2_*` columns and names its
+panel fingerprint. [Notes](docs/releases/v6.0.0.md).
+
 ## 5.0.0 — 2026-10-29
 
 One keyword rule for every search (every word must occur; quote a phrase;

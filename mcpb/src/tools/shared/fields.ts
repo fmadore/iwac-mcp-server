@@ -111,7 +111,7 @@ const ALL_ARTICLE_VIEWS: FieldView[] = ["detail", "fetch", "summary", "sentiment
 
 /**
  * The sentiment columns projected onto article rows. One model's, not a blend:
- * the panel disagrees often enough (unanimous on polarity for 32% of the corpus)
+ * the panel disagrees often enough (unanimous on polarity for 30% of the corpus)
  * that averaging it here would invent a reading no annotator produced.
  * `requires` drops them on a revision that
  * predates the generation-2 columns rather than throwing. `subjectivity` is a

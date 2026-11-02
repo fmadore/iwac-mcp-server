@@ -531,20 +531,28 @@ await withFixtureScope(async (fixtures) => {
   ]);
 
   CASES.push([
-    "sentiment (five models)",
+    "sentiment (six models)",
     {
       view: "sentiment",
       model: "all",
-      // Real generation-2 figures, measured over the 12,098 articles all five
-      // models scored (2026-08-25 revision), so a rendering change that mangles
+      // Real generation-2 figures, measured over the 12,098 articles all six
+      // models scored (2026-10-27 revision), so a rendering change that mangles
       // the numbers is visible as a wrong-looking chart rather than a plausible
       // one. Note what each new member did to the headline: unanimity on polarity
-      // fell 43% → 36% with the fourth and 36% → 32% with the fifth. The fifth
-      // also breaks the panel's uniform coverage, which is why the blocks below
-      // carry `coverage` — qwen is measured on 200 fewer articles than the rest.
-      total_articles: 12349,
+      // fell 43% → 36% with the fourth, 36% → 32% with the fifth and 32% → 30%
+      // with the sixth. Coverage is uneven in BOTH directions, which is why the
+      // blocks below carry `coverage`: qwen is measured on 200 fewer articles
+      // than the usual 12,298 and haiku on 4,319 more.
+      total_articles: 16715,
       filters: {},
-      models: ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731", "gemma-4-31b-it", "qwen3-8-27b"],
+      models: [
+        "gpt-5-6-luna",
+        "mistral-small-2603",
+        "deepseek-v4-flash-0731",
+        "gemma-4-31b-it",
+        "qwen3-8-27b",
+        "claude-haiku-5-5",
+      ],
       by_model: {
         "gpt-5-6-luna": {
           polarity_distribution: {
@@ -572,7 +580,7 @@ await withFixtureScope(async (fixtures) => {
             rank_scale: "1 = Très objectif … 5 = Très subjectif; derived here, not stored",
             caveat: "Weakest of the three scales: inter-model agreement κ 0.16-0.52.",
           },
-          coverage: { polarity: 12298, centrality: 12298, subjectivity: 12008, matched_articles: 12349 },
+          coverage: { polarity: 12298, centrality: 12298, subjectivity: 12008, matched_articles: 16715 },
         },
         "mistral-small-2603": {
           polarity_distribution: {
@@ -583,7 +591,7 @@ await withFixtureScope(async (fixtures) => {
             Négatif: 362,
             "Très négatif": 184,
           },
-          coverage: { polarity: 12298, matched_articles: 12349 },
+          coverage: { polarity: 12298, matched_articles: 16715 },
         },
         "deepseek-v4-flash-0731": {
           polarity_distribution: {
@@ -594,7 +602,7 @@ await withFixtureScope(async (fixtures) => {
             Négatif: 223,
             "Très négatif": 41,
           },
-          coverage: { polarity: 12298, matched_articles: 12349 },
+          coverage: { polarity: 12298, matched_articles: 16715 },
         },
         "gemma-4-31b-it": {
           polarity_distribution: {
@@ -605,7 +613,7 @@ await withFixtureScope(async (fixtures) => {
             Négatif: 233,
             "Très négatif": 49,
           },
-          coverage: { polarity: 12298, matched_articles: 12349 },
+          coverage: { polarity: 12298, matched_articles: 16715 },
         },
         // The short member. It also barely uses the extremes — 176 Très positif
         // against Luna's 425, and 5 Très négatif — so its ring is a real shape,
@@ -619,15 +627,28 @@ await withFixtureScope(async (fixtures) => {
             "Très positif": 176,
             "Très négatif": 5,
           },
-          coverage: { polarity: 12098, matched_articles: 12349 },
-          model_caveat: "Scores 12,098 articles where the other four score 12,298.",
+          coverage: { polarity: 12098, matched_articles: 16715 },
+          model_caveat: "Scores 12,098 articles where four other models score 12,298.",
+        },
+        // The wide member: its ring includes 4,366 articles no other model read.
+        "claude-haiku-5-5": {
+          polarity_distribution: {
+            Neutre: 8239,
+            Positif: 6511,
+            "Non applicable": 906,
+            Négatif: 520,
+            "Très positif": 404,
+            "Très négatif": 37,
+          },
+          coverage: { polarity: 16617, matched_articles: 16715 },
+          model_caveat: "Scores 16,617 articles where the others score at most 12,298.",
         },
       },
       agreement: {
         field: "polarity",
         scored_by_all: 12098,
-        unanimous: 3929,
-        unanimous_percent: 32,
+        unanimous: 3632,
+        unanimous_percent: 30,
         pairwise: {
           "gpt-5-6-luna~mistral-small-2603": 7019,
           "gpt-5-6-luna~deepseek-v4-flash-0731": 8277,
@@ -639,32 +660,41 @@ await withFixtureScope(async (fixtures) => {
           "deepseek-v4-flash-0731~gemma-4-31b-it": 9064,
           "deepseek-v4-flash-0731~qwen3-8-27b": 8607,
           "gemma-4-31b-it~qwen3-8-27b": 9056,
+          "gpt-5-6-luna~claude-haiku-5-5": 9015,
+          "mistral-small-2603~claude-haiku-5-5": 6975,
+          "deepseek-v4-flash-0731~claude-haiku-5-5": 8496,
+          "gemma-4-31b-it~claude-haiku-5-5": 8458,
+          "qwen3-8-27b~claude-haiku-5-5": 9070,
         },
-        base: "articles scored on polarity by all 5 models (of 12349 matched)",
-        base_caveats: { "qwen3-8-27b": "Scores 12,098 articles where the other four score 12,298." },
+        base: "articles scored on polarity by all 6 models (of 16715 matched)",
+        base_caveats: {
+          "qwen3-8-27b": "Scores 12,098 articles where four other models score 12,298.",
+          "claude-haiku-5-5": "Scores 16,617 articles where the others score at most 12,298.",
+        },
       },
-      // Measured alongside the rest. Note it decides MORE articles (11,869) than
-      // the agreement base holds (12,098 scored by all five, of which 3,929 are
+      // Measured alongside the rest. It decides 10,463 articles where the
+      // agreement base holds 12,098 (scored by all six, of which 3,632 are
       // unanimous): the two count different things on different sets, which is
-      // exactly what the chart has to keep apart.
+      // exactly what the chart has to keep apart. With six voters a 3-3 split
+      // forms no majority, which is most of why the consensus fell from 11,869.
       consensus: {
         polarity_distribution: {
-          Neutre: 5985,
-          Positif: 4838,
-          "Très positif": 483,
-          "Non applicable": 323,
-          Négatif: 211,
-          "Très négatif": 29,
+          Neutre: 5238,
+          Positif: 4358,
+          "Très positif": 337,
+          "Non applicable": 322,
+          Négatif: 186,
+          "Très négatif": 22,
         },
         centrality_distribution: {
-          "Très central": 8247,
-          Central: 1236,
-          Marginal: 1166,
-          Secondaire: 871,
-          "Non abordé": 313,
+          "Très central": 7940,
+          Marginal: 1114,
+          Central: 988,
+          Secondaire: 649,
+          "Non abordé": 304,
         },
-        coverage: { polarity: 11869, centrality: 11833, subjectivity: 12195, matched_articles: 12349 },
-        disputed: { polarite: 429, centralite: 465, subjectivite: 3184, any: 3778 },
+        coverage: { polarity: 10463, centrality: 10995, subjectivity: 12078, matched_articles: 16715 },
+        disputed: { polarite: 1835, centralite: 1303, subjectivite: 4247, any: 6126 },
       },
       agreement_matrix: {
         rows: "gpt-5-6-luna",
@@ -678,26 +708,31 @@ await withFixtureScope(async (fixtures) => {
     (markup) => {
       // Count-driven, so a sixth member changes the heading instead of making it
       // wrong — the title said "three models" over four rings until v3.2.0.
-      if (!markup.includes("5 models compared")) return "did not switch to the comparison view";
-      if (!markup.includes("32%")) return "agreement rate missing from the headline";
+      if (!markup.includes("6 models compared")) return "did not switch to the comparison view";
+      if (!markup.includes("30%")) return "agreement rate missing from the headline";
       if (!markup.includes("gpt-5-6-luna ↔ mistral-small-2603")) return "pairwise agreement chart missing";
       if (!markup.includes("deepseek-v4-flash-0731 ↔ gemma-4-31b-it")) return "the fourth model's pairs are missing";
       if (!markup.includes("gemma-4-31b-it ↔ qwen3-8-27b")) return "the fifth model's pairs are missing";
-      if (!markup.includes("all 5")) return "the unanimity bar should name the panel size";
+      if (!markup.includes("qwen3-8-27b ↔ claude-haiku-5-5")) return "the sixth model's pairs are missing";
+      if (!markup.includes("all 6")) return "the unanimity bar should name the panel size";
       // The uneven coverage must reach the CHART, not only the JSON: a ring drawn
-      // on 200 fewer articles than the one beside it is a misreading waiting to
-      // happen, and the four complete members must stay unannotated.
+      // on 200 fewer, or 4,319 more, articles than the one beside it is a
+      // misreading waiting to happen, and the four members on the usual base
+      // must stay unannotated. Measured against the fullest ring, all five of
+      // the others would have been captioned short.
       if (!markup.includes("200 fewer articles scored")) return "the short member's ring is not captioned";
-      if ((markup.match(/fewer articles scored/g) ?? []).length !== 1)
-        return "only the short member's ring should be captioned";
-      // The consensus must render, and must NOT read as a sixth annotator: it sits
+      if (!/4\D?319 more articles scored/.test(markup)) return "the wide member's ring is not captioned";
+      if ((markup.match(/(fewer|more) articles scored/g) ?? []).length !== 2)
+        return "only the short and the wide member's rings should be captioned";
+      if (!markup.includes("articles no other model read")) return "the coverage note should name the wide member";
+      // The consensus must render, and must NOT read as a seventh annotator: it sits
       // in its own panel and the note says outright that no model produced it.
       if (!markup.includes("Panel consensus")) return "the panel's conclusion is missing from the comparison";
       if (!markup.includes("No model produced it")) return "the consensus must disclaim being a model";
       // Digit groups use THOUSANDS_SEP, which is a space rather than a comma, so
       // these match the separator loosely instead of hard-coding it.
-      if (!/11\D?869/.test(markup)) return "the consensus should state its own base, not borrow the agreement one";
-      if (!/subjectivite 3\D?184/.test(markup)) return "the split-panel breakdown is missing";
+      if (!/10\D?463/.test(markup)) return "the consensus should state its own base, not borrow the agreement one";
+      if (!/subjectivite 4\D?247/.test(markup)) return "the split-panel breakdown is missing";
       // The agreeing diagonal is blanked so the ramp covers the disagreements.
       if (markup.includes("Négatif × Négatif")) return "the agreeing diagonal should be blanked";
       if (!markup.includes("Négatif × Neutre: 137")) return "confusion cell missing";

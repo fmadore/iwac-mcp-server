@@ -259,6 +259,8 @@ export interface ModelBlock {
   /** Consensus only: subjectivity arrives as a float median, never as labels. */
   subjectivity_median_rank?: MedianRank;
   disputed?: Record<string, number | string>;
+  /** Consensus only: panel-and-rule fingerprint → rows it produced. */
+  instrument_ids?: Record<string, number>;
   note?: string;
   /** Per-scale scored counts. The distributions drop their unscored key, so a
    * model that answered fewer articles is invisible without this. */

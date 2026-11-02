@@ -240,15 +240,17 @@ IWAC is a digital archive focused on Islam and Muslims in West Africa:
   public dataset carries full OCR for the ~45% whose text is public on
   islam.zmo.de; `get_collection_stats` reports the live ratio.
 - **AI sentiment analysis** (polarity / centrality / subjectivity) for the
-  12,298 articles the enrichment pass has reached, scored independently by five
-  models: `gpt-5-6-luna` (the one the inline columns report),
-  `mistral-small-2603`, `deepseek-v4-flash-0731`, `gemma-4-31b-it` and
-  `qwen3-8-27b`. The ~4,400 newest arrivals are not scored yet. All five agree
-  on polarity for only ~32% of articles, so
+  articles, scored independently by six models: `gpt-5-6-luna`,
+  `mistral-small-2603`, `deepseek-v4-flash-0731`, `gemma-4-31b-it`,
+  `qwen3-8-27b` and `claude-haiku-5-5`. Haiku is the default since 6.0.0 (the
+  one the inline columns report), because it alone has read the newest
+  arrivals. All six agree on
+  polarity for only ~30% of the articles they all scored, so
   `get_sentiment_distribution(model="all")` is the honest way to quote a figure.
-  They do not all cover the same articles either (`qwen3-8-27b` scores 12,098
-  where the rest score 12,298), so each model reports its own `coverage`.
-  `model="consensus"` returns the panel's precomputed majority (not a sixth
+  They do not all cover the same articles either: four score 12,298,
+  `qwen3-8-27b` 12,098, and `claude-haiku-5-5` 16,617, including ~4,400 recent
+  arrivals it alone has read. So each model reports its own `coverage`.
+  `model="consensus"` returns the panel's precomputed majority (not a seventh
   model), and `search_by_sentiment(disputed=…)` reads the articles it split on
 - **5,000+ authority records** (persons, organisations, places, events, subjects)
 - **1,500+ Islamic publications** (periodical issues, books), most with full OCR
@@ -347,7 +349,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 5.0.0) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 6.0.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -355,7 +357,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {5.0.0},
+  version   = {6.0.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},

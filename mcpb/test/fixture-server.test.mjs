@@ -416,7 +416,7 @@ await withFixtureScope(async (fixtures) => {
     check: (p) => {
       if (p.total_countries !== 5) return `expected 5 article countries, got ${p.total_countries}`;
       // The polarity buckets are one model's, so the payload has to say whose.
-      if (p.polarity_model !== "gpt-5-6-luna") return `polarity_model wrong: ${p.polarity_model}`;
+      if (p.polarity_model !== "claude-haiku-5-5") return `polarity_model wrong: ${p.polarity_model}`;
       if (!p.countries?.some((c) => c.polarity && Object.keys(c.polarity).length)) return "no country carries polarity";
       return null;
     },
@@ -768,8 +768,8 @@ await withFixtureScope(async (fixtures) => {
     },
   });
   // `polarity` is the stable public name for a column whose real name carries the
-  // model; the current dataset spelling resolves onto it too.
-  for (const value of ["polarity", "gpt_5_6_luna_polarite"]) {
+  // model; the default model's dataset spelling resolves onto it too.
+  for (const value of ["polarity", "claude_haiku_5_5_polarite"]) {
     await call("get_semantic_map", { color_by: value }, {
       structured: true,
       check: (p, _body, res) => {
@@ -780,13 +780,16 @@ await withFixtureScope(async (fixtures) => {
       },
     });
   }
-  // A generation-1 column name must NOT alias onto `polarity`: it holds a
+  // Another model's column must NOT alias onto `polarity`: it holds a
   // different model's reading, so colouring by it while the legend says
-  // gpt-5-6-luna would be a chart that lies.
-  await call("get_semantic_map", { color_by: "gemini_3_flash_preview_polarite" }, {
-    expectError: true,
-    checkBody: (b) => (b.includes("valid_values") ? null : "a generation-1 colour column should be refused with valid_values"),
-  });
+  // claude-haiku-5-5 would be a chart that lies. Luna's is the sharpest case,
+  // since it was the default (and so accepted here) before v6.0.0.
+  for (const value of ["gemini_3_flash_preview_polarite", "gpt_5_6_luna_polarite"]) {
+    await call("get_semantic_map", { color_by: value }, {
+      expectError: true,
+      checkBody: (b) => (b.includes("valid_values") ? null : `${value} should be refused with valid_values`),
+    });
+  }
   // Deterministic: the same filter must project the same picture, or the chart
   // reshuffles itself on every call and cannot be read as evidence.
   {
@@ -1001,27 +1004,33 @@ await withFixtureScope(async (fixtures) => {
   await call("get_sentiment_distribution", { model: "all" }, {
     structured: true,
     check: (p) => {
-      if (String(p.models) !== "gpt-5-6-luna,mistral-small-2603,deepseek-v4-flash-0731,gemma-4-31b-it,qwen3-8-27b")
+      if (String(p.models) !== "gpt-5-6-luna,mistral-small-2603,deepseek-v4-flash-0731,gemma-4-31b-it,qwen3-8-27b,claude-haiku-5-5")
         return `models wrong: ${p.models}`;
       if (!p.by_model?.["mistral-small-2603"]?.polarity_distribution) return "per-model distributions missing";
       if (!p.by_model?.["gemma-4-31b-it"]?.polarity_distribution) return "the fourth model's distribution is missing";
       if (!p.by_model?.["qwen3-8-27b"]?.polarity_distribution) return "the fifth model's distribution is missing";
+      if (!p.by_model?.["claude-haiku-5-5"]?.polarity_distribution) return "the sixth model's distribution is missing";
       // 5, not 6: qwen annotated nothing on row 104, so the common base is
       // SMALLER than the matched set. This is the assertion that fails if the
       // agreement base is ever silently widened back to every matched article.
       if (p.agreement?.scored_by_all !== 5)
-        return `only 5 fixture articles carry all five judgements, got ${p.agreement?.scored_by_all}`;
-      // Only 105 (Neutre) survives all five. 102 was unanimous among the first
+        return `only 5 fixture articles carry all six judgements, got ${p.agreement?.scored_by_all}`;
+      // Only 105 (Neutre) survives all six. 102 was unanimous among the first
       // three and gemma reads it Neutre — the row that proves a new member
       // actually moves the agreement number rather than riding along with it.
       if (p.agreement.unanimous !== 1) return `expected 1 unanimous article, got ${p.agreement.unanimous}`;
       // 1 of 5, not 1 of 6: the shrunken base moves the percentage too.
       if (p.agreement.unanimous_percent !== 20) return `expected 20%, got ${p.agreement.unanimous_percent}`;
-      // 5 models → 10 unordered pairs, not 6.
-      if (Object.keys(p.agreement.pairwise ?? {}).length !== 10)
-        return `expected 10 pairwise counts, got ${JSON.stringify(p.agreement.pairwise)}`;
+      // 6 models → 15 unordered pairs, not 10.
+      if (Object.keys(p.agreement.pairwise ?? {}).length !== 15)
+        return `expected 15 pairwise counts, got ${JSON.stringify(p.agreement.pairwise)}`;
       if (p.agreement.pairwise?.["gpt-5-6-luna~gemma-4-31b-it"] === undefined) return "pairwise agreement missing a pair";
       if (p.agreement.pairwise?.["gemma-4-31b-it~qwen3-8-27b"] === undefined) return "pairwise agreement missing qwen";
+      // Haiku mirrors luna, so it parts from Qwen only on row 103 (Très
+      // positif against Positif): 4 of the 5 shared rows. A pair keyed but
+      // never counted would show 0 here.
+      if (p.agreement.pairwise?.["qwen3-8-27b~claude-haiku-5-5"] !== 4)
+        return `qwen~haiku should agree on 4 of 5 shared rows, got ${p.agreement.pairwise?.["qwen3-8-27b~claude-haiku-5-5"]}`;
       // The uneven coverage must be stated, not left to be inferred from a
       // distribution that drops its unscored key.
       if (p.by_model["qwen3-8-27b"].coverage?.polarity !== 5)
@@ -1033,7 +1042,12 @@ await withFixtureScope(async (fixtures) => {
       if (p.by_model["gpt-5-6-luna"].model_caveat !== undefined)
         return "a complete model must not carry a coverage caveat";
       if (!p.agreement.base_caveats?.["qwen3-8-27b"]) return "the agreement base should name the short model";
-      if (p.agreement_matrix?.rows !== "gpt-5-6-luna") return "confusion matrix rows should be the default model";
+      // The wide member is named too: its single-rater articles are outside the
+      // base, which a reader cannot see from the base count alone.
+      if (!/one vote/.test(p.agreement.base_caveats?.["claude-haiku-5-5"] ?? ""))
+        return "the agreement base should name the wide model and why its extra rows are excluded";
+      // The default pair is the first two in panel order, not the default model.
+      if (p.agreement_matrix?.rows !== "gpt-5-6-luna") return "confusion matrix rows should be the first panel model";
       return null;
     },
   });
@@ -1123,6 +1137,10 @@ await withFixtureScope(async (fixtures) => {
       if (p.disputed?.subjectivite !== 5 || p.disputed?.any !== 5)
         return `subjectivity disputes wrong: ${JSON.stringify(p.disputed)}`;
       if (!/NO MAJORITY/.test(p.note ?? "")) return "an empty consensus value must be explained, not left ambiguous";
+      // Which panel produced these rows: a five-voter and a six-voter majority
+      // are different instruments, and only the fingerprint tells them apart.
+      if (JSON.stringify(p.instrument_ids) !== JSON.stringify({ "sentiment-sha256:fixture": 6 }))
+        return `instrument fingerprint missing or miscounted: ${JSON.stringify(p.instrument_ids)}`;
       return null;
     },
   });
@@ -1144,7 +1162,7 @@ await withFixtureScope(async (fixtures) => {
       if (p.consensus.coverage?.polarity !== 5) return `consensus coverage wrong: ${JSON.stringify(p.consensus.coverage)}`;
       if (p.agreement?.scored_by_all !== 5) return "agreement base changed unexpectedly";
       if (p.consensus.polarity_distribution?.Neutre !== 3)
-        return `row 104 should be decided by its 4 remaining voters: ${JSON.stringify(p.consensus.polarity_distribution)}`;
+        return `row 104 should be decided by its 5 remaining voters: ${JSON.stringify(p.consensus.polarity_distribution)}`;
       return null;
     },
   });

@@ -73,7 +73,7 @@ Overall collection statistics: subset record counts, articles by country, date r
 ### get_country_comparison
 Compare statistics across the 5 article countries (Nigeria has no press articles).
 - No parameters
-- Returns per-country article counts, newspaper counts, date ranges, and a per-country `polarity` breakdown with `polarity_model` naming the model that produced it (`gpt-5-6-luna`)
+- Returns per-country article counts, newspaper counts, date ranges, and a per-country `polarity` breakdown with `polarity_model` naming the model that produced it (`claude-haiku-5-5` since 6.0.0)
 
 ### get_newspaper_stats
 Newspaper-level statistics.
@@ -133,9 +133,9 @@ Search the ~5,000 authority records by name.
 - Returns: id, title, type, description, frequency, first_occurrence, last_occurrence, countries, url
 
 ### search_by_sentiment
-Filter articles by **`gpt-5-6-luna`** sentiment labels (exact match, accents optional). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other four agree.
+Filter articles by **`claude-haiku-5-5`** sentiment labels (exact match, accents optional; the default model since server 6.0.0, `gpt-5-6-luna` before). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other five agree.
 
-- `disputed` (optional, validated) *(v3.5.0+)*: `polarite` | `centralite` | `subjectivite` — keep only the articles the panel **split on** for that field. French field names, as stored; the English spellings error with `valid_values`. This is how you read the contested cases rather than merely counting them: `disputed="polarite"` returns the 429 articles where no majority formed, which are exactly the ones a single model's label would misrepresent as settled. Combines with the country, subject and date filters.
+- `disputed` (optional, validated) *(v3.5.0+)*: `polarite` | `centralite` | `subjectivite` — keep only the articles the panel **split on** for that field. French field names, as stored; the English spellings error with `valid_values`. This is how you read the contested cases rather than merely counting them: `disputed="polarite"` returns the 1,835 articles where no majority formed, which are exactly the ones a single model's label would misrepresent as settled. Combines with the country, subject and date filters.
 - `polarity` (optional): Très positif | Positif | Neutre | Négatif | Très négatif | Non applicable
 - `centrality` (optional): Très central | Central | Secondaire | Marginal | Non abordé
 - `subjectivity` (optional): Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif. Filterable since v2.0.0, when generation 2 turned this field from a 1-5 rating into a closed label vocabulary — a numeric value now errors. Unscored where the model answered `Non abordé`, so this filter excludes those rows too. It is the weakest of the three scales: use it to *find* articles to read, not to count them
@@ -291,28 +291,29 @@ Counts of matching items per year (or month) — one call replaces paging throug
 Aggregated AI sentiment counts.
 - Shared filters: keyword/variants, country, newspaper, subject, Gregorian/Hijri dates and exact tags/labels.
 - `compare_models`: two distinct available model IDs or aliases; `agreement_field`: polarity, centrality or subjectivity. Both require `model="all"`.
-- `model` (optional, validated): `gpt-5-6-luna` (default) | `mistral-small-2603` | `deepseek-v4-flash-0731` | `gemma-4-31b-it` | `qwen3-8-27b` | **all** | **consensus**. Vendor shorthand (`chatgpt` / `mistral` / `deepseek` / `gemma` or `google` / `qwen` or `alibaba`) resolves to these ids, which is what the payload echoes back — quote the id, never the vendor. The generation-1 ids (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) are **refused by name**, not substituted, and so is bare `gemini`: Google's generation-2 member is Gemma, a different model line (`qwen` resolves, by contrast, because the Qwen line did score generation 2)
+- `model` (optional, validated): `gpt-5-6-luna` | `mistral-small-2603` | `deepseek-v4-flash-0731` | `gemma-4-31b-it` | `qwen3-8-27b` | `claude-haiku-5-5` (default since 6.0.0) | **all** | **consensus**. Vendor shorthand (`chatgpt` / `mistral` / `deepseek` / `gemma` or `google` / `qwen` or `alibaba` / `claude`, `anthropic` or `haiku`) resolves to these ids, which is what the payload echoes back — quote the id, never the vendor. The generation-1 ids (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) are **refused by name**, not substituted, and so is bare `gemini`: Google's generation-2 member is Gemma, a different model line (`qwen` resolves, by contrast, because the Qwen line did score generation 2)
 - Returns `polarity_distribution`, `centrality_distribution` and `subjectivity` — a distribution over the five French labels plus `scored` / `unscored` and a `mean_rank` / `median_rank` derived by ranking the labels 1-5. That rank is a position on a five-point scale, never a percentage. The block also carries a `caveat`: quote it whenever you quote the number
-- With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity — ten pairwise counts and one unanimous count for five models) and `agreement_matrix` (the chosen pair/field, default first two models on polarity; counts include only recognized labels from both models, with common_scored/excluded_articles and kappa statistics)
-- Every model block carries a `coverage` object, because the five do **not** score the same articles: `qwen3-8-27b` reaches 12,098 where the others reach 12,298. `agreement` is measured on the articles *all* of them scored, so its `scored_by_all` base — and every pairwise count in it, including pairs Qwen is not part of — is the smaller one, and `base_caveats` names why. Compare proportions, not raw counts, across models
+- With `model="all"`: `by_model` (each model's distributions), `agreement` (how often they concur on polarity — fifteen pairwise counts and one unanimous count for six models) and `agreement_matrix` (the chosen pair/field, default first two models on polarity; counts include only recognized labels from both models, with common_scored/excluded_articles and kappa statistics)
+- Every model block carries a `coverage` object, because the six do **not** score the same articles: `qwen3-8-27b` reaches 12,098 and `claude-haiku-5-5` 16,617, where the other four reach 12,298. `agreement` is measured on the articles *all* of them scored, so its `scored_by_all` base — and every pairwise count in it, including pairs Qwen is not part of — is the smallest one, the 4,366 articles only Haiku read are outside it, and `base_caveats` names both. Compare proportions, not raw counts, across models
 
 ### `model="consensus"` — what the panel concluded *(v3.5.0+)*
 
-A precomputed majority, served as stored rather than derived at query time, and **not a sixth model**: no annotator produced it, so never attribute a consensus figure to one. It also rides along inside `model="all"` as a `consensus` block, so a comparison call answers both "how far do they agree" and "what did they conclude".
+A precomputed majority, served as stored rather than derived at query time, and **not a seventh model**: no annotator produced it, so never attribute a consensus figure to one. It also rides along inside `model="all"` as a `consensus` block, so a comparison call answers both "how far do they agree" and "what did they conclude".
 
-The majority threshold follows the votes **actually cast** (over half, minimum two). That is the reason to prefer it over `agreement`: `agreement` counts only articles *every* model scored, so the 200 Qwen skipped drop out of it entirely, while the consensus still decides them on the four remaining votes. The two are counted on different sets and their totals should not be reconciled.
+The majority threshold follows the votes **actually cast** (over half, minimum two). That is the reason to prefer it over `agreement`: `agreement` counts only articles *every* model scored, so the 200 Qwen skipped drop out of it entirely, while the consensus still decides them on the five remaining votes. The reverse also holds: the 4,366 articles only Haiku read carry one vote and so have **no** consensus. The two are counted on different sets and their totals should not be reconciled.
 
 The three fields do not behave alike, and this is the part to get right:
 
-- `polarity_distribution` / `centrality_distribution` are **majority labels**. An empty value means **no majority formed** (429 and 465 articles), never "not computed". Those articles are absent from the distribution, so read `coverage` for the denominator.
-- `subjectivity_median_rank` is a **float median on the 1-5 scale, not a label**. A median resolves whenever anyone voted, so it covers *more* articles (12,195) than either majority field. An even number of voters yields a **half-rank** (1.5, 2.5 …) matching no label at all — 117 articles have one. Never map it back onto the five labels, and never quote it as a percentage.
-- `disputed` counts the fields the panel split on: polarité 429, centralité 465, subjectivité 3,184, any 3,778 (30.6% of the corpus). On the two label fields a dispute is *why* the consensus is empty; on subjectivité the median still resolved, so a disputed article still carries a value.
+- `polarity_distribution` / `centrality_distribution` are **majority labels**. An empty value means **no majority formed** (1,835 and 1,303 articles; with six voters a 3–3 split is a tie) or fewer than two votes, never "not computed". Those articles are absent from the distribution, so read `coverage` for the denominator.
+- `subjectivity_median_rank` is a **float median on the 1-5 scale, not a label**. A median resolves whenever anyone voted, so it covers *more* articles (12,078) than either majority field. An even number of voters yields a **half-rank** (1.5, 2.5 …) matching no label at all. Never map it back onto the five labels, and never quote it as a percentage.
+- `disputed` counts the fields the panel split on: polarité 1,835, centralité 1,303, subjectivité 4,247, any 6,126 (36.6% of the corpus).
+- `instrument_ids` maps the fingerprint of the panel and rule behind each consensus row to its row count. One key means one instrument; two would mean the selection mixes, say, five-voter and six-voter majorities. On the two label fields a dispute is *why* the consensus is empty; on subjectivité the median still resolved, so a disputed article still carries a value.
 
 **Tip:** `get_sentiment_distribution(subject="Laïcité", country="Burkina Faso")` gives the polarity distribution for laïcité articles in BF specifically; compare against the unfiltered country baseline.
 
-**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the five models agree unanimously on polarity for only 3,929 of the 12,098 articles they all scored (**32%**). That is an agreement rate, not a confidence score: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable. Four models reached 36% and the first three alone 43%, so a figure copied from an older draft will overstate the agreement.
+**Use `model="all"` before quoting any sentiment figure that carries an argument.** Corpus-wide the six models agree unanimously on polarity for only 3,632 of the 12,098 articles they all scored (**30%**). That is an agreement rate, not a confidence score: in a slice where they diverge further, a single model's polarity is a weak claim, and the disagreement is itself reportable. Five models reached 32%, four 36% and the first three alone 43%, so a figure copied from an older draft will overstate the agreement.
 
-**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-08-31): four models cover 12,298 articles while Qwen covers 12,098; use the returned common-scored denominator. Two different gaps separate that from the corpus total: 51 non-French/English articles skipped by design, and the recent arrivals the enrichment pass has not reached yet, a tail that grows with every refresh (about 4,370 articles at the October 2026 revision, mostly dated 2018 or later, with abstracts, topics and embeddings but no sentiment). Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
+**Coverage is near-total among enriched articles, but not corpus-wide** (measured 2026-11-02): four models cover 12,298 articles, Qwen 12,098 and Haiku 16,617; use the returned common-scored denominator. Two different gaps separate the five-model figure from the corpus total: 51 non-French/English articles skipped by design, and the recent arrivals the first five models have not read, a tail that grows with every refresh (4,366 articles at the October 2026 revision, mostly dated 2018 or later). Claude Haiku 5.5 has read that tail, so it is scored, but by **one model**: its sentiment there is a single reading with no consensus, and newer arrivals may have none at all. Compare `scored_by_all` against `total_articles` rather than assuming they match, and read an unscored newest page as enrichment lag, not as an absence of coverage.
 
 **Reliability differs by scale and population.** Use the selected pair's current
 `kappa`, `weighted_kappa` and denominators instead of treating older whole-corpus
@@ -366,7 +367,7 @@ The items nearest a given one in meaning, by cosine similarity over the stored e
 
 ### get_semantic_map *(v0.13.0)*
 A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. **Needs no API key.**
-- `subset` (optional); filter block; `color_by` (country | newspaper | subject | lda_topic_label | polarity — `gpt-5-6-luna`'s label); `limit` (default 300, max 2000)
+- `subset` (optional); filter block; `color_by` (country | newspaper | subject | lda_topic_label | polarity — `claude-haiku-5-5`'s label); `limit` (default 300, max 2000)
 - **Read `explained_variance` before concluding anything.** Two components carry ~18% of the variance for an unfiltered article set, ~25% for a filtered one — so items drawn close together are not necessarily similar. Report it as a rough spread, not as clusters.
 - This is PCA, not UMAP: it preserves global spread rather than local neighbourhoods, and is not comparable to the semantic landscapes on islam.zmo.de.
 - **You do not receive the point coordinates.** They are chart data, because a 2-D PCA position is an artefact of this projection rather than a fact about the item, so they go to the view and you get `projected`, `explained_variance` and, with `color_by`, per-group counts in `groups`. A selection snapshot may include sampled source IDs from the map; treat these as leads, retrieve the original items with `fetch`, and read their text before attributing content. Use `search` or `get_similar_items` to investigate beyond that sample.
@@ -381,16 +382,16 @@ A 2-D PCA scatter of a set, projected from the stored 768-dimension embeddings. 
 ### Countries
 Exact names: `Benin`, `Burkina Faso`, `Côte d'Ivoire`, `Niger`, `Togo`, `Nigeria` (all six are accepted everywhere; `Nigeria` simply yields 0 press articles — a real finding, not an error). Accents are optional (`Bénin` works); partial names (`Burkina`) are invalid and now error.
 
-### Polarity scale (articles, `gpt-5-6-luna`)
-Très positif (425) | Positif (6,146) | Neutre (5,017) | Négatif (375) | Très négatif (45) | Non applicable (290) — plus 4,417 unscored: the 51 skipped by design and the newest arrivals not yet reached (counts verified 2026-10-19)
+### Polarity scale (articles, `claude-haiku-5-5`, the default)
+Neutre (8,239) | Positif (6,511) | Non applicable (906) | Négatif (520) | Très positif (404) | Très négatif (37) — plus 98 unscored (counts verified 2026-11-02, of 16,715). About 4,366 of these 16,617 are articles no other model has read.
 
-### Centrality scale (articles, `gpt-5-6-luna`)
-Très central (8,210) | Central (1,561) | Marginal (1,122) | Secondaire (1,115) | Non abordé (290) — plus the same 4,417 unscored
+### Centrality scale (articles, `claude-haiku-5-5`)
+Très central (9,077) | Marginal (2,897) | Central (2,506) | Secondaire (1,632) | Non abordé (505) — plus the same 98 unscored
 
-### Subjectivity scale (articles, `gpt-5-6-luna`)
-Très objectif (1,144) | Plutôt objectif (7,900) | Mixte (314) | Plutôt subjectif (1,914) | Très subjectif (736) — plus 4,707 unscored, which are exactly this model's 290 `Non abordé` rows and the 4,417 unscored articles. An ordinal **label**, not a number. The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
+### Subjectivity scale (articles, `claude-haiku-5-5`)
+Plutôt objectif (7,195) | Plutôt subjectif (3,982) | Très objectif (3,719) | Très subjectif (906) | Mixte (310) — plus 603 unscored, which are exactly this model's 505 `Non abordé` rows and the 98 unscored articles. An ordinal **label**, not a number. The least reliable of the three scales — see the reliability note under `get_sentiment_distribution`.
 
-The same three scales exist for `mistral-small-2603`, `deepseek-v4-flash-0731` and `gemma-4-31b-it`; reach them with `get_sentiment_distribution(model=…)`. They differ substantially — Mistral reads 2,087 articles as Très positif where Luna reads 425, and Gemma reads 7,275 as Neutre where Luna reads 5,017 — which is why a figure has to name its model. Gemma matches Luna's completeness (its unscored subjectivity rows are exactly its own `Non abordé` ones plus the articles no model has reached), so an unscored row is an abstention, not a gap.
+The same three scales exist for the other five models; reach them with `get_sentiment_distribution(model=…)`. They differ substantially: on its 12,298 articles `gpt-5-6-luna` reads 5,017 as Neutre and 425 as Très positif, Mistral 2,087 as Très positif, Gemma 7,275 as Neutre. That is why a figure has to name its model. Compare shares, not counts, with Haiku: it is measured on a larger and more recent base. Luna, Gemma and Haiku leave a subjectivity label empty only where they said `Non abordé`, so an unscored row is an abstention, not a gap.
 
 ### Index types
 Personnes (2,833) | Lieux (683) | Organisations (413) | Notices d'autorité (312) | Événements (242) | Sujets (214)

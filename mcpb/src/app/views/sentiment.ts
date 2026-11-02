@@ -8,17 +8,18 @@ import type { ModelBlock, SentimentPayload } from "../../viewContract.js";
 // for centrality and subjectivity). Alphabetical slices in arbitrary hues would
 // throw away the ordering, which is most of what these fields say.
 //
-// The cross-model half is deliberately blunt. When five models score the same
-// article and all five agree only about a third of the time, the honest headline
+// The cross-model half is deliberately blunt. When six models score the same
+// article and all six agree less than a third of the time, the honest headline
 // is the agreement rate, and the confusion matrix showing WHERE they part is
 // worth more than any one model's donut.
 //
 // Every count here comes from the payload's own `models` array, never from a
-// number written into the prose: the panel gained a fourth member in v3.2.0 and a
-// fifth in v3.4.0, and a chart that says "three models" over five rings is worse
-// than one that says nothing. The same rule now covers coverage: the members do
-// not all score the same articles, so a ring's own denominator is read from its
-// `coverage` block rather than assumed to be the corpus.
+// number written into the prose: the panel gained a fourth member in v3.2.0, a
+// fifth in v3.4.0 and a sixth in v6.0.0, and a chart that says "three models"
+// over six rings is worse than one that says nothing. The same rule now covers
+// coverage: the members do not all score the same articles, so a ring's own
+// denominator is read from its `coverage` block rather than assumed to be the
+// corpus.
 import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
 import { donut, heatmapMatrix, horizontalBar, legend } from "../svg.js";
 import {
@@ -169,20 +170,32 @@ function allModels(p: SentimentPayload): ViewResult {
   const byModel = p.by_model ?? {};
 
   // The members do not all score the same articles. Annotate only the ones that
-  // fall short of the panel's best coverage: five rings each captioned with an
-  // identical denominator is noise, and one ring silently drawn on 200 fewer
-  // articles than its neighbour is a misreading waiting to happen.
+  // depart from the panel's USUAL coverage (the most common count, ties to the
+  // larger): six rings each captioned with an identical denominator is noise,
+  // and one ring silently drawn on 200 fewer, or 4,300 more, articles than its
+  // neighbours is a misreading waiting to happen. Measuring against the fullest
+  // ring instead stopped working once a member reached past the rest: every
+  // other ring would have been captioned as short.
   const coverageOf = (m: string) => byModel[m]?.coverage?.polarity;
-  const fullest = Math.max(0, ...models.map((m) => coverageOf(m) ?? 0));
-  const shortOf = (m: string) => {
+  const tally = new Map<number, number>();
+  for (const m of models) {
     const c = coverageOf(m);
-    return c !== undefined && fullest > 0 && c < fullest ? fullest - c : 0;
+    if (c !== undefined) tally.set(c, (tally.get(c) ?? 0) + 1);
+  }
+  const usual = [...tally].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? 0;
+  const offBy = (m: string) => {
+    const c = coverageOf(m);
+    return c !== undefined && usual > 0 ? c - usual : 0;
   };
-  const rings = models.map((m) => ({
-    title: shortOf(m) ? `${m} · ${fmtInt(shortOf(m))} fewer articles scored` : m,
-    body: ring(byModel[m]?.polarity_distribution, POLARITY_ORDER, "scored", 170),
-  }));
-  const shortModels = models.filter((m) => shortOf(m) > 0);
+  const rings = models.map((m) => {
+    const d = offBy(m);
+    return {
+      title: d ? `${m} · ${fmtInt(Math.abs(d))} ${d < 0 ? "fewer" : "more"} articles scored` : m,
+      body: ring(byModel[m]?.polarity_distribution, POLARITY_ORDER, "scored", 170),
+    };
+  });
+  const shortModels = models.filter((m) => offBy(m) < 0);
+  const wideModels = models.filter((m) => offBy(m) > 0);
 
   // The panel's conclusion sits in its OWN panel row rather than among the
   // model rings: drawn beside them it would read as a sixth annotator, which is
@@ -272,10 +285,16 @@ function allModels(p: SentimentPayload): ViewResult {
       consensusRing && consensus?.disputed
         ? `The panel split, reaching no majority, on ${fmtDisputed(consensus.disputed)}.`
         : null,
-      shortModels.length
-        ? `The panel does not cover one common set: ${shortModels.join(", ")} scored fewer articles than the ` +
-          `rest. Every bar above is measured on the ${fmtInt(scoredAll)} articles all ${models.length} models ` +
-          `judged, so pairs that exclude the short members are still counted on that reduced base.`
+      shortModels.length || wideModels.length
+        ? "The panel does not cover one common set" +
+          (shortModels.length ? `: ${shortModels.join(", ")} scored fewer articles than the rest` : "") +
+          (wideModels.length
+            ? `${shortModels.length ? ", and" : ":"} ${wideModels.join(", ")} scored more, so its ring includes ` +
+              "articles no other model read"
+            : "") +
+          `. Every bar above is measured on the ${fmtInt(scoredAll)} articles all ${models.length} models ` +
+          "judged, so pairs that exclude the short members are still counted on that reduced base, and articles " +
+          "only one model read are not in it."
         : `All ${models.length} scored the same articles, whether or not their full text ships — see ` +
           `scored_by_all above for how many carry all ${models.length} judgements.`,
     ],

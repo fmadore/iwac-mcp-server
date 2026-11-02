@@ -447,10 +447,20 @@ await call("get_sentiment_distribution", { country: "Benin" }, {
   structured: true,
   check: (p) => (p.total_articles > 1500 ? null : `Benin distribution looks wrong: ${p.total_articles}`),
 });
+// The default is Haiku since v6.0.0 for one reason, reach, so check the reason:
+// a default that answers on ~12,300 articles means it slid back to a member
+// that has not read the newest arrivals.
+await call("get_sentiment_distribution", {}, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "claude-haiku-5-5") return `the default model should be claude-haiku-5-5, got ${p.model}`;
+    return p.coverage?.polarity > 16_000 ? null : `the default reaches only ${p.coverage?.polarity} articles`;
+  },
+});
 await call("get_country_comparison", {}, {
   structured: true,
   check: (p) => {
-    if (p.polarity_model !== "gpt-5-6-luna") return `polarity_model wrong: ${p.polarity_model}`;
+    if (p.polarity_model !== "claude-haiku-5-5") return `polarity_model wrong: ${p.polarity_model}`;
     return p.countries?.some((c) => c.polarity && Object.keys(c.polarity).length)
       ? null
       : "no country carries polarity — the sentiment column is not being read";
@@ -611,24 +621,27 @@ await call("get_similar_items", { id: "999999999" }, {
 await call("get_sentiment_distribution", { model: "all" }, {
   structured: true,
   check: (p) => {
-    if (p.models?.length !== 5) return `expected 5 models, got ${p.models}`;
+    if (p.models?.length !== 6) return `expected 6 models, got ${p.models}`;
     const a = p.agreement;
     if (!a) return "no agreement block";
-    // ~12,098 of 13,397 — the ~51 non-francophone articles are unscored by
-    // design, qwen is 200 further short, and the unenriched tail of recent
-    // arrivals (~1,050 at the 2026-08 refresh) has not been scored at all, so
-    // this is deliberately not asserted equal to total_articles.
-    if (a.scored_by_all < 12_000) return `only ${a.scored_by_all} articles scored by all five (was 12,098)`;
-    // ~32% unanimous across all five (36% for four, 43% for the first three). A
-    // jump to 100% would mean the columns had collapsed onto one another.
+    // ~12,098 of 16,715 — the ~51 non-francophone articles are unscored by
+    // design, qwen is 200 further short, and the ~4,400 newer arrivals only
+    // Haiku has read are outside an all-six base, so this is deliberately not
+    // asserted equal to total_articles. Haiku must not WIDEN it: a base above
+    // qwen's 12,098 would mean the intersection had become a union.
+    if (a.scored_by_all < 12_000 || a.scored_by_all > 12_098)
+      return `${a.scored_by_all} articles scored by all six (was 12,098, capped by qwen)`;
+    // ~30% unanimous across all six (32% for five, 36% for four, 43% for the
+    // first three). A jump to 100% would mean the columns had collapsed onto
+    // one another.
     if (a.unanimous_percent < 20 || a.unanimous_percent > 95)
-      return `five-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
-    // 5 models → 10 unordered pairs. A count of 6 would mean a member is being
+      return `six-model agreement is ${a.unanimous_percent}%, outside the plausible band`;
+    // 6 models → 15 unordered pairs. A count of 10 would mean a member is being
     // dropped before the agreement pass.
-    if (Object.keys(a.pairwise ?? {}).length !== 10)
-      return `expected 10 pairwise counts, got ${JSON.stringify(a.pairwise)}`;
+    if (Object.keys(a.pairwise ?? {}).length !== 15)
+      return `expected 15 pairwise counts, got ${JSON.stringify(a.pairwise)}`;
     // The models must be named for what actually ran, and they must be the
-    // generation-2 five: a generation-1 id reappearing here means the registry
+    // generation-2 six: a generation-1 id reappearing here means the registry
     // has been re-pointed at columns whose prompt and dtype differ.
     const expected = [
       "gpt-5-6-luna",
@@ -636,6 +649,7 @@ await call("get_sentiment_distribution", { model: "all" }, {
       "deepseek-v4-flash-0731",
       "gemma-4-31b-it",
       "qwen3-8-27b",
+      "claude-haiku-5-5",
     ];
     const missing = expected.filter((m) => !p.models.includes(m));
     if (missing.length) return `models should be the exact model ids, missing ${missing} (got ${p.models})`;
@@ -698,6 +712,22 @@ await call("get_sentiment_distribution", { model: "qwen" }, {
     return null;
   },
 });
+// The sixth member, by vendor shorthand. Its gap runs the other way from
+// qwen's: it read the ~4,366 newer French articles no other model has, so its
+// coverage must sit ABOVE the four-model 12,298 and its caveat must say why.
+await call("get_sentiment_distribution", { model: "claude" }, {
+  structured: true,
+  check: (p) => {
+    if (p.model !== "claude-haiku-5-5") return `the claude shorthand should resolve to the model id, got ${p.model}`;
+    const scored = Object.values(p.polarity_distribution ?? {}).reduce((a, b) => a + b, 0);
+    if (scored < 16_000) return `haiku scored only ${scored} articles on polarity (was 16,617)`;
+    if (p.coverage?.polarity !== scored) return `coverage should match the distribution, got ${p.coverage?.polarity}`;
+    if (!/one vote/.test(p.model_caveat ?? "")) return "haiku's single-rater articles must be disclosed";
+    if (typeof p.subjectivity?.distribution?.["Très objectif"] !== "number")
+      return `haiku subjectivity is not keyed by label: ${JSON.stringify(p.subjectivity?.distribution)}`;
+    return null;
+  },
+});
 // The panel's own conclusion, against the real columns. Everything asserted here
 // is a way the consensus differs from the per-model answers beside it, because
 // anything it shares with them is already covered by the fixture suite.
@@ -706,7 +736,9 @@ await call("get_sentiment_distribution", { model: "consensus" }, {
   check: (p) => {
     if (p.model !== "consensus") return `model not echoed, got ${p.model}`;
     const cov = p.coverage ?? {};
-    if (!(cov.polarity > 11_000)) return `consensus polarity coverage looks wrong: ${JSON.stringify(cov)}`;
+    // 10,463 since Haiku made the panel six: a 3-3 split forms no strict
+    // majority. A few dozen means the legacy cleared columns are being read.
+    if (!(cov.polarity > 10_000)) return `consensus polarity coverage looks wrong: ${JSON.stringify(cov)}`;
     // The median resolves where a majority cannot form, so it MUST reach more
     // articles than either label field. If this ever inverts, the median has
     // been reduced to a vote somewhere upstream.
@@ -725,6 +757,8 @@ await call("get_sentiment_distribution", { model: "consensus" }, {
     if (!(d.subjectivite > d.polarite) || !(d.subjectivite > d.centralite))
       return `subjectivity should be the most disputed field: ${JSON.stringify(d)}`;
     if (!(d.any > 0) || !(d.any < 12_349)) return `dispute roll-up implausible: ${JSON.stringify(d)}`;
+    if (!Object.keys(p.instrument_ids ?? {}).some((k) => k.startsWith("sentiment-sha256:")))
+      return `the consensus should name the panel fingerprint behind it: ${JSON.stringify(p.instrument_ids)}`;
     return null;
   },
 });

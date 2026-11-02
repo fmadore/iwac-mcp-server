@@ -550,12 +550,12 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
     articles: new Set([
       "o:id", "iwac_url", "identifier", "title", "author", "newspaper", "country", "pub_date",
       "subject", "spatial", "language", "nb_pages", "descriptionAI",
-      // Named for the generation-2 model that scored the corpus. Spelling them
-      // wrong here would not fail — colsFor drops absent columns — so the
-      // projection assertion below is what actually guards it.
-      "gpt_5_6_luna_polarite",
-      "gpt_5_6_luna_centralite_islam_musulmans",
-      "gpt_5_6_luna_subjectivite_score", "nb_mots",
+      // Named for the default generation-2 model. Spelling them wrong here
+      // would not fail — colsFor drops absent columns — so the projection
+      // assertion below is what actually guards it.
+      "claude_haiku_5_5_polarite",
+      "claude_haiku_5_5_centralite_islam_musulmans",
+      "claude_haiku_5_5_subjectivite_score", "nb_mots",
       "Richesse_Lexicale_OCR", "Lisibilite_OCR", "OCR",
     ]),
     index: new Set([
@@ -667,9 +667,9 @@ describe("SUBSET_FIELDS descriptor (colsFor / TEXT_COLS / TITLE_COL)", () => {
     // real column name here is what would catch a stale prefix in the
     // descriptor — colsFor silently drops anything the schema lacks.
     const detail = colsFor("articles", FULL.articles, "detail");
-    assert.match(detail, /gpt_5_6_luna_polarite AS "polarity"/);
-    assert.match(detail, /gpt_5_6_luna_centralite_islam_musulmans AS "centrality"/);
-    assert.match(detail, /gpt_5_6_luna_subjectivite_score AS "subjectivity"/);
+    assert.match(detail, /claude_haiku_5_5_polarite AS "polarity"/);
+    assert.match(detail, /claude_haiku_5_5_centralite_islam_musulmans AS "centrality"/);
+    assert.match(detail, /claude_haiku_5_5_subjectivite_score AS "subjectivity"/);
   });
 
   it("drops columns missing from the live schema instead of throwing", () => {
@@ -689,13 +689,14 @@ describe("sentiment model registry (generation 2)", () => {
     }
   });
 
-  it("serves the five generation-2 models and builds their column names", () => {
+  it("serves the six generation-2 models and builds their column names", () => {
     assert.deepEqual(SENTIMENT_MODEL_IDS, [
       "gpt-5-6-luna",
       "mistral-small-2603",
       "deepseek-v4-flash-0731",
       "gemma-4-31b-it",
       "qwen3-8-27b",
+      "claude-haiku-5-5",
     ]);
     const deepseek = resolveSentimentModel("deepseek");
     assert.ok(deepseek, "deepseek should resolve");
@@ -712,27 +713,39 @@ describe("sentiment model registry (generation 2)", () => {
     assert.equal(sentimentCols(qwen).polarity, "qwen3_8_27b_polarite");
     assert.equal(sentimentCols(qwen).centrality, "qwen3_8_27b_centralite_islam_musulmans");
     assert.equal(sentimentCols(qwen).subjectivity, "qwen3_8_27b_subjectivite_score");
+    const haiku = resolveSentimentModel("claude-haiku-5-5");
+    assert.ok(haiku, "haiku should resolve");
+    assert.equal(sentimentCols(haiku).polarity, "claude_haiku_5_5_polarite");
+    assert.equal(sentimentCols(haiku).centrality, "claude_haiku_5_5_centralite_islam_musulmans");
+    assert.equal(sentimentCols(haiku).subjectivity, "claude_haiku_5_5_subjectivite_score");
   });
 
-  // qwen3-8-27b is the first member that does NOT cover the whole corpus, and
-  // the shortfall is deliberate rather than a run to repair. The registry is
-  // where that is recorded, so a caller comparing its counts with another
-  // model's is told why they do not share a denominator — and the other four,
-  // which are complete, must NOT carry a caveat that would dilute it.
-  it("carries a coverage caveat on qwen alone", () => {
+  // qwen3-8-27b falls short of the corpus and claude-haiku-5-5 reaches past
+  // it. The registry is where both are recorded, so a caller comparing their
+  // counts with another model's is told why they do not share a denominator —
+  // and the other four, which share one, must NOT carry a caveat that would
+  // dilute them.
+  it("carries a coverage caveat on qwen and haiku alone", () => {
     const qwen = resolveSentimentModel("qwen3-8-27b");
     assert.match(qwen?.caveat ?? "", /12,098/);
+    const haiku = resolveSentimentModel("claude-haiku-5-5");
+    // Both halves matter: the single-rater rows AND the missing pilot.
+    assert.match(haiku?.caveat ?? "", /16,617/);
+    assert.match(haiku?.caveat ?? "", /no consensus/);
+    assert.match(haiku?.caveat ?? "", /pilot/);
     for (const id of ["gpt-5-6-luna", "mistral-small-2603", "deepseek-v4-flash-0731", "gemma-4-31b-it"]) {
       assert.equal(resolveSentimentModel(id)?.caveat, undefined, `${id} covers the corpus and needs no caveat`);
     }
   });
 
-  // Adding a model must NOT move the default: every inline `polarity` this
-  // server has returned is Luna's, so re-pointing it would silently re-label
-  // them all while nothing in the payload shape changed.
-  it("keeps gpt-5-6-luna as the single-model default", () => {
-    assert.equal(DEFAULT_SENTIMENT_MODEL.id, "gpt-5-6-luna");
-    assert.equal(sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity, "gpt_5_6_luna_polarite");
+  // The default moved once, to Haiku in v6.0.0, for reach (it alone has read
+  // the newest arrivals). Moving it re-labels every inline value while the
+  // payload shape stays the same, so it must only move on purpose: this pins
+  // it, and pins that it is chosen by id rather than by panel position.
+  it("uses claude-haiku-5-5 as the single-model default, chosen by id", () => {
+    assert.equal(DEFAULT_SENTIMENT_MODEL.id, "claude-haiku-5-5");
+    assert.equal(sentimentCols(DEFAULT_SENTIMENT_MODEL).polarity, "claude_haiku_5_5_polarite");
+    assert.notEqual(SENTIMENT_MODEL_IDS[0], DEFAULT_SENTIMENT_MODEL.id, "the panel order stays chronological");
   });
 
   it("resolves ids, vendor shorthand and raw column prefixes alike", () => {
@@ -750,6 +763,11 @@ describe("sentiment model registry (generation 2)", () => {
     // resolves: the line itself scored generation 2. `alibaba` is the vendor.
     for (const handle of ["qwen", "qwen3_8_27b", "alibaba", "QWEN"]) {
       assert.equal(resolveSentimentModel(handle)?.id, "qwen3-8-27b", handle);
+    }
+    // Anthropic has one panel member, so the vendor, the product and the
+    // model line all name it.
+    for (const handle of ["claude", "anthropic", "haiku", "claude_haiku_5_5", "Claude Haiku 5 5"]) {
+      assert.equal(resolveSentimentModel(handle)?.id, "claude-haiku-5-5", handle);
     }
   });
 
@@ -786,11 +804,11 @@ describe("sentiment model registry (generation 2)", () => {
   // looks joinable to SUBJECTIVITY_VALUES and is not.
   it("names the consensus columns and their dispute vocabulary", () => {
     assert.deepEqual(CONSENSUS_COLS, {
-      polarity: "consensus_polarite",
-      centrality: "consensus_centralite",
-      subjectivity: "consensus_subjectivite_score",
+      polarity: "consensus_g2_polarite",
+      centrality: "consensus_g2_centralite",
+      subjectivity: "consensus_g2_subjectivite_score",
     });
-    assert.equal(CONSENSUS_DISPUTE_COL, "sentiment_disagreement");
+    assert.equal(CONSENSUS_DISPUTE_COL, "sentiment_g2_disagreement");
     // French, matching the stored values rather than this server's English
     // parameter names — the filter matches on these verbatim.
     assert.deepEqual([...DISPUTE_FIELDS], ["polarite", "centralite", "subjectivite"]);

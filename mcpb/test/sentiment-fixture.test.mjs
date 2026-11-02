@@ -53,7 +53,7 @@ test("old schemas reject unavailable sentiment pairs and semantic date constrain
     const file = path.join(dir, "articles", "train-00000-of-00001.parquet");
     const escaped = file.replaceAll("\\", "/").replaceAll("'", "''");
     await conn.run(`CREATE TABLE edited AS SELECT * FROM read_parquet('${escaped}')`);
-    for (const column of ["mistral_small_2603_polarite", "deepseek_v4_flash_0731_polarite", "gemma_4_31b_it_polarite", "qwen3_8_27b_polarite", "pub_date"]) {
+    for (const column of ["mistral_small_2603_polarite", "deepseek_v4_flash_0731_polarite", "gemma_4_31b_it_polarite", "qwen3_8_27b_polarite", "claude_haiku_5_5_polarite", "pub_date"]) {
       await conn.run(`ALTER TABLE edited DROP COLUMN "${column}"`);
     }
     await fs.rm(file);
