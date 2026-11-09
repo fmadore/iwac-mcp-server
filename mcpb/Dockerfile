@@ -6,7 +6,7 @@
 # stays for readability. Dependabot's `docker` ecosystem keeps the digest
 # current (base-image security fixes) and never moves the Node major, which is
 # coordinated by hand with ci.yml, the workflows and `engines`.
-FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS build
+FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS build
 WORKDIR /app/mcpb
 # onnxruntime-node's postinstall would fetch CUDA provider libraries on
 # linux/x64; the query encoder runs on the CPU provider the package ships.
@@ -17,7 +17,7 @@ COPY mcpb/ ./
 COPY .agents/ /app/.agents/
 RUN npm run typecheck && npm run build
 
-FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
+FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 LABEL io.modelcontextprotocol.server.name="io.github.fmadore/iwac-mcp-server"
 WORKDIR /app
 # Semantic search runs EmbeddingGemma 2 in-process (no API key). The HTTP
