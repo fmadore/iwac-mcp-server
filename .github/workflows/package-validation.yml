@@ -68,7 +68,7 @@ jobs:
         include:
           - os: windows-2022
             bundle: windows
-          - os: macos-14
+          - os: macos-15
             bundle: macos
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
