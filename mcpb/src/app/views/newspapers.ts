@@ -6,14 +6,13 @@ import type { NewspapersPayload } from "../../viewContract.js";
 // strip where the tail is unreadable, so the chart caps the list — and SAYS it
 // capped it, with the remainder's share, rather than quietly presenting a top
 // slice as the whole picture.
-import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, type ViewResult } from "../shell.js";
 import { horizontalBar } from "../svg.js";
 import { fmtInt, fmtPct } from "../theme.js";
 
 const TOP_N = 25;
 
-export function newspapersView(payload: BasePayload): ViewResult {
-  const p = payload as NewspapersPayload;
+export function newspapersView(p: NewspapersPayload): ViewResult {
   const all = [...(p.newspapers ?? [])].sort((a, b) => (b.article_count ?? 0) - (a.article_count ?? 0));
   if (!all.length) {
     return { title: "Newspapers", body: empty("No newspaper matches this filter.") };

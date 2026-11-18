@@ -78,8 +78,9 @@ export function aggregateFilters(
   if ((args.date_from || args.date_to) && !schema.has("pub_date")) return unavailable("date");
   for (const [field, values] of Object.entries(args.exact ?? {})) {
     const sentiment = /^(polarity|centrality|subjectivity):(.+)$/.exec(field);
-    const model = sentiment ? resolveSentimentModel(sentiment[2]) : undefined;
-    if (sentiment && !model) return { where, params, echo, err: { error: `Unknown sentiment model: ${sentiment[2]}` } };
+    const modelId = sentiment?.[2];
+    const model = modelId !== undefined ? resolveSentimentModel(modelId) : undefined;
+    if (sentiment && !model) return { where, params, echo, err: { error: `Unknown sentiment model: ${modelId}` } };
     if (!sentiment && !(EXACT_FIELDS as readonly string[]).includes(field))
       return { where, params, echo, err: { error: `Unknown exact field '${field}'`, valid_values: [...EXACT_FIELDS] } };
     if (field === "scored_by") {

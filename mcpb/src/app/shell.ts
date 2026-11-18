@@ -73,7 +73,12 @@ export interface ViewResult {
   wire?(root: HTMLElement, ctx: ViewContext): void;
 }
 
-export type View = (payload: BasePayload, options: ViewOptions) => ViewResult;
+/**
+ * A renderer for one payload shape. `P` defaults to the untrusted envelope;
+ * the registry in views/index.ts binds each view tag to its contract type, so
+ * a view receives its own payload interface instead of casting from this one.
+ */
+export type View<P = BasePayload> = (payload: P, options: ViewOptions) => ViewResult;
 
 /** Filter chips, skipping empty values; renders a muted placeholder if none. */
 export function chips(values: Record<string, unknown> | undefined): string {
@@ -90,6 +95,22 @@ export function chips(values: Record<string, unknown> | undefined): string {
       : [[key, Array.isArray(value) ? value.join(" OR ") : typeof value === "object" ? JSON.stringify(value) : value]],
   );
   return display.map(([k, v]) => `<span class="chip">${esc(k)}: ${esc(v)}</span>`).join("");
+}
+
+/**
+ * The in-flight state between the model's tool call and its result: what is
+ * being computed and over which filters, so the frame is not a bare "Loading"
+ * line for the seconds an aggregate takes. Workbench calls nest their filters
+ * under `selection`; they are lifted out so the chips read like the chart's.
+ */
+export function pending(tool: string | undefined, args: Record<string, unknown> | undefined): string {
+  const { selection, ...rest } = args ?? {};
+  const filters =
+    selection && typeof selection === "object" && !Array.isArray(selection) ? { ...rest, ...selection } : args;
+  const what = tool?.replace(/^(?:get|search|list)_/, "").replaceAll("_", " ");
+  return `<div class="pending" role="status"><p class="totals">${esc(
+    what ? `Computing ${what}…` : "Computing the result…",
+  )}</p><div class="chips">${chips(filters)}</div></div>`;
 }
 
 /** The empty state — a real sentence, not a blank panel. */

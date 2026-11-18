@@ -29,6 +29,32 @@ export function isDatasetAccessError(err: unknown): err is Error {
   return err instanceof HuggingFaceAccessError;
 }
 
+/** Bytes downloaded so far for a subset's current fetch, and its total. */
+export type DownloadListener = (done: number, total: number | undefined) => void;
+const downloadListeners = new Map<Subset, Set<DownloadListener>>();
+
+/** Hear about the bytes of `subset`'s downloads until the returned function
+ * is called. Used to turn a first-run download into progress notifications. */
+export function onSubsetDownload(subset: Subset, listener: DownloadListener): () => void {
+  const set = downloadListeners.get(subset) ?? new Set<DownloadListener>();
+  downloadListeners.set(subset, set);
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (!set.size && downloadListeners.get(subset) === set) downloadListeners.delete(subset);
+  };
+}
+
+function emitDownload(subset: Subset, done: number, total: number | undefined): void {
+  for (const listener of downloadListeners.get(subset) ?? []) {
+    try {
+      listener(done, total);
+    } catch {
+      // A listener's failure (a closed connection) must never fail the download.
+    }
+  }
+}
+
 function networkSignal(timeout: number): AbortSignal {
   const parent = requestSignal(),
     deadline = AbortSignal.timeout(timeout);
@@ -102,13 +128,15 @@ async function listTree(subset: Subset): Promise<TreeEntry[]> {
 /** Never forward a private Hub token to an arbitrary pagination target. */
 function nextTreePage(link: string | null, first: URL): URL | undefined {
   if (!link) return undefined;
-  for (const match of link.matchAll(/<([^>]+)>([^,]*)/g)) {
+  // Both groups are mandatory, so a match always carries them; the defaults
+  // only satisfy the compiler.
+  for (const [, target = "", params = ""] of link.matchAll(/<([^>]+)>([^,]*)/g)) {
     const relation = /(?:^|;)\s*rel\s*=\s*(?:"([^"]+)"|([^;\s]+))/i.exec(
-      match[2],
+      params,
     );
     if (!(relation?.[1] ?? relation?.[2] ?? "").split(/\s+/).includes("next"))
       continue;
-    const next = new URL(match[1], first);
+    const next = new URL(target, first);
     if (
       next.origin !== first.origin ||
       next.pathname !== first.pathname ||
@@ -133,12 +161,12 @@ function nextTreePage(link: string | null, first: URL): URL | undefined {
  * the process restarted. A mismatch removes the partial file and throws, so
  * the manifest is not written and the next attempt downloads again.
  */
-async function downloadFile(entry: TreeEntry, destPath: string): Promise<void> {
+async function downloadFile(entry: TreeEntry, destPath: string, onBytes?: (bytes: number) => void): Promise<void> {
   const url = `https://huggingface.co/datasets/${config.datasetRepo}/resolve/${encodeURIComponent(config.datasetRevision)}/${entry.path}`;
   // Generous timeout: the largest subset is ~185 MB and may run on slow links.
   const res = await fetch(url, { headers: authHeaders(), signal: networkSignal(15 * 60_000) });
   checkAccess(res);
-  await saveVerified(res, destPath, { path: entry.path, size: entry.size, sha256: remoteSha256(entry) });
+  await saveVerified(res, destPath, { path: entry.path, size: entry.size, sha256: remoteSha256(entry) }, onBytes);
 }
 
 /**
@@ -159,6 +187,7 @@ async function saveVerified(
   res: Response,
   destPath: string,
   expected: { path: string; size?: number; sha256?: string },
+  onBytes?: (bytes: number) => void,
 ): Promise<void> {
   const body = res.body;
   if (!res.ok || !body) {
@@ -172,6 +201,7 @@ async function saveVerified(
     transform(chunk: Buffer, _encoding, done) {
       hash.update(chunk);
       bytes += chunk.length;
+      onBytes?.(bytes);
       done(null, chunk);
     },
   });
@@ -419,18 +449,28 @@ async function ensureSubsetUnlocked(subset: Subset): Promise<SubsetFiles> {
   }
 
   const manifest = await readCacheManifest(localDir);
+  // Which files are missing is settled first, so progress can report one
+  // total for the whole subset rather than restarting at each shard.
+  const current: (string | undefined)[] = [];
+  for (const entry of parquetFiles) current.push(await currentLocalName(localDir, entry, manifest));
+  const missing = parquetFiles.filter((_, i) => !current[i]);
+  const total = missing.every((e) => e.size !== undefined)
+    ? missing.reduce((sum, e) => sum + (e.size ?? 0), 0)
+    : undefined;
   const names: string[] = [];
   let downloaded = false;
-  for (const entry of parquetFiles) {
-    const current = await currentLocalName(localDir, entry, manifest);
-    if (current) {
-      names.push(current);
+  let finished = 0;
+  for (const [i, entry] of parquetFiles.entries()) {
+    const local = current[i];
+    if (local) {
+      names.push(local);
       continue;
     }
     const name = downloadName(entry);
     const dest = path.join(localDir, name);
     console.error(`[iwac] downloading ${entry.path} -> ${dest}`);
-    await downloadFile(entry, dest);
+    await downloadFile(entry, dest, (bytes) => emitDownload(subset, finished + bytes, total));
+    finished += entry.size ?? 0;
     names.push(name);
     downloaded = true;
   }

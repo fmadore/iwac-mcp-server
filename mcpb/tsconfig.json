@@ -9,17 +9,32 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    // TypeScript 6+ no longer loads every @types package by default. Node's
-    // types used to arrive only through a `/// <reference types="node" />` in
-    // @google/genai's declarations; name them here instead.
+    // Each of these measured zero errors on the tree when switched on
+    // (November 2026), so they cost nothing today and stop the next regression
+    // at typecheck rather than in review. `verbatimModuleSyntax` makes every
+    // type-only import say so (`import type`), which is what esbuild and tsx,
+    // both compiling one file at a time without the type graph, need to drop
+    // it safely. `noUncheckedIndexedAccess` came in its own pass (November
+    // 2026, see REFACTORING.md): every array, record and regex-group read is
+    // `T | undefined` until the code proves otherwise.
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    // TypeScript 6+ no longer loads every @types package by default, and no
+    // dependency's declarations pull Node's types in transitively any more, so
+    // name them here.
     "types": ["node"],
     "declaration": false,
     "sourceMap": false
   },
   // `npm run build` is esbuild (scripts/bundle.mjs); tsc is only ever run as
   // `--noEmit`, so there is no outDir/rootDir to keep. Tests are included:
-  // test/unit.test.ts runs under tsx, which STRIPS types without checking them,
-  // so leaving it out of the program meant its type errors — including
+  // the unit tests (test/*.unit.test.ts and the rest of `test:unit`) run under
+  // tsx, which STRIPS types without checking them,
+  // so leaving them out of the program meant their type errors — including
   // `unknown[]` where the SQL layer's deliberately narrow `Bindable[]` is
   // required — never surfaced in CI.
   "include": ["src/**/*.ts", "test/**/*.ts"]

@@ -7,12 +7,11 @@ import type { PeriodicalsPayload } from "../../viewContract.js";
 // year. Bar thickness encodes the issue count, because Islam Info's 695 issues
 // and a 12-issue series can span the same decade and a plain span would draw
 // them identically.
-import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, type ViewResult } from "../shell.js";
 import { gantt } from "../svg.js";
 import { fmtInt } from "../theme.js";
 
-export function periodicalsView(payload: BasePayload): ViewResult {
-  const p = payload as PeriodicalsPayload;
+export function periodicalsView(p: PeriodicalsPayload): ViewResult {
   const all = p.periodicals ?? [];
   const dated = all.filter((r) => Number.isFinite(r.earliest_year) && Number.isFinite(r.latest_year));
   // Longest run first reads as a timeline; the tool orders by issue count.

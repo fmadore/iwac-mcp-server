@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { bibliography, citationItem, citationProjection, researchExport } from "../src/tools/researchExports.js";
 import { concordanceContexts } from "../src/tools/research/concordance.js";
 import { comparisonTimeline } from "../src/tools/research/comparison.js";
+import { at } from "./_must.js";
 
 test("citation exports preserve known metadata without inferring missing names, dates or degree types", () => {
   const book = citationItem("references", {
@@ -56,7 +57,7 @@ test("concordance source offsets survive accents/astral characters and reject un
   const data = concordanceContexts(source, ["pelerinage", "PÈLERINAGE", "  "], "OCR");
   assert.equal(data.match_count, 2, "fold-equivalent aliases do not double-count occurrences");
   assert.deepEqual(data.matched_terms, ["pelerinage"]);
-  const context = data.contexts[0];
+  const context = at(data.contexts, 0);
   assert.equal(context.offset_unit, "utf16");
   assert.equal(source.slice(context.start, context.end), context.match);
   assert.equal(data.source_field, "OCR");
@@ -64,8 +65,8 @@ test("concordance source offsets survive accents/astral characters and reject un
   const decomposed = concordanceContexts("Un pe\u0300lerinage ancien", ["pèlerinage"], "OCR");
   assert.equal(decomposed.match_count, 1);
   assert.equal(decomposed.source_offsets_available, false);
-  assert.equal(decomposed.contexts[0].start, undefined);
-  assert.equal(decomposed.contexts[0].match, "pèlerinage");
+  assert.equal(at(decomposed.contexts, 0).start, undefined);
+  assert.equal(at(decomposed.contexts, 0).match, "pèlerinage");
 });
 
 test("concordance bounded storage handles blank input and counts long repeated OCR", () => {

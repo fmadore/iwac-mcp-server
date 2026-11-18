@@ -12,7 +12,7 @@ import type { LexicalGroup, LexicalPayload } from "../../viewContract.js";
 //   * present the non-French items as unreadable. Readability is scored against
 //     a French lexicon, so the server leaves those rows out of that metric and
 //     this view says how many, rather than ranking them at the bottom.
-import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewResult } from "../shell.js";
 import { columns, horizontalBar } from "../svg.js";
 import { fmtInt, fmtNum } from "../theme.js";
 
@@ -22,8 +22,7 @@ const SERIES: { key: keyof LexicalGroup; title: string; places: number }[] = [
   { key: "words_avg", title: "Words per item", places: 0 },
 ];
 
-export function lexicalView(payload: BasePayload): ViewResult {
-  const p = payload as LexicalPayload;
+export function lexicalView(p: LexicalPayload): ViewResult {
   const groups = (p.groups ?? []).filter((g) => (g.items ?? 0) > 0);
   const groupBy = p.group_by ?? "year";
 
@@ -52,7 +51,7 @@ export function lexicalView(payload: BasePayload): ViewResult {
           ariaLabel: String(key),
         })
       : horizontalBar({
-          items: groups.map((g, i) => ({ label: labels[i], value: values[i], note: `${fmtInt(g.items ?? 0)} items` })),
+          items: groups.map((g, i) => ({ label: g.group ?? "", value: values[i] ?? 0, note: `${fmtInt(g.items ?? 0)} items` })),
           format,
           gutter: 190,
           width: 620,

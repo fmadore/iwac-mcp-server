@@ -220,6 +220,23 @@ question — Claude plans the searches for you.
   `islam.zmo.de`.
 - **Coverage is uneven.** The collection varies by country, period, and topic;
   read counts as "what IWAC holds", not "what exists".
+- **First use of a self-hosted server.** The first question that needs a part
+  of the collection downloads it once (the newspaper articles are about
+  185 MB). If that takes longer than a tool call may run, the answer says the
+  data is still downloading in the background; ask again a minute later.
+- **Web apps calling a self-hosted server.** A page in the browser can call a
+  server you run only from an origin listed in `IWAC_MCP_ALLOWED_ORIGINS` (or a
+  `localhost` page); the server then sends the CORS headers the browser needs.
+  `IWAC_MCP_ALLOWED_ORIGINS=*` opens it to every site and is refused when the
+  server reads the private mirror. See the [server README](../mcpb/README.md).
+- **Discovery metadata.** The hosted endpoint publishes a public
+  [MCP Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards.md)
+  at `https://islam.zmo.de/mcp/server-card`, linked from
+  `https://islam.zmo.de/.well-known/ai-catalog.json`. Clients that support
+  Server Cards can read the server's name, version, endpoint and protocol
+  versions there before connecting; it lists no tools and needs no login. A
+  self-hosted server sets `IWAC_MCP_PUBLIC_URL` to its own public URL so the
+  card names it (see the [server README](../mcpb/README.md)).
 - **Only add connectors you trust.** This one is read-only and maintained by the
   collection's editor, but it is good general practice with any MCP server.
 

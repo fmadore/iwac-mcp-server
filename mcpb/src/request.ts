@@ -8,9 +8,27 @@ export interface RequestSnapshot {
   schema: Set<string>;
   provenance: Record<string, unknown>;
 }
-const scope = new AsyncLocalStorage<{ signal: AbortSignal; snapshots: Map<Subset, RequestSnapshot> }>();
+/** Reports bytes done and total (when known) for one named piece of work. */
+export type ProgressReporter = (key: string, done: number, total: number | undefined) => void;
+interface RequestScope {
+  signal: AbortSignal;
+  snapshots: Map<Subset, RequestSnapshot>;
+  /** The tool call's own deadline (absent in shared jobs). */
+  deadline?: AbortSignal;
+  /** Subsets this call stopped waiting for before their first load finished. */
+  loading?: Set<Subset>;
+  progress?: ProgressReporter;
+}
+const scope = new AsyncLocalStorage<RequestScope>();
 export const requestSignal = (): AbortSignal | undefined => scope.getStore()?.signal;
 export const requestSnapshots = (): Map<Subset, RequestSnapshot> | undefined => scope.getStore()?.snapshots;
+/** Where the current tool call reports download progress, if its caller asked. */
+export const requestProgress = (): ProgressReporter | undefined => scope.getStore()?.progress;
+/** True once the current tool call ran out of time (not a client cancellation). */
+export const requestDeadlineExpired = (): boolean => scope.getStore()?.deadline?.aborted === true;
+/** The subsets the current call gave up waiting on while they were still
+ * downloading or loading for the first time. */
+export const datasetsStillLoading = (): Subset[] => [...(scope.getStore()?.loading ?? [])];
 const sharedWorkLifetime = new AbortController();
 const sharedJobs = new Set<Promise<unknown>>();
 // Shared jobs may legitimately have more than ten concurrent query listeners.
@@ -66,18 +84,69 @@ export async function waitForSharedWork<T>(
     );
   });
 }
+
+/**
+ * waitForSharedWork for a subset's first load. A caller cut off while the
+ * download is still running records the subset, so the tool wrapper can say
+ * "still downloading, retry shortly" instead of passing on a bare abort (the
+ * download itself carries on: it belongs to the process, not this call).
+ */
+export async function waitForDataset<T>(subset: Subset, job: Promise<T>): Promise<T> {
+  let settled = false;
+  void job.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+  try {
+    return await waitForSharedWork(job);
+  } catch (err) {
+    if (!settled) scope.getStore()?.loading?.add(subset);
+    throw err;
+  }
+}
+
+/** How long one tool call may run. A first call that starts a ~185 MB subset
+ * download can outlast it; the download continues as shared work. */
+export const REQUEST_DEADLINE_MS = 120_000;
+
 const latencies: number[] = [];
 let completed = 0;
-export function requestMetrics(): { completed: number; window: number; p50_ms: number; p95_ms: number } {
+let failed = 0;
+/** `completed` counts every call that finished, failed ones included (its
+ * meaning predates `failed`, which counts the calls that threw or returned a
+ * tool error). */
+export function requestMetrics(): { completed: number; failed: number; window: number; p50_ms: number; p95_ms: number } {
   const sorted = [...latencies].sort((a, b) => a - b);
   const percentile = (p: number) => Math.round(sorted[Math.max(0, Math.ceil(sorted.length * p) - 1)] ?? 0);
-  return { completed, window: sorted.length, p50_ms: percentile(0.5), p95_ms: percentile(0.95) };
+  return { completed, failed, window: sorted.length, p50_ms: percentile(0.5), p95_ms: percentile(0.95) };
 }
-export function withRequest<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
+export function withRequest<T>(
+  signal: AbortSignal | undefined,
+  fn: () => Promise<T>,
+  options: { deadlineMs?: number; progress?: ProgressReporter } = {},
+): Promise<T> {
   const started = performance.now();
-  const deadline = AbortSignal.timeout(120_000);
+  const deadline = AbortSignal.timeout(options.deadlineMs ?? REQUEST_DEADLINE_MS);
+  const store: RequestScope = {
+    signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+    snapshots: new Map(),
+    deadline,
+    loading: new Set(),
+    progress: options.progress,
+  };
   return scope
-    .run({ signal: signal ? AbortSignal.any([signal, deadline]) : deadline, snapshots: new Map() }, fn)
+    .run(store, fn)
+    .then(
+      (value) => {
+        // A tool error is returned (isError), not thrown, so count both.
+        if ((value as { isError?: unknown } | undefined)?.isError === true) failed++;
+        return value;
+      },
+      (err: unknown) => {
+        failed++;
+        throw err;
+      },
+    )
     .finally(() => {
       completed++;
       latencies.push(performance.now() - started);

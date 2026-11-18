@@ -17,6 +17,7 @@ import { comparisonTimeline } from "./research/comparison.js";
 import { EXPORT_MODES, type ExportMode, citationProjection, exportFile, isExportMode, researchExport } from "./researchExports.js";
 import { INVALID_PARAMS, ProtocolError, ResourceTemplate } from "@modelcontextprotocol/server";
 import { withRequest } from "../request.js";
+import { itemAt } from "../checked.js";
 
 const selectionSchema = z.strictObject({
   ...filterInputs(),
@@ -229,8 +230,9 @@ export function registerResearchTools(server: Server): void {
           [...f.params, pageLimit, offset],
         );
         for (const r of rows) {
-          r.id = `${subset}:${r.id}`;
-          r.url ||= itemUrl(String(r.id).split(":")[1]);
+          const localId = String(r.id);
+          r.id = `${subset}:${localId}`;
+          r.url ||= itemUrl(localId);
           if (mode === "concordance") {
             // The contexts follow the selection's own matching rule
             // (aggregateFilters): aliases are whole-phrase alternatives,
@@ -271,7 +273,8 @@ export function registerResearchTools(server: Server): void {
         const selections: ComparisonSelection[] = [];
         const rows: ComparisonRow[] = [];
         for (const [i, filter] of [f, b].entries()) {
-          const m = (await query(`SELECT ${metrics} FROM ${v} WHERE ${whereSql(filter.where)}`, filter.params))[0];
+          // An aggregate with no GROUP BY returns exactly one row, even over no input.
+          const m = itemAt(await query(`SELECT ${metrics} FROM ${v} WHERE ${whereSql(filter.where)}`, filter.params), 0);
           selections.push({ label: i === 0 ? "A" : "B", filters: filter.echo, total: Number(m.total),
             fulltext: m.fulltext === null ? null : Number(m.fulltext),
             embedded: m.embedded === null ? null : Number(m.embedded),

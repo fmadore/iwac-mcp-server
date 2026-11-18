@@ -94,10 +94,10 @@ async function buildIndex(subset: Subset, embeddingColumn: string): Promise<Embe
     async (rows) => {
       const block = new Float32Array(rows.length * dim);
       let kept = 0;
-      for (let r = 0; r < rows.length; r++) {
+      for (const [r, row] of rows.entries()) {
         if (r % 256 === 255) await yieldToEventLoop();
-        if (writeUnitVector(rows[r].emb, block, kept * dim, dim)) {
-          ids.push(String(rows[r].id));
+        if (writeUnitVector(row.emb, block, kept * dim, dim)) {
+          ids.push(String(row.id));
           kept++;
         } else skipped++;
       }
@@ -280,25 +280,17 @@ export async function semanticSearch(opts: {
   }
 
   const dim = idx.dim;
-  let targetIndexes: number[];
-  if (candidateIds) {
-    const candidateSet = new Set(Array.from(candidateIds, (v) => String(v)));
-    targetIndexes = [];
-    for (let i = 0; i < idx.ids.length; i++) {
-      if (candidateSet.has(idx.ids[i])) targetIndexes.push(i);
-    }
-  } else {
-    targetIndexes = Array.from({ length: idx.ids.length }, (_, i) => i);
-  }
-  if (targetIndexes.length === 0) return [];
-
+  const candidateSet = candidateIds ? new Set(Array.from(candidateIds, (v) => String(v))) : undefined;
   const scored: SemanticHit[] = [];
-  for (const i of targetIndexes) {
+  for (const [i, id] of idx.ids.entries()) {
+    if (candidateSet && !candidateSet.has(id)) continue;
     const off = i * dim;
     let s = 0;
-    for (let j = 0; j < dim; j++) s += idx.matrix[off + j] * q[j];
-    scored.push({ id: idx.ids[i], score: s });
+    // biome-ignore lint/style/noNonNullAssertion: the corpus scan's inner loop; off + j < ids.length * dim = matrix.length and j < dim = q.length (checked above), so a per-read guard would cost time for a branch that cannot run.
+    for (let j = 0; j < dim; j++) s += idx.matrix[off + j]! * q[j]!;
+    scored.push({ id, score: s });
   }
+  if (scored.length === 0) return [];
 
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, Math.min(opts.limit, scored.length));

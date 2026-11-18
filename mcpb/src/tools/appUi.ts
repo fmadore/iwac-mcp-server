@@ -5,6 +5,13 @@
 // sandboxed iframe and feeds the tool result to. A tool opts in with
 // `_meta.ui.resourceUri`; the host then fetches that resource and posts the
 // result into the frame, and the frame can call tools back through the host.
+// `_meta.ui.resourceUri` is the current key; the flat `ui/resourceUri` key that
+// ext-apps still exports as RESOURCE_URI_META_KEY is deprecated, so it is not
+// emitted. ext-apps 2.1 changed nothing here: its draft spec only stops
+// requiring the host's double sandboxed iframe (a host may now serve the view
+// as the document of a single sandboxed frame, CSP still set by the host),
+// which leaves the view's postMessage channel to `window.parent`, its inline
+// bootstrap and the CSP it runs under unchanged (see scripts/bundle.mjs).
 //
 // ONE resource serves all the charts. Each `ui://` resource is a standalone
 // document that shares nothing with its siblings, so a resource per chart

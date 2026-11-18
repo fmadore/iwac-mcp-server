@@ -7,12 +7,11 @@ import type { CountriesPayload } from "../../viewContract.js";
 // series to an invisible sliver. Volume goes in a ranked bar (newspaper count
 // and date range ride along as the tooltip), and the polarity mix goes in a
 // separate 100%-stacked chart, where the question is composition, not size.
-import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewResult } from "../shell.js";
 import { horizontalBar, legend, stackedBar } from "../svg.js";
 import { fmtInt, fmtPct, ordinalColor, orderBy, palette, POLARITY_ORDER } from "../theme.js";
 
-export function countriesView(payload: BasePayload): ViewResult {
-  const p = payload as CountriesPayload;
+export function countriesView(p: CountriesPayload): ViewResult {
   const rows = (p.countries ?? []).filter((c) => (c.article_count ?? 0) > 0);
   if (!rows.length) {
     return { title: "Countries compared", body: empty("No country carries any articles in this dataset revision.") };
@@ -50,7 +49,7 @@ export function countriesView(payload: BasePayload): ViewResult {
   // the known scale used to get palette colour i in the bars and #888 in the
   // legend, so its swatch matched nothing on the chart.
   const fallback = palette();
-  const colors = labels.map((l, i) => ordinalColor(l, POLARITY_ORDER) ?? fallback[i % fallback.length]);
+  const colors = labels.map((l, i) => ordinalColor(l, POLARITY_ORDER) ?? fallback[i % fallback.length] ?? "#888");
   const polarity = labels.length
     ? stackedBar({
         categories: names,

@@ -1,6 +1,6 @@
 import { narrowSelection, selectionFrom } from "../../selection.js";
 import type { AttentionPayload, ComparisonPayload, CoveragePayload, ReaderPayload, RecordsPayload, ResearchPayload } from "../../viewContract.js";
-import { csv, empty, panels, type BasePayload, type ViewContext, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewContext, type ViewResult } from "../shell.js";
 import { heatmapMatrix, columns } from "../svg.js";
 import { esc, fmtInt } from "../theme.js";
 
@@ -22,14 +22,23 @@ const detailTable = (p: ResearchPayload, headers: string[]) =>
     data(p).map((r) => headers.map((k) => r[k] ?? "—")),
   )}</details>`;
 
-export function recordsView(payload: BasePayload): ViewResult {
-  const p = payload as unknown as RecordsPayload;
+/**
+ * The page chrome is English (`<html lang="en">`) but the sources are not.
+ * The press, publication and document subsets are French; the others mix
+ * languages per item and carry no reliable tag, so they are marked unknown
+ * (`lang=""`) rather than mislabelled English for a screen reader.
+ */
+const FRENCH_SUBSETS = new Set(["articles", "publications", "documents"]);
+const corpusLang = (subset: string | undefined): string => (subset && FRENCH_SUBSETS.has(subset) ? ' lang="fr"' : ' lang=""');
+
+export function recordsView(p: RecordsPayload): ViewResult {
   const rows = data(p),
     aliases = p.view === "aliases";
   const offset = Number(p.offset ?? 0),
     limit = Number(p.limit ?? 20);
   const filters = p.filters;
   const exported = p.export;
+  const lang = corpusLang(p.subset);
   return {
     title: aliases ? "Authority aliases" : p.mode === "concordance" ? "Keyword in context" : "Source items",
     subtitle: `${fmtInt(Number(p.total_matches ?? 0))} matching · ${rows.length ? offset + 1 : 0}–${offset + rows.length}`,
@@ -38,7 +47,7 @@ export function recordsView(payload: BasePayload): ViewResult {
       ? rows
           .map(
             (r) =>
-              `<article class="record"><button class="source" data-id="${esc(r.id)}">${esc(r.title || r.id)}</button><p>${esc([r.date, r.newspaper, r.country].filter(Boolean).join(" · "))}</p>${r.alternate_titles ? `<p>Aliases: ${esc(r.alternate_titles)}</p>` : ""}${Array.isArray(r.excerpts) ? r.excerpts.map((t) => `<blockquote>${esc(t)}</blockquote>`).join("") || "<p>No literal match in available body text.</p>" : ""}</article>`,
+              `<article class="record"><button class="source" data-id="${esc(r.id)}"${lang}>${esc(r.title || r.id)}</button><p>${esc([r.date, r.newspaper, r.country].filter(Boolean).join(" · "))}</p>${r.alternate_titles ? `<p>Aliases: ${esc(r.alternate_titles)}</p>` : ""}${Array.isArray(r.excerpts) ? r.excerpts.map((t) => `<blockquote${lang}>${esc(t)}</blockquote>`).join("") || "<p>No literal match in available body text.</p>" : ""}</article>`,
           )
           .join("")
       : empty("No items match this selection."),
@@ -109,16 +118,15 @@ export function recordsView(payload: BasePayload): ViewResult {
   };
 }
 
-export function readerView(payload: BasePayload): ViewResult {
-  const p = payload as unknown as ReaderPayload;
-  const metadata = (p.metadata ?? {}) as Row;
+export function readerView(p: ReaderPayload): ViewResult {
+  const metadata = p.metadata ?? {};
   return {
     title: String(p.title || p.id || "Source text"),
     chips: { id: p.id },
     body: `${table(
       ["Field", "Value"],
       Object.entries(metadata).filter(([, v]) => typeof v !== "object"),
-    )}<p class="citation"><label>Canonical source URL (select to copy)<input class="source-url" aria-label="Canonical source URL" readonly value="${esc(p.url)}" style="display:block;width:100%;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);padding:6px"/></label></p><div class="source-text">${esc(p.text || "No body text available.")}</div>`,
+    )}<p class="citation"><label>Canonical source URL (select to copy)<input class="source-url" aria-label="Canonical source URL" readonly value="${esc(p.url)}" style="display:block;width:100%;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);padding:6px"/></label></p>${p.text ? `<div class="source-text"${corpusLang(`${p.id}`.split(":")[0])}>${esc(p.text)}</div>` : "<div class=\"source-text\">No body text available.</div>"}`,
     notes: [
       p.text_source === "description"
         ? "This is a catalogue description, not a transcription or full source text."
@@ -144,13 +152,13 @@ export function readerView(payload: BasePayload): ViewResult {
   };
 }
 
-export function coverageView(payload: BasePayload, options: Row): ViewResult {
-  const p = payload as unknown as CoveragePayload;
+export function coverageView(p: CoveragePayload, options: Row): ViewResult {
   const rows = data(p);
   const metrics = ["fulltext", "embedded", "scored", "total"] as const;
   const available = metrics.filter((m) => m === "total" || rows.some((r) => typeof r[m] === "number"));
   const requested = options.metric;
-  const metric = available.find((m) => m === requested) ?? available[0];
+  // `available` always ends in "total", so the last fallback never applies.
+  const metric = available.find((m) => m === requested) ?? available[0] ?? "total";
   const nextMetric = available[(available.indexOf(metric) + 1) % available.length];
   const sources = [...new Set(rows.map((r) => String(r.source)))].sort(),
     years = [...new Set(rows.map((r) => String(r.year)))].sort();
@@ -177,7 +185,7 @@ export function coverageView(payload: BasePayload, options: Row): ViewResult {
   return {
     title: "Source coverage over time",
     subtitle: `${fmtInt(Number(p.total_matches))} selected items · ${metric === "total" ? "archived counts" : `${metric} / archived items (%)`}`,
-    chips: p.filters as Row,
+    chips: p.filters,
     body: body + detailTable(p, ["source", "year", "total", "fulltext", "embedded", "scored"]),
     notes: [
       p.note,
@@ -200,7 +208,7 @@ export function coverageView(payload: BasePayload, options: Row): ViewResult {
           const source = el.dataset.key,
             year = el.dataset.key2;
           if (!source || !year || year === "(undated)" || el.dataset.key === "(missing)") return;
-          let selection = narrowSelection(selectionFrom(p.filters as Row), p.source_exact_field ?? p.source_field, source);
+          let selection = narrowSelection(selectionFrom(p.filters), p.source_exact_field ?? p.source_field, source);
           selection = {
             ...selection,
             date_from: selection.date_from && selection.date_from > year ? selection.date_from : year,
@@ -213,8 +221,7 @@ export function coverageView(payload: BasePayload, options: Row): ViewResult {
   };
 }
 
-export function comparisonView(payload: BasePayload): ViewResult {
-  const p = payload as unknown as ComparisonPayload;
+export function comparisonView(p: ComparisonPayload): ViewResult {
   const rows = data(p),
     selections = p.selections ?? [];
   const plots = [...new Set(rows.map((r) => String(r.field)))].map((field) => {
@@ -267,15 +274,14 @@ export function comparisonView(payload: BasePayload): ViewResult {
       ...selections.map((s) => ({
         id: `read-${s.label}`,
         label: `Read selection ${s.label}`,
-        run: (ctx: ViewContext) => openItems(ctx, p, selectionFrom(s.filters as Row)),
+        run: (ctx: ViewContext) => openItems(ctx, p, selectionFrom(s.filters)),
       })),
       exportRows(p, ["selection", "field", "value", "count", "share"]),
     ],
   };
 }
 
-export function attentionView(payload: BasePayload, options: Row): ViewResult {
-  const p = payload as unknown as AttentionPayload;
+export function attentionView(p: AttentionPayload, options: Row): ViewResult {
   const rows = data(p),
     origins = [...new Set(rows.map((r) => String(r.origin)))].sort(),
     destinations = [...new Set(rows.map((r) => String(r.destination)))].sort(),
@@ -283,7 +289,7 @@ export function attentionView(payload: BasePayload, options: Row): ViewResult {
   const lookup = new Map(rows.map((r) => [JSON.stringify([r.origin, r.destination]), r]));
   return {
     title: "Where publications direct attention",
-    chips: p.filters as Row,
+    chips: p.filters,
     body: rows.length
       ? heatmapMatrix({
           rows: origins,
@@ -314,7 +320,7 @@ export function attentionView(payload: BasePayload, options: Row): ViewResult {
           const origin = el.dataset.key,
             destination = el.dataset.key2;
           if (!origin || !destination) return;
-          let s = narrowSelection(selectionFrom(p.filters as Row), "country", origin);
+          let s = narrowSelection(selectionFrom(p.filters), "country", origin);
           s = narrowSelection(s, "spatial", destination);
           void openItems(ctx, p, s);
         });

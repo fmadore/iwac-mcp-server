@@ -21,7 +21,9 @@ import { requestMetrics, stopSharedWork } from "./request.js";
 // a stream, which is spec-legal and which the official client handles.)
 //
 // A bearer token (config.bearerToken) gates every /mcp request; an
-// unauthenticated GET /health is exposed for the container health check.
+// unauthenticated GET /health is exposed for the container health check, and
+// an unauthenticated GET /mcp/server-card serves the public Server Card
+// (SEP-2127, see serverCard.ts).
 //
 // TLS termination, rate limiting, and the public `/mcp` path mount are handled
 // upstream by nginx — see docs/iwac-mcp-roadmap.md in the IWAC-docker repo.
@@ -30,6 +32,18 @@ import { requestMetrics, stopSharedWork } from "./request.js";
 // public Host. Instead, requests that carry Origin are checked against the
 // exact IWAC_MCP_ALLOWED_ORIGINS allowlist below, as required by the Streamable
 // HTTP specification. Server-to-server clients normally omit Origin.
+//
+// CORS: passing the Origin check is not enough for a browser, which also needs
+// the response to name the origin and needs a preflight answered. So for /mcp
+// an allowed origin (allowlisted, loopback, or any with the `*` opt-in) gets:
+// an `OPTIONS` preflight answered 204 BEFORE the bearer check (a preflight
+// never carries Authorization), and `Access-Control-Allow-Origin`,
+// `Vary: Origin` and `Access-Control-Expose-Headers` on every actual response,
+// the SDK's and this file's own errors alike. A disallowed origin keeps its
+// 403 with no CORS headers. `Access-Control-Allow-Credentials` is never sent:
+// the endpoint authenticates by bearer token, never by cookie. If nginx in
+// front adds CORS headers of its own, one of the two must stop, or browsers
+// reject the duplicated `Access-Control-Allow-Origin`.
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
@@ -37,6 +51,34 @@ import http from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { config, isLoopbackOrigin } from "./config.js";
 import { warmEncoder } from "./onnxEncoder.js";
+import {
+  etagMatches,
+  SERVER_CARD_MEDIA_TYPE,
+  SERVER_CARD_PATH,
+  type ServedServerCard,
+  serverCardFromEnv,
+} from "./serverCard.js";
+
+/** Methods a browser may use on /mcp. POST carries every MCP message, and GET
+ * is listed so a client probing for a 2025-era event stream reads the
+ * handler's 405 instead of failing the preflight. DELETE ends a session, and
+ * this stateless server never issues one. */
+const CORS_ALLOW_METHODS = "POST, GET, OPTIONS";
+
+/** Request headers the Streamable HTTP transport (2026-07-28) and the SDK's
+ * client send. Listed rather than echoed from Access-Control-Request-Headers,
+ * so the preflight states the contract instead of approving anything asked.
+ * No tool declares an `x-mcp-header` parameter, so no `Mcp-Param-*` header
+ * can be sent. */
+const CORS_ALLOW_HEADERS =
+  "Content-Type, Authorization, Accept, Mcp-Protocol-Version, Mcp-Session-Id, Mcp-Method, Mcp-Name, Last-Event-ID";
+
+/** Response headers a browser client must be able to read: the protocol and
+ * session headers, and the 401 challenge an OAuth-aware client inspects. */
+const CORS_EXPOSE_HEADERS = "Mcp-Protocol-Version, Mcp-Session-Id, WWW-Authenticate";
+
+/** How long a browser may cache a preflight (Chromium caps it at 2 hours). */
+const CORS_MAX_AGE_SECONDS = "7200";
 
 /** Cap on request body size — MCP JSON-RPC payloads are tiny; larger is abuse. */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -88,12 +130,80 @@ function sendJson(
   res.end(JSON.stringify(payload));
 }
 
+/** CORS for the Server Card, exactly as ext-server-card's docs/discovery.md
+ * prescribes. Unlike /mcp it is `*` for every caller, allowlisted or not: the
+ * card is the same public, read-only document for everyone, carries nothing a
+ * token or session could change, and is meant to be fetched by any page that
+ * wants to discover the server. If-None-Match is the one non-safelisted
+ * request header (it makes a revalidation preflight), and ETag must be
+ * exposed for a browser to send it back. */
+const CARD_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET",
+  "Access-Control-Allow-Headers": "Content-Type, If-None-Match",
+  "Access-Control-Expose-Headers": "ETag",
+} as const;
+
+/** The card changes only with a release or a redeploy, so an hour (the spec's
+ * own example) costs a client at most one stale hour, and the ETag makes the
+ * revalidation after it a body-less 304. */
+const CARD_CACHE_CONTROL = "public, max-age=3600";
+
+/** Answer GET, HEAD and OPTIONS on the card path; anything else is a 405. */
+function serveServerCard(req: http.IncomingMessage, res: http.ServerResponse, served: ServedServerCard): void {
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, { ...CARD_CORS_HEADERS, "Access-Control-Max-Age": CORS_MAX_AGE_SECONDS });
+    res.end();
+    return;
+  }
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, 405, { error: "Use GET" }, { ...CARD_CORS_HEADERS, Allow: "GET, HEAD, OPTIONS" });
+    return;
+  }
+  const headers = {
+    ...CARD_CORS_HEADERS,
+    "Cache-Control": CARD_CACHE_CONTROL,
+    ETag: served.etag,
+  };
+  if (etagMatches(req.headers["if-none-match"], served.etag)) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(200, {
+    ...headers,
+    "Content-Type": SERVER_CARD_MEDIA_TYPE,
+    "Content-Length": String(Buffer.byteLength(served.body)),
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(req.method === "HEAD" ? undefined : served.body);
+}
+
 export function startHttpServer(createServer: () => McpServer): void {
-  const { httpPort: port, bearerToken: token, httpAllowedOrigins: allowedOrigins, invalidHttpOrigins } = config;
+  const {
+    httpPort: port,
+    bearerToken: token,
+    httpAllowedOrigins: allowedOrigins,
+    httpAnyOrigin: anyOrigin,
+    invalidHttpOrigins,
+  } = config;
   if (invalidHttpOrigins.length > 0) {
     console.error(
       `[iwac] FATAL: IWAC_MCP_ALLOWED_ORIGINS contains invalid origins: ${invalidHttpOrigins.join(", ")}. ` +
-        "Use comma-separated HTTP(S) origins without paths, queries, fragments, credentials, or wildcards.",
+        "Use comma-separated HTTP(S) origins without paths, queries, fragments, credentials, or wildcards, " +
+        "or `*` on its own to allow every origin.",
+    );
+    process.exit(1);
+  }
+  // `*` lets any web page call the endpoint from a visitor's browser. Over the
+  // public mirror that only exposes what is public anyway. Over the private
+  // mirror it would let any page read restricted text through a visitor whose
+  // requests reach the endpoint with the token added on the way (an nginx
+  // that injects it), so the two never go together.
+  if (anyOrigin && config.privateDataset) {
+    console.error(
+      "[iwac] FATAL: IWAC_MCP_ALLOWED_ORIGINS=* would let any web page read the restricted full text of " +
+        `${config.datasetRepo} through a visitor's browser. List the trusted origins instead.`,
     );
     process.exit(1);
   }
@@ -113,6 +223,18 @@ export function startHttpServer(createServer: () => McpServer): void {
       `[iwac] FATAL: IWAC_PRIVATE_DATASET is set, which would serve the restricted full text of ` +
         `${config.datasetRepo} to every client of this endpoint. Set IWAC_ALLOW_PRIVATE_HTTP=true ` +
         "as well if that is intended.",
+    );
+    process.exit(1);
+  }
+  // Built once: every field is fixed for the life of the process. A malformed
+  // IWAC_MCP_PUBLIC_URL would publish a broken endpoint to every client that
+  // discovers the server, so it stops the start like the other URL settings.
+  const { served: serverCard, invalidPublicUrl } = serverCardFromEnv();
+  if (invalidPublicUrl !== undefined) {
+    console.error(
+      `[iwac] FATAL: IWAC_MCP_PUBLIC_URL is not a usable public endpoint: ${invalidPublicUrl}. ` +
+        "Use the absolute http(s) URL clients connect to (for example https://islam.zmo.de/mcp), " +
+        "without credentials, a query or a fragment, or leave it unset to publish a card without remotes.",
     );
     process.exit(1);
   }
@@ -141,6 +263,17 @@ export function startHttpServer(createServer: () => McpServer): void {
       return;
     }
 
+    // The Server Card is public metadata, so it skips the bearer check (a
+    // client reads it before it has any credentials) and, unlike /mcp, the
+    // Origin allowlist too: the spec requires `Access-Control-Allow-Origin: *`
+    // on it, and the DNS-rebinding risk the allowlist guards against does not
+    // arise for a static document that is identical for every caller and
+    // holds nothing beyond what the public MCP Registry entry already shows.
+    if (path === SERVER_CARD_PATH) {
+      serveServerCard(req, res, serverCard);
+      return;
+    }
+
     if (path !== "/mcp" && path !== "/mcp/" && path !== "/metrics") {
       sendJson(res, 404, rpcError(-32601, "Not found — POST JSON-RPC to /mcp"));
       return;
@@ -154,11 +287,28 @@ export function startHttpServer(createServer: () => McpServer): void {
     // reflect it or fall back to Host — either would defeat the DNS-rebinding
     // protection this check exists to provide.
     const origin = req.headers.origin;
-    if (origin !== undefined && !allowedOrigins.has(origin) && !isLoopbackOrigin(origin)) {
+    if (origin !== undefined && !anyOrigin && !allowedOrigins.has(origin) && !isLoopbackOrigin(origin)) {
       sendJson(res, 403, rpcError(-32000, "Forbidden: Origin is not allowed"), {
         Vary: "Origin",
       });
       return;
+    }
+
+    if (origin !== undefined && path !== "/metrics") {
+      // Set before any response is written: sendJson and the SDK adapter both
+      // pass an object to writeHead, which merges these in.
+      res.setHeader("Access-Control-Allow-Origin", anyOrigin ? "*" : origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS);
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          "Access-Control-Allow-Methods": CORS_ALLOW_METHODS,
+          "Access-Control-Allow-Headers": CORS_ALLOW_HEADERS,
+          "Access-Control-Max-Age": CORS_MAX_AGE_SECONDS,
+        });
+        res.end();
+        return;
+      }
     }
 
     if (!authorized(req.headers.authorization)) {

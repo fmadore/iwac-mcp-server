@@ -26,7 +26,7 @@ export function registerLexicalTools(server: Server): void {
     {
       ...toolMeta("Press language metrics"),
       description:
-        "Text length, lexical richness and readability by country/newspaper/year. Metrics are precomputed; readability is French-specific and excludes other languages. Missing values are disclosed. Compare distributions as descriptive evidence.",
+        "Text length, lexical richness and readability by country/newspaper/year. Metrics are precomputed; readability is French-specific and excludes other languages. Missing values are disclosed. Distributions are descriptive evidence.",
       _meta: CHARTS_UI_META,
       inputSchema: z.strictObject({
         group_by: z.string().optional().describe("year (default) | newspaper | country"),

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { config, type Subset } from "../src/config.js";
 import { withCacheLock } from "../src/cacheLock.js";
 import {
+  allowDirectoriesForTests,
   ensureView,
   pendingRefresh,
   query,
@@ -21,6 +22,11 @@ import {
   waitForSharedWork,
   withRequest,
 } from "../src/request.js";
+
+// These tests write parquet under several mkdtemp() dirs and repoint
+// config.cacheDir after the shared DuckDB instance exists, which its locked
+// sandbox cannot follow; open the temp dir to it, as only a test may.
+allowDirectoriesForTests([os.tmpdir()]);
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

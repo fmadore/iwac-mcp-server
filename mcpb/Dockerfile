@@ -36,7 +36,9 @@ RUN npm ci --omit=dev && npm cache clean --force \
 COPY --from=build /app/mcpb/server ./server
 RUN mkdir -p /cache && chown node:node /cache
 EXPOSE 8000
+# PORT is configurable at run time, so the probe reads it rather than assuming
+# 8000 (a container started with -e PORT=9000 would otherwise report unhealthy).
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:8000/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8000)+'/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 USER node
 CMD ["node", "server/index.js", "--http"]

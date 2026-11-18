@@ -433,13 +433,14 @@ export function donut(o: DonutOptions): string {
  * Squarified treemap layout (Bruls, Huizing & van Wijk 2000). Returns one box
  * per input value, in input order, laid out to keep cells close to square.
  */
+// biome-ignore-start lint/style/noNonNullAssertion: layout geometry; every index is a position in `values`, `area` or `out` (all one length) or taken from `order`, a permutation of those positions, so a guard per read would only add bundle bytes.
 export function squarify(values: number[], rect: Box): Box[] {
   const out: Box[] = values.map(() => ({ x: rect.x, y: rect.y, w: 0, h: 0 }));
   const total = values.reduce((a, b) => a + Math.max(0, b), 0);
   if (total <= 0 || rect.w <= 0 || rect.h <= 0) return out;
 
   // Descending order is what makes the layout squarish; remember the mapping.
-  const order = values.map((_v, i) => i).sort((a, b) => values[b] - values[a]);
+  const order = values.map((_v, i) => i).sort((a, b) => values[b]! - values[a]!);
   const area = values.map((v) => (Math.max(0, v) / total) * rect.w * rect.h);
 
   let free: Box = { ...rect };
@@ -450,7 +451,7 @@ export function squarify(values: number[], rect: Box): Box[] {
     const side = Math.min(free.w, free.h);
     const sum = rowArea + extra;
     if (sum <= 0 || side <= 0) return Number.POSITIVE_INFINITY;
-    const areas = row.map((i) => area[i]).concat(extra > 0 ? [extra] : []);
+    const areas = row.map((i) => area[i]!).concat(extra > 0 ? [extra] : []);
     const max = Math.max(...areas);
     const min = Math.min(...areas);
     return Math.max((side * side * max) / (sum * sum), (sum * sum) / (side * side * min));
@@ -463,7 +464,7 @@ export function squarify(values: number[], rect: Box): Box[] {
     let offset = 0;
     const horizontal = free.w >= free.h;
     for (const i of row) {
-      const length = (area[i] / rowArea) * side;
+      const length = (area[i]! / rowArea) * side;
       out[i] = horizontal
         ? { x: free.x, y: free.y + offset, w: thickness, h: length }
         : { x: free.x + offset, y: free.y, w: length, h: thickness };
@@ -477,14 +478,16 @@ export function squarify(values: number[], rect: Box): Box[] {
   };
 
   for (const i of order) {
-    if (area[i] <= 0) continue;
-    if (row.length && worst(area[i]) > worst(0)) flushRow();
+    const a = area[i]!;
+    if (a <= 0) continue;
+    if (row.length && worst(a) > worst(0)) flushRow();
     row.push(i);
-    rowArea += area[i];
+    rowArea += a;
   }
   flushRow();
   return out;
 }
+// biome-ignore-end lint/style/noNonNullAssertion: (see start)
 
 export interface TreemapOptions extends Partial<Frame> {
   items: RankItem[];
@@ -508,7 +511,7 @@ export function treemap(o: TreemapOptions): string {
   const cells = items
     .map((it, i) => {
       const b = boxes[i];
-      if (b.w < 1 || b.h < 1) return "";
+      if (!b || b.w < 1 || b.h < 1) return "";
       // Only label cells with room for it; the <title> covers the rest.
       const showLabel = b.w > 58 && b.h > 26;
       const showValue = b.w > 58 && b.h > 40;
@@ -679,6 +682,7 @@ export interface NetworkNode {
 }
 
 export interface NetworkEdge {
+  /** Positions in NetworkOptions.nodes; forceGraph reads them unchecked. */
   source: number;
   target: number;
   weight: number;
@@ -717,8 +721,9 @@ export function forceGraph(o: NetworkOptions): string {
   const cx = width / 2;
   const cy = height / 2;
   const radius = Math.min(width, height) * 0.36;
+  // biome-ignore-start lint/style/noNonNullAssertion: the O(n² × iterations) force simulation; i and j run over the node positions, px, py, dx and dy are all nodes.length long, and edge endpoints are node positions by contract (NetworkEdge), so a guard per read would cost bundle bytes and time for a branch that cannot run.
   // Seeded on the circle, largest first, so the hubs start spread apart.
-  const order = nodes.map((_, i) => i).sort((a, b) => nodes[b].weight - nodes[a].weight);
+  const order = nodes.map((_, i) => i).sort((a, b) => nodes[b]!.weight - nodes[a]!.weight);
   const px = new Array<number>(nodes.length);
   const py = new Array<number>(nodes.length);
   order.forEach((idx, rank) => {
@@ -738,8 +743,8 @@ export function forceGraph(o: NetworkOptions): string {
 
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
-        let ax = px[i] - px[j];
-        let ay = py[i] - py[j];
+        let ax = px[i]! - px[j]!;
+        let ay = py[i]! - py[j]!;
         let d2 = ax * ax + ay * ay;
         if (d2 < 1e-4) {
           // Coincident nodes have no direction to separate along; nudge them
@@ -749,31 +754,31 @@ export function forceGraph(o: NetworkOptions): string {
           d2 = ax * ax + ay * ay;
         }
         const force = (k * k) / d2;
-        dx[i] += ax * force;
-        dy[i] += ay * force;
-        dx[j] -= ax * force;
-        dy[j] -= ay * force;
+        dx[i]! += ax * force;
+        dy[i]! += ay * force;
+        dx[j]! -= ax * force;
+        dy[j]! -= ay * force;
       }
     }
     for (const e of o.edges) {
-      const ax = px[e.source] - px[e.target];
-      const ay = py[e.source] - py[e.target];
+      const ax = px[e.source]! - px[e.target]!;
+      const ay = py[e.source]! - py[e.target]!;
       const d = Math.max(0.01, Math.hypot(ax, ay));
       // Attraction scales with the pair's co-mention strength, so strongly
       // linked values end up adjacent — which is the whole point of the chart.
       const force = ((d * d) / k) * (0.25 + (0.75 * e.weight) / maxEdge) * 0.02;
-      dx[e.source] -= (ax / d) * force * d;
-      dy[e.source] -= (ay / d) * force * d;
-      dx[e.target] += (ax / d) * force * d;
-      dy[e.target] += (ay / d) * force * d;
+      dx[e.source]! -= (ax / d) * force * d;
+      dy[e.source]! -= (ay / d) * force * d;
+      dx[e.target]! += (ax / d) * force * d;
+      dy[e.target]! += (ay / d) * force * d;
     }
     for (let i = 0; i < nodes.length; i++) {
-      const d = Math.hypot(dx[i], dy[i]) || 1;
-      px[i] += (dx[i] / d) * Math.min(d, temperature);
-      py[i] += (dy[i] / d) * Math.min(d, temperature);
+      const d = Math.hypot(dx[i]!, dy[i]!) || 1;
+      px[i]! += (dx[i]! / d) * Math.min(d, temperature);
+      py[i]! += (dy[i]! / d) * Math.min(d, temperature);
       // Gentle pull to the centre keeps loosely-connected nodes in frame.
-      px[i] += (cx - px[i]) * 0.008;
-      py[i] += (cy - py[i]) * 0.008;
+      px[i]! += (cx - px[i]!) * 0.008;
+      py[i]! += (cy - py[i]!) * 0.008;
     }
   }
 
@@ -785,8 +790,8 @@ export function forceGraph(o: NetworkOptions): string {
   const maxY = Math.max(...py);
   const sx = maxX - minX < 1 ? 1 : (width - 2 * pad) / (maxX - minX);
   const sy = maxY - minY < 1 ? 1 : (height - 2 * pad) / (maxY - minY);
-  const X = (i: number): number => pad + (px[i] - minX) * sx;
-  const Y = (i: number): number => pad + (py[i] - minY) * sy;
+  const X = (i: number): number => pad + (px[i]! - minX) * sx;
+  const Y = (i: number): number => pad + (py[i]! - minY) * sy;
 
   const peak = Math.max(1, ...nodes.map((n2) => n2.weight));
   const colors = palette();
@@ -796,9 +801,10 @@ export function forceGraph(o: NetworkOptions): string {
       (e) =>
         `<line x1="${n(X(e.source))}" y1="${n(Y(e.source))}" x2="${n(X(e.target))}" y2="${n(Y(e.target))}" ` +
         `class="link" stroke-width="${n(0.5 + (3 * e.weight) / maxEdge)}">` +
-        `<title>${esc(nodes[e.source].label)} + ${esc(nodes[e.target].label)}: ${esc(fmt(e.weight))}</title></line>`,
+        `<title>${esc(nodes[e.source]!.label)} + ${esc(nodes[e.target]!.label)}: ${esc(fmt(e.weight))}</title></line>`,
     )
     .join("");
+  // biome-ignore-end lint/style/noNonNullAssertion: (see start)
 
   const dots = nodes
     .map((node, i) => {

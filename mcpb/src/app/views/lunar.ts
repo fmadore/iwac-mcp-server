@@ -19,7 +19,7 @@ import type { LunarPayload } from "../../viewContract.js";
 // "good" and thin coverage is not "bad"; a diverging palette here would assert
 // a polarity the data does not carry. One series, one hue, and the line does
 // the work.
-import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewResult } from "../shell.js";
 import { bar } from "../svg.js";
 import { fmtInt } from "../theme.js";
 import { carryFilters } from "./temporal.js";
@@ -71,8 +71,7 @@ function notable(values: number[], baseline: number): Set<number> {
   return out;
 }
 
-export function lunarView(payload: BasePayload): ViewResult {
-  const p = payload as LunarPayload;
+export function lunarView(p: LunarPayload): ViewResult {
   const groups = p.distribution_by_group ?? { all: p.distribution ?? {} };
   const dist: Record<string, number> = {};
   for (const counts of Object.values(groups))
@@ -82,9 +81,9 @@ export function lunarView(payload: BasePayload): ViewResult {
 
   // Always all twelve, in calendar order, even where a month has no items: a
   // gap in the lunar year is a finding, and dropping the bar would hide it.
-  const months = Array.from({ length: 12 }, (_, i) => {
+  const months = FALLBACK_MONTHS.map((fallback, i) => {
     const key = String(i + 1).padStart(2, "0");
-    return { key, name: labels[key] ?? FALLBACK_MONTHS[i], value: dist[key] ?? 0 };
+    return { key, name: labels[key] ?? fallback, value: dist[key] ?? 0 };
   });
   const values = months.map((m) => m.value);
   const plotted = values.reduce((a, b) => a + b, 0);
@@ -97,13 +96,14 @@ export function lunarView(payload: BasePayload): ViewResult {
           body: bar({
             categories: months.map((m) => m.name),
             axisLabels: months.map((m) => AXIS_SHORT[m.name] ?? m.name),
-            values: months.map((m) =>
-              p.normalize_by
-                ? p.denominators?.[group]?.[m.key]
-                  ? (100 * (counts[m.key] ?? 0)) / p.denominators[group][m.key]
+            values: months.map((m) => {
+              const denominator = p.denominators?.[group]?.[m.key];
+              return p.normalize_by
+                ? denominator
+                  ? (100 * (counts[m.key] ?? 0)) / denominator
                   : Number.NaN
-                : (counts[m.key] ?? 0),
-            ),
+                : (counts[m.key] ?? 0);
+            }),
             label: p.normalize_by ? "percent" : "items",
             maxTicks: 12,
             ariaLabel: `${subset} per Hijri month: ${group}`,
@@ -119,7 +119,8 @@ export function lunarView(payload: BasePayload): ViewResult {
     : empty("No items with a precise enough date match these filters.");
 
   // The peak, named — the sentence a reader wants before reading the bars.
-  const top = months.reduce((a, b) => (b.value > a.value ? b : a), months[0]);
+  // No seed: months always has twelve entries, so reduce starts from the first.
+  const top = months.reduce((a, b) => (b.value > a.value ? b : a));
   const lead =
     plotted && baseline
       ? `${top.name} leads at ${fmtInt(top.value)} (${Math.round((top.value / baseline - 1) * 100) >= 0 ? "+" : ""}${Math.round((top.value / baseline - 1) * 100)}% vs an even split).`

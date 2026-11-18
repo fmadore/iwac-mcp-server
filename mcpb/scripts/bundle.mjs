@@ -148,7 +148,7 @@ const uiHtml = `<!DOCTYPE html>
 :root[data-theme=light]{color-scheme:light;--fg:#13161c;--muted:#66696e;--line:#ced1d6;--chip:#f7f5f3;--btn:#faf8f6;--track:#e8e4e0;--warn:#a33b12;--land:#e3ded8;--bubble:#ce4115}
 :root[data-theme=dark]{color-scheme:dark;--fg:#e7e4df;--muted:#8a8580;--line:#352f28;--chip:#1a1510;--btn:#1a1510;--track:#2a231c;--warn:#ec8b6a;--land:#2b241d;--bubble:#ec653f}
 *{box-sizing:border-box}
-body{margin:0;padding:14px;font:14px/1.45 "Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);background:transparent}
+body{margin:0;padding:calc(14px + var(--safe-top,0px)) calc(14px + var(--safe-right,0px)) calc(14px + var(--safe-bottom,0px)) calc(14px + var(--safe-left,0px));font:14px/1.45 "Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);background:transparent}
 h1{margin:0 0 2px;font-size:15px;font-weight:600;text-transform:capitalize}
 .totals{margin:0 0 8px;color:var(--muted);font-size:13px}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
@@ -181,9 +181,9 @@ svg{display:block;width:100%;height:auto}
 .hit:hover{opacity:.78}
 [data-key]{cursor:pointer}
 [data-key]:focus-visible,button:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
-.scroll{overflow:auto;max-height:420px}table{border-collapse:collapse;font-size:12px}td,th{padding:5px 9px;border-bottom:1px solid var(--line);text-align:left}
-.record{padding:10px 0;border-bottom:1px solid var(--line)}.record p{margin:4px 0;color:var(--muted)}.source{text-align:left}.source-text{white-space:pre-wrap;overflow-wrap:anywhere;max-height:620px;overflow:auto;line-height:1.65}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid var(--line)}.citation{overflow-wrap:anywhere}
-:root[data-display-mode=fullscreen] .scroll,:root[data-display-mode=fullscreen] .source-text{max-height:calc(100dvh - 200px);min-height:160px}
+.scroll{overflow:auto;max-height:min(420px,var(--fit-h,420px))}table{border-collapse:collapse;font-size:12px}td,th{padding:5px 9px;border-bottom:1px solid var(--line);text-align:left}
+.record{padding:10px 0;border-bottom:1px solid var(--line)}.record p{margin:4px 0;color:var(--muted)}.source{text-align:left}.source-text{white-space:pre-wrap;overflow-wrap:anywhere;max-height:min(620px,var(--fit-h,620px));overflow:auto;line-height:1.65}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid var(--line)}.citation{overflow-wrap:anywhere}
+:root[data-display-mode=fullscreen] .scroll,:root[data-display-mode=fullscreen] .source-text{max-height:var(--fit-h,calc(100dvh - 200px));min-height:160px}
 .legend{list-style:none;display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 0;padding:0;font-size:12px}
 .legend li{display:flex;align-items:center;gap:5px}
 .swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
@@ -193,12 +193,18 @@ svg{display:block;width:100%;height:auto}
 .actions{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}
 button{font:inherit;font-size:13px;padding:5px 11px;border:1px solid var(--line);border-radius:6px;background:var(--btn);color:var(--fg);cursor:pointer}
 button:disabled{opacity:.6;cursor:default}
+.pending{padding:10px 0}
+/* Windows high contrast replaces author colours with a few system ones, which
+   would turn every series the same colour and erase what a legend or heatmap
+   says. Marks and swatches keep their palette; text, rules and focus rings
+   take system colours so they stay legible on the forced background. */
+@media (forced-colors:active){svg,.swatch{forced-color-adjust:none}.tick,.lbl,.barlbl,.big,.reflbl{fill:CanvasText}.grid,.refline,.land,.link,.neighbour{stroke:CanvasText}[data-key]:focus-visible,button:focus-visible{outline-color:Highlight}}
 </style></head>
-<body><div id="root">Loading IWAC charts…</div><script id="iwac-chart-bundle" type="application/gzip">${uiCompressed.toString("base64")}</script><script>${uiBootstrap}</script></body></html>`;
+<body><div id="root"><p class="empty" role="status">Loading IWAC charts…</p></div><script id="iwac-chart-bundle" type="application/gzip">${uiCompressed.toString("base64")}</script><script>${uiBootstrap}</script></body></html>`;
 
 // Report it: the UI is inlined into the server bundle as a string constant, so
 // esbuild's own output summary hides it, and it is the one artifact whose size
-// a new chart can quietly double. test/fixture-server.test.mjs enforces a hard
+// a new chart can quietly double. test/app.test.mjs enforces a hard
 // budget; this line is so the number is visible while iterating.
 console.log(`  ui resource   ${(Buffer.byteLength(uiHtml) / 1024).toFixed(1)}kb (self-contained HTML)`);
 console.log(`  ui JavaScript ${(Buffer.byteLength(uiScript) / 1024).toFixed(1)}kb decoded; ${(uiCompressed.length / 1024).toFixed(1)}kb gzip`);

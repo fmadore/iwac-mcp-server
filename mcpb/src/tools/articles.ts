@@ -34,7 +34,7 @@ export function registerArticleTools(server: Server): void {
       ...toolMeta("Search newspaper articles"),
       description:
         "Search IWAC newspaper articles by keyword (title + OCR + AI abstracts, French and English), country, newspaper, subject, " +
-        "and date range. Use French concept keywords regardless of the user's report language. Matching is accent- and case-insensitive.",
+        "and date range. The press is French; English terms match only the English abstract. Matching is accent- and case-insensitive.",
       inputSchema: z.strictObject({
         ...exactInput(),
         keyword: z

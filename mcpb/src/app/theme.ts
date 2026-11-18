@@ -53,12 +53,6 @@ export const isDark = (): boolean => dark;
 /** Categorical colours, in the order series should consume them. */
 export const palette = (): string[] => [...(dark ? BRAND.dark : BRAND.light), ...PALETTE_REST];
 
-/** One stable colour per name, so a country keeps its hue across charts. */
-export function colorFor(name: string, order: string[]): string {
-  const colors = palette();
-  const i = order.indexOf(name);
-  return colors[(i < 0 ? order.length : i) % colors.length];
-}
 
 /**
  * The AI sentiment vocabularies are ORDINAL five-point French scales, not
@@ -148,11 +142,11 @@ const hex = (c: string): [number, number, number] => [
  */
 export function ramp(t: number): string {
   const { from, to } = dark ? RAMP.dark : RAMP.light;
-  const a = hex(from);
-  const b = hex(to);
+  const [r, g, b] = hex(from);
+  const [r2, g2, b2] = hex(to);
   const clamped = Math.max(0, Math.min(1, Number.isFinite(t) ? t : 0));
-  const mix = a.map((v, i) => Math.round(v + (b[i] - v) * clamped));
-  return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
+  const mix = (v: number, w: number): number => Math.round(v + (w - v) * clamped);
+  return `rgb(${mix(r, r2)},${mix(g, g2)},${mix(b, b2)})`;
 }
 
 // -----------------------------------------------------------------------------

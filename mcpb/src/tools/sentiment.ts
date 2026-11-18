@@ -5,6 +5,7 @@ import { chartResult } from "./shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import { CHARTS_UI_META, VIEW } from "./appUi.js";
+import { itemAt } from "../checked.js";
 import {
   capOffset,
   CENTRALITY_VALUES,
@@ -123,8 +124,8 @@ export function registerSentimentTools(server: Server): void {
         `Filter articles by ${DEFAULT_SENTIMENT_MODEL.id} sentiment labels (accent/case-insensitive exact ` +
         `match). One model's reading, not a consensus — ${SENTIMENT_MODEL_IDS.length - 1} other models scored the ` +
         'same articles and often disagree; get_sentiment_distribution with model:"all" shows by how much. ' +
-        "`subjectivity` is much the weakest of the three scales, so treat a set selected on it as a lead to read " +
-        "rather than as a finding.",
+        "`subjectivity` is much the weakest of the three scales, so a set selected on it is a lead to read, " +
+        "not a finding.",
       inputSchema: z.strictObject({
         polarity: z
           .string()
@@ -223,9 +224,9 @@ export function registerSentimentTools(server: Server): void {
       ...toolMeta("Aggregate AI sentiment"),
       description:
         'Aggregate AI labels over a shared selection. model:"all" compares independent annotators and their coverage; ' +
-        'model:"consensus" reads the stored panel majority. Choose compare_models and agreement_field for pairwise ' +
+        'model:"consensus" reads the stored panel majority. compare_models and agreement_field give pairwise ' +
         "Cohen's kappa and quadratic weighted kappa, with explicit denominators. Labels are interpretations, not ground truth; " +
-        "subjectivity is weak evidence and its caveat must accompany findings.",
+        "subjectivity is weak evidence, and results carry its caveat.",
       _meta: CHARTS_UI_META,
       inputSchema: z.strictObject({
         ...filterInputs(),
@@ -502,7 +503,7 @@ export function registerSentimentTools(server: Server): void {
       // `by_model` keeps the same key order as `models`.
       const blocks = await Promise.all(models.map(distributionsFor));
       models.forEach((m, i) => {
-        byModel[m.id] = blocks[i];
+        byModel[m.id] = itemAt(blocks, i);
       });
       payload.models = models.map((m) => m.id);
       payload.by_model = byModel;

@@ -78,7 +78,9 @@ async function encode(ids: number[]): Promise<Float32Array> {
     },
     ["sentence_embedding"],
   );
-  return Float32Array.from(output.sentence_embedding.data as Float32Array);
+  const embedding = output.sentence_embedding;
+  if (!embedding) throw new Error("The encoder returned no sentence_embedding output");
+  return Float32Array.from(embedding.data as Float32Array);
 }
 
 /** Messages are handled one at a time, in arrival order: inference is

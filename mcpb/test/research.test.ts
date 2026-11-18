@@ -16,6 +16,7 @@ import {
   verifyProbeVector,
 } from "../src/embeddingContract.js";
 import { config } from "../src/config.js";
+import { at } from "./_must.js";
 
 // Analytic covariance: x has the farthest point but only 50/550 of the variance.
 test("PCA finds dominant axes even when the farthest row is orthogonal", () => {
@@ -207,7 +208,7 @@ test("request cancellation interrupts active DuckDB work and returns its connect
       withRequest(controller.signal, () => query("SELECT sum(sin(i)) FROM range(1000000000) t(i)")),
       /interrupt|abort/i,
     );
-    assert.equal(Number((await query("SELECT 1 AS n"))[0].n), 1);
+    assert.equal(Number(at(await query("SELECT 1 AS n"), 0).n), 1);
   } finally {
     clearTimeout(timeout);
   }
@@ -232,5 +233,5 @@ test("request cancellation interrupts DuckDB work issued but not yet executing",
   } finally {
     DuckDBConnection.prototype.runAndReadAll = original;
   }
-  assert.equal(Number((await query("SELECT 1 AS n"))[0].n), 1);
+  assert.equal(Number(at(await query("SELECT 1 AS n"), 0).n), 1);
 });

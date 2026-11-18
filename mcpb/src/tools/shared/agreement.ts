@@ -17,16 +17,19 @@ export function agreementMetrics(counts: Record<string, Record<string, number>>,
   const kappa = n && denominator > 0 ? (n * agreements - expected) / denominator : null;
   // Quadratic disagreement weights. Non-ordinal labels (e.g. Non applicable)
   // are excluded from BOTH marginals, with their own explicit denominator.
-  const ordinalRows = order.map((a) => order.reduce((s, b) => s + (counts[a]?.[b] ?? 0), 0));
-  const ordinalCols = order.map((b) => order.reduce((s, a) => s + (counts[a]?.[b] ?? 0), 0));
-  const weightedN = ordinalRows.reduce((a, b) => a + b, 0);
+  const margins = order.map((label) => ({
+    label,
+    row: order.reduce((s, b) => s + (counts[label]?.[b] ?? 0), 0),
+    col: order.reduce((s, a) => s + (counts[a]?.[label] ?? 0), 0),
+  }));
+  const weightedN = margins.reduce((a, m) => a + m.row, 0);
   let observedDisagreement = 0;
   let expectedDisagreement = 0;
-  order.forEach((a, i) => {
-    order.forEach((b, j) => {
+  margins.forEach(({ label: a, row }, i) => {
+    margins.forEach(({ label: b, col }, j) => {
     const weight = (i - j) ** 2;
     observedDisagreement += weight * (counts[a]?.[b] ?? 0);
-    expectedDisagreement += weight * ordinalRows[i] * ordinalCols[j];
+    expectedDisagreement += weight * row * col;
     });
   });
   return {

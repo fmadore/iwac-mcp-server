@@ -7,7 +7,7 @@ import type { TopicsPayload } from "../../viewContract.js";
 // terms ("imam - mosquée - communauté_musulman - prière - fidèle - hadj"),
 // which is right for a model reading JSON and far too long for a treemap cell,
 // so the chart shows the first terms and keeps the whole label in the tooltip.
-import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, type ViewResult } from "../shell.js";
 import { legend, stackedBar, treemap } from "../svg.js";
 import { fmtInt } from "../theme.js";
 
@@ -18,8 +18,7 @@ export function shortLabel(label: string, n = 3): string {
   return terms.length > n ? `${head}…` : head;
 }
 
-export function topicsView(payload: BasePayload): ViewResult {
-  const p = payload as TopicsPayload;
+export function topicsView(p: TopicsPayload): ViewResult {
   const topics = (p.topics ?? []).filter((t) => (t.count ?? 0) > 0);
   if (!topics.length) {
     return {
@@ -54,7 +53,7 @@ export function topicsView(payload: BasePayload): ViewResult {
           categories: periods,
           series: bands.map((label) => ({
             label: shortLabel(label, 2),
-            values: periods.map((y) => series[label][y] ?? 0),
+            values: periods.map((y) => series[label]?.[y] ?? 0),
           })),
           height: 260,
           ariaLabel: "Topics over time",

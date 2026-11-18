@@ -46,13 +46,117 @@
   immutable — fixing an entry means bumping and re-tagging. The Anthropic
   directory below is a separate, manual submission.
 
-- [ ] **Submit to the Anthropic extension directory**
-  Fill out the interest form:
-  <https://docs.google.com/forms/d/e/1FAIpQLScHtjkiCNjpqnWtFLIQStChXlvVcvX8NPXkMfjtYPDPymgang/viewform>
-  Prereqs: public GitHub repo ✓, MIT licence ✓, Node.js ✓, valid `manifest.json`
-  with `author` pointing at the GitHub profile ✓.
-  See also Anthropic's Software Directory Policy:
-  <https://support.claude.com/en/articles/13145358-anthropic-software-directory-policy>
+- [ ] **Submit `https://islam.zmo.de/mcp` to the Connectors Directory as a
+  remote connector.** The old plan (the extension-directory interest form for
+  the `.mcpb`) is dead: Anthropic's submission page now says desktop extension
+  listings are deprecated and the directory no longer accepts local servers
+  packaged as MCPB (a local server can only ship inside a plugin). What is
+  listable is the hosted endpoint, and since it renders charts it is an
+  **MCP App** submission, made through the developer portal
+  (<https://claude.ai/directory/manage>, "MCP connector"). Sources, checked
+  2026-11-18: <https://claude.com/docs/connectors/building/submission.md> and
+  <https://claude.com/docs/connectors/building/review-criteria.md>.
+  Prerequisites, and where the repo stands:
+  - [x] Remote over HTTPS, and authentication fits: "no authentication for
+    public data" is an accepted mode, and nginx injects the bearer the app
+    requires, so the public endpoint needs no client auth. Confirm the
+    `*.zmo.de` certificate is valid again first (it was revoked/superseded in
+    late July 2026, which locked out schannel clients).
+  - [x] Every tool has a top-level `title` and `readOnlyHint: true` /
+    `destructiveHint: false` (`toolMeta()` in `mcpb/src/tools/shared/results.ts`,
+    used by all 39 tools).
+  - [x] Tool names are at most 64 characters (the longest,
+    `semantic_search_publications`, is 28).
+  - [x] Support contact (GitHub issues, already `support` in the manifest) and
+    icon (`mcpb/icon.png`; check the portal's size requirement).
+  - [ ] Documentation URL: the README works, but a short page aimed at
+    researchers (what the connector reads, example prompts) would serve the
+    listing better. Public docs are required by the publish date.
+  - [ ] Privacy policy URL. The manifest's `privacy_policies` points at Hugging
+    Face's policy, which covers the dataset host, not this server. The hosted
+    endpoint needs its own: what the proxy logs, retention, no conversation data
+    kept, contact. (The page's README-section rule applies to local
+    connectors; the URL is required for every listing.)
+  - [ ] **3 to 5 carousel screenshots**: PNG, at least 1000 px wide, cropped
+    to the app response without the prompt, each with its prompt text supplied
+    separately; no GIF or video. `mcpb/scripts/capture-charts.mjs` already
+    captures real chart payloads for a browser harness to render. This replaces
+    the old "add `screenshots/`" item.
+  - [x] Descriptions must not instruct Claude's behaviour (see the next item).
+  - [ ] Test every tool as a custom connector in Claude and in MCP Inspector
+    (the portal's Test & launch step asks for it).
+  - [ ] Optional: declare allowed link URIs (`https://islam.zmo.de`) if the
+    chart UI opens links through `ui/open-link`, so users are not asked to
+    confirm each one.
+
+- [x] **Review tool descriptions against the directory's "describe what the
+  tool does, don't tell Claude how to behave" criterion.** Done 2026-11-18:
+  all 39 tools, their parameters, the prompts and the instructions audited.
+  Eight sentences in seven tools rephrased as data facts (the French-keyword
+  line in search, search_articles, search_publications and search_documents
+  now says the sources are French and English terms match only the English
+  AI text; get_collection_stats, search_by_sentiment,
+  get_sentiment_distribution and get_lexical_metrics state how the output
+  reads instead of what the model must do). Kept: pointers to sibling tools
+  and parameter usage notes ("use search_references for the rest", "follow
+  `next_offset`"), which the criteria allow as "when to invoke". The
+  steering itself stays in the server instructions (LANGUAGE: query press in
+  French) and the skill. Prompts are user-invoked, so their directives stand.
+  Footprint 15,717 to 15,708 tokens, baseline updated. Original note:
+  `search_articles`, `search_documents` and `search_publications` say "Use
+  French concept keywords regardless of the user's report language", which is
+  an instruction to the model rather than a description (a factual rewording:
+  "the corpus is French; queries match French text"). Audit every description
+  and the server `instructions` the same way. Changing descriptions moves the
+  gated token baseline (`test/token-baseline.json`) and is a public-contract
+  change for every connected host, so this is a deliberate, versioned
+  decision, not a drive-by edit.
+
+- [x] **MCP Server Card** (SEP-2127, Final, an optional Extensions Track
+  extension). Done 2026-11-18 (unreleased; the deployed 6.0.0 image predates
+  it): `GET /mcp/server-card` in `src/http.ts`, built once per process by
+  `src/serverCard.ts` against the v1 schema of
+  `modelcontextprotocol/ext-server-card` (renamed from
+  `experimental-ext-server-card`, commit 526201bb). Registry name and identity
+  as in `server.json`, title/description/website from `manifest.json`, version
+  from `__IWAC_VERSION__`, and one `streamable-http` remote only when the new
+  `IWAC_MCP_PUBLIC_URL` is set (the schema allows absolute URLs only), listing
+  2026-07-28 plus the SDK's `SUPPORTED_PROTOCOL_VERSIONS`. The modern list is
+  internal to SDK 2.4, so `test/http-server.test.mjs` checks it against the
+  live `server/discover`. Served without the bearer and for every `Origin`
+  (`*`, as the spec requires), `Cache-Control: public, max-age=3600`, ETag and
+  304; unit tests in `test/server-card.test.ts`. IWAC-docker: `ETag` added to
+  the `/mcp` exposed headers and a nginx-served `/.well-known/ai-catalog.json`
+  linking the card. Still to do on deploy: bump the image and set
+  `IWAC_MCP_PUBLIC_URL=https://islam.zmo.de/mcp` on the `iwac-mcp` service.
+  Open point: the handshake `serverInfo.name` is `iwac-mcp-server`, which the
+  card cannot use (its `name` needs a namespace slash); the spec says the two
+  SHOULD NOT contradict, so consider aligning `serverInfo.name` in a major.
+
+- [ ] **Get ready for MCP TypeScript SDK 2.5.** Pending `.changeset/` entries on
+  `modelcontextprotocol/typescript-sdk` main (checked 2026-11-18; latest
+  release still v2.4.0):
+  - `registerTool` will type-check a callback's successful result against its
+    `outputSchema`: `structuredContent` must match, a result typed as plain
+    `CallToolResult` (or a helper returning one) stops compiling, and values
+    built from a wider type than the schema (a `string` for an enum) fail.
+    Expect work in the tools that declare `outputSchema`.
+  - `@opentelemetry/api` (`^1.9.0`) becomes a **required peer dependency** of
+    `@modelcontextprotocol/server` and `client`: the SDK emits spans and
+    duration histograms (a no-op without an OpenTelemetry SDK; `openTelemetry:
+    false` turns it off). The esbuild bundle inlines the SDK, so the import
+    must resolve at bundle time (add it as a dependency, inline it or mark it
+    external deliberately), and `pack-platforms.mjs`'s `runtimeClosure()` does
+    not follow peers, so an external copy would not ship unless declared.
+  - An experimental `extensions` option on `McpServer` (`{ id, setup(ctx) }`)
+    may change how the Skills extension attaches; `SkillsExtension.attach` is
+    what `src/tools/skills.ts` uses today.
+  - A result with `structuredContent` and no `content` gets an automatic text
+    block holding the serialized JSON. Check that no tool returns
+    `structuredContent` without `content`: one that did would start paying
+    for its payload twice in tokens.
+  - A `logger` option on `McpServer` / `createMcpHandler` can route SDK
+    diagnostics through the server's own stderr logging instead of `console`.
 
 - [ ] **Code-sign the `.mcpb`** with a trusted code-signing cert
   (DigiCert / SSL.com, ~$100/yr) so Claude Desktop stops showing the generic
@@ -99,9 +203,6 @@
     failure — any probe or test script against the live endpoint must pace
     itself and retry on 429, or its results are silently polluted.
 
-- [ ] **Add `screenshots/`** showing a research query in Claude Desktop — the
-  directory listing surfaces these.
-
 - [x] **Drop the `@hono/node-server` override once the SDK catches up**:
   done with SDK 2.4.0 ([#54](https://github.com/fmadore/iwac-mcp-server/issues/54)).
   `@modelcontextprotocol/node` 2.1.2 declares `^1.19.9 || ^2.1.3`, so the
@@ -115,6 +216,14 @@
   below 300 KB without dropping SDK protocol features. Browser tests execute the
   actual decompression bootstrap; a separate 500 KB decoded-JavaScript cap makes
   expanded code growth visible.
+
+- [x] **ext-apps 2.1.0**: upgraded from 2.0.4 on 2026-11-18, before npm
+  `latest` moved: the tag lags only because the 2026-11-10 release's publish run
+  awaits approval, and the published 2.1.0 carries the same SDK source as the
+  `v2.1.0` tag. Resource 191.4 → 193.2 KB, decoded script 487.8 → 492.3 KB (gate
+  500 KB, about 7.7 KB left). The WebMCP bridge is off (`webMcpBridge: false`):
+  the view registers no app-side tools, and the browser suite checks it
+  advertises no `tools` capability. See docs/mcp-apps-roadmap.md §7.
 
 - [x] **Migrate to MCP TypeScript SDK v2 / protocol 2026-07-28** — done
   2026-07-29. `@modelcontextprotocol/server` 2.0.0 went stable 2026-07-27, four
@@ -138,7 +247,7 @@
 
   **The flagged gap is closed:** `instructions` survives the loss of the
   `initialize` handshake — the SDK carries it on `server/discover`, byte-identical
-  on both eras (asserted in `test/fixture-server.test.mjs`), and prompts still
+  on both eras (asserted in `test/fixture-server/protocol.mjs`), and prompts still
   list. The remaining 2026-07-28 changes still need no action here, with one
   correction to the 2026-07-23 audit: it recorded "no resources", which stopped
   being true in v0.12.0 when the `ui://` chart resource landed. The error-code
@@ -162,7 +271,7 @@
 
   - `outputSchema` is **2 402 tokens, 19% of the footprint**, and is attached to
     only 13 of 34 tools. It buys `structuredContent` validation (asserted in
-    `test/fixture-server.test.mjs`); worth deciding per tool rather than by
+    `test/fixture-server/`); worth deciding per tool rather than by
     habit, and worth re-checking once clients report whether they read it.
   - The 9 aggregate tools are **5 600 tokens, 44% of the footprint** for tools a
     given session may never call. If MCP tool-search / progressive disclosure
@@ -178,7 +287,7 @@
   `get_topic_distribution(over_time, top_n=15)` from 5 983 to 2 218, for +171
   always-on. Only data that is *redundant for reasoning* moves: the model gains
   a summary computed from what it lost, asserted against the series in
-  `test/fixture-server.test.mjs`. Deliberately **not** applied to
+  `test/fixture-server/aggregates.mjs`. Deliberately **not** applied to
   `get_temporal_distribution` or `get_field_distribution`, whose dense field is
   the answer: density is not the criterion, redundancy is. See
   `docs/mcp-apps-roadmap.md` §2.4.
@@ -201,7 +310,9 @@
   because the SDK's catalogue lists only SKILL.md and hosts without the
   extension find the references there. The SDK is pinned to `~2.4.0` because
   `attach()` is experimental; `test/skills.test.mjs` verifies through
-  `SkillsClient`.
+  `SkillsClient`. SEP-2640 itself is Final (extension id
+  `io.modelcontextprotocol/skills`, checked 2026-11-18), so the pin guards the
+  SDK's wiring, not a moving protocol.
 
 ## Data Enrichment (Track 2 — runs in the IWAC-Hugging-Face pipeline, not here)
 

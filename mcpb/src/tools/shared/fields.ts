@@ -430,7 +430,7 @@ export const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
 
 /** The bare column a field depends on (its schema key), for the derived maps. */
 function baseColumn(field: SubsetField): string {
-  return (field.requires ?? [field.expr])[0];
+  return field.requires?.[0] ?? field.expr;
 }
 
 /**

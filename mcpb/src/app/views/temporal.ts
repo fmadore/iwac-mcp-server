@@ -1,15 +1,14 @@
 import type { TemporalPayload } from "../../viewContract.js";
 import { selectionFrom } from "../../selection.js";
-import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, type ViewResult } from "../shell.js";
 import { columns, legend } from "../svg.js";
 import { esc, fmtInt } from "../theme.js";
 
 export function carryFilters(p: TemporalPayload): Record<string, unknown> {
   return { ...selectionFrom(p.filters) };
 }
-export function temporalView(payload: BasePayload): ViewResult {
-  const p = payload as TemporalPayload,
-    grouped = p.distribution_by_group;
+export function temporalView(p: TemporalPayload): ViewResult {
+  const grouped = p.distribution_by_group;
   const groups = [...new Set([...Object.keys(grouped ?? { all: 0 }), ...Object.keys(p.denominators ?? {})])].sort();
   const maps = grouped ?? { all: p.distribution ?? {} };
   const buckets = [

@@ -7,12 +7,11 @@ import type { CollectionPayload } from "../../viewContract.js";
 // content is public on islam.zmo.de, so a keyword count is a floor, not a
 // census. Putting the two side by side is the point: 12,287 articles with 61%
 // full text is a different corpus from 12,287 articles.
-import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewResult } from "../shell.js";
 import { gauge, treemap } from "../svg.js";
 import { fmtInt, fmtPct } from "../theme.js";
 
-export function collectionView(payload: BasePayload): ViewResult {
-  const p = payload as CollectionPayload;
+export function collectionView(p: CollectionPayload): ViewResult {
   const counts = p.subset_counts ?? {};
   const subsets = Object.entries(counts)
     .filter(([, v]) => v > 0)

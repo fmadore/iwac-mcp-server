@@ -225,3 +225,74 @@ commits on main; the original branch was not merged.
   except main's two graceful-shutdown checks, which fail on Windows on main
   as well (a SIGTERM there terminates the child without draining) and pass on
   Linux CI.
+
+## Index-access strictness and sandbox tightening (2026-11-18)
+
+Scope: the same as above. `noUncheckedIndexedAccess` is on in
+`mcpb/tsconfig.json`, so every array, record and regex-group read types as
+possibly `undefined` until the code proves otherwise. No tool name,
+description, schema, instruction or response changed.
+
+- Count: 272 errors on switching it on (269 before the earlier passes of this
+  review): 93 in the server, 90 in the chart UI, 89 in tests. Now 0.
+- Restructured so the compiler can see the proof (no runtime cost): `entries()`
+  and `for...of` instead of parallel indexes (index build, semantic scan,
+  search's second pass), destructured regex groups (`fetch`, `get_similar_items`,
+  Hub pagination, sentiment filters), tuple destructuring in `ramp()`, a
+  seedless `reduce` and `FALLBACK_MONTHS.map` in the lunar view, zipped arrays
+  in the SVG export and the kappa margins, sorted entries in the topic trend
+  summary. The unused `colorFor()` was removed.
+- Handled at runtime: a new `itemAt()` (`src/checked.ts`) for reads proved by
+  construction elsewhere (two arrays built in lockstep, the one row of an
+  ungrouped aggregate), which throws a named `RangeError` rather than letting
+  `undefined` flow on; the encoder worker names a missing output; the probe
+  cosine returns NaN on unequal lengths. In the UI, a few bytes of `?.`, `?? 0`
+  and `?? "#888"` where a payload could in principle be short.
+- Non-null assertions: 66, all in hot numeric loops, under four justified Biome
+  suppressions (`style/noNonNullAssertion` warns in the recommended preset):
+  `src/pca.ts` (file-level), the semantic-search dot product in
+  `src/embeddings.ts` (one line), and range suppressions around `squarify()`
+  and `forceGraph()` in `src/app/svg.ts`.
+- Tests index fixture results through `at()` and `must()` (`test/_must.ts`),
+  which fail with the index and the list's length.
+- Real bugs found: none. Every site was checked for plausible empty results,
+  empty strings and malformed dataset values; each `undefined` the compiler
+  pointed at was either unreachable or already led to a refusal or a fallback.
+- DuckDB sandbox: `allowed_directories` is now exactly the cache dir and its
+  spill dir. The OS temp dir was allowed for the hermetic tests only; they now
+  ask for it through `allowDirectoriesForTests()`, a test hook with no
+  environment variable behind it that throws once the instance exists.
+  `hf-cache` and `shared-work` call it; `hardening.test.ts` does not, and
+  asserts that a file under `os.tmpdir()` is refused (confirmed to fail with
+  the temp dir allowed).
+- Checks: typecheck, Biome lint (x64 binary, zero warnings), build, `npm test`
+  (288 unit tests, fixture, app, skills, tokens, packaging; the HTTP suite
+  fails only its two Windows-only SIGTERM checks), and `test:browser`. Token
+  report identical to the pre-pass build (+0 from this pass; always-on 15,708
+  after the same day's description review). `tools/list` and 20 tool calls over the fixtures are byte-identical to
+  the pre-pass build apart from `loaded_at`. Decoded UI JavaScript 499,500 to
+  499,530 bytes (487.8 KB, 500 KB gate); UI resource 191.4 KB (300 KB gate).
+
+## Test files split by domain (2026-11-18)
+
+Scope: the three largest test files, with no change in what is tested.
+
+- `test/unit.test.ts` (1,491 lines) became six `test/*.unit.test.ts` files
+  (text, query, sentiment, charts, hijri, runtime), each a contiguous run of
+  the original `describe` blocks with only its own imports. The flat
+  `<domain>.unit.test.ts` names match the existing layout, and `test:unit`
+  now passes the quoted glob `"test/*.unit.test.ts"`, which Node's test runner
+  expands itself on every platform; `embedding-parity.test.ts` cannot match it.
+- `test/fixture-server.test.mjs` and `test/app.test.mjs` keep their names,
+  their single shared connection (and app instance) and their summary line.
+  Their checks moved to section modules in `test/fixture-server/` and
+  `test/app/`, called from the entry in the original order: the modern-era
+  checks compare against the handshake's results, the degraded cache runs
+  after the shared client is closed, and each app check reads what the
+  previous one left on screen. The bodies are the original lines, unedited
+  and at their original indentation; only the wrappers and imports are new.
+- Proof: the same 128 unit tests (sorted names identical), identical stdout
+  for both script suites, and an identical trace of all 199 fixture MCP calls
+  (and the app suite's 4) recorded through a `Client.prototype` patch. A
+  deliberately broken check still prints `1 FIXTURE CHECK(S) FAILED` and
+  exits 1. Biome's `noUndeclaredVariables` passes on every new module.

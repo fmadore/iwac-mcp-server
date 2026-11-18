@@ -4,6 +4,7 @@ import { isFiniteVector, parseRelated } from "../../vectors.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, type Row, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
+import { itemAt } from "../../checked.js";
 import { projectAsync } from "../../projection.js";
 import { createHash } from "node:crypto";
 import { limitWarning, resolveLimit } from "../shared/limits.js";
@@ -258,7 +259,10 @@ export function registerSemanticTools(server: Server): void {
       // show, and it keeps a 500-point payload from tripling in size.
       const round = (v: number): number => Math.round(v * 1e4) / 1e4;
 
-      const plotted = kept.map((k, i) => ({ ...k, x: round(points[i][0]), y: round(points[i][1]) }));
+      const plotted = kept.map((k, i) => {
+        const [x, y] = itemAt(points, i);
+        return { ...k, x: round(x), y: round(y) };
+      });
 
       // Per-group counts stand in for the point cloud in the model's copy. A
       // 2-D PCA coordinate is not a fact a model can reason from: it is an
@@ -327,7 +331,8 @@ export function registerSemanticTools(server: Server): void {
       // wrong table.
       const rawId = String(args.id ?? "").trim();
       const prefixed = /^([a-z_]+):(.+)$/i.exec(rawId);
-      const subsetFromId = prefixed?.[1].toLowerCase();
+      const [, prefixSubset, prefixId] = prefixed ?? [];
+      const subsetFromId = prefixSubset?.toLowerCase();
 
       const askedV = validateEnum(args.subset, VECTOR_SUBSETS, "subset");
       if (askedV.err) return errorResult(askedV.err);
@@ -347,7 +352,7 @@ export function registerSemanticTools(server: Server): void {
           valid_values: [...VECTOR_SUBSETS],
         });
       }
-      const id = prefixed ? prefixed[2].trim() : rawId;
+      const id = prefixId !== undefined ? prefixId.trim() : rawId;
       if (!id) return errorResult({ error: "id is required" });
       const limit = Math.max(1, Math.min(50, args.limit ?? 12));
 

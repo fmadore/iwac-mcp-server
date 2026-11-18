@@ -229,8 +229,8 @@ export function buildModelContext(payload: BasePayload, options: ViewOptions, re
       const filters = Array.isArray(summary.comparison_selections)
         ? summary.comparison_selections.map((value) => object(object(value).filters))
         : [object(summary.selection)];
-      const largest = filters.sort((a, b) => bytes(b) - bytes(a))[0];
-      const key = Object.keys(largest ?? {}).at(-1);
+      const largest = filters.sort((a, b) => bytes(b) - bytes(a))[0] ?? {};
+      const key = Object.keys(largest).at(-1);
       if (key) { delete largest[key]; mark("selection.filters"); }
       else { summary.title = "IWAC display"; delete summary.truncated_fields; }
     }

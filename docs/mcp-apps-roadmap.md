@@ -291,6 +291,45 @@ only module that knows more than one chart exists.
   hand-rolled spiral placement is feasible but nothing in the suite needs it yet.
 - **Bounded-region drill-down on the map.** Clicking a country filters; there is
   no lasso or box select, and adding one means real hit-testing.
+- **Decoded-script headroom.** After the ext-apps 2.1.0 upgrade (below) the
+  decoded UI script is 492.3 KB against its 500 KB gate, so about 7.7 KB remain.
+  The next SDK minor or a new view may need a size pass before it fits.
+- **Host fonts.** The app ignores `styles.variables` (including `--font-sans`)
+  and never calls `applyHostFonts`. Colours and type deliberately mirror the
+  IwacVisualizations module, and a host's `@font-face` or `@import` would need a
+  `font-src` the resource does not declare. Revisit only if a host's own font
+  becomes loadable under the app CSP.
+
+Shipped in November 2026, and no longer open: the app declares
+`availableDisplayModes` (inline and fullscreen; no picture in picture, which is
+too narrow for a heatmap or a reader page), shows a pending state from
+`ontoolinput`, applies the host's safe-area insets and container height, gives
+each view its contract payload type through a mapped registry, keeps legend
+swatches and focus rings visible under Windows high contrast, and marks French
+source text `lang="fr"`.
+
+Also shipped in November 2026: **ext-apps 2.1.0** (from 2.0.4). The npm `latest`
+tag still pointed at 2.0.4 on 2026-11-18, but for a process reason, not a
+regression: 2.1.0 was published from the 2026-10-27 release (#833), the bump
+was reverted (#835) and re-applied (#854), and the 2026-11-10 release's publish
+run sits waiting for deployment approval. The commits between the published
+build and the `v2.1.0` tag touch no SDK source. The public API change is
+additive (`AppOptions.webMcpBridge`, default `true`, also on `useApp`). Sizes
+moved from 191.4 KB to 193.2 KB for the resource and from 487.8 KB to 492.3 KB
+for the decoded script, both inside their gates; the option is a runtime flag,
+so turning the bridge off does not shrink the bundle.
+
+The app passes `webMcpBridge: false`. It registers no app-side tools, so there
+is nothing to mirror into `document.modelContext`, and with the bridge on a
+document exposing WebMCP tools made the view advertise `tools: { listChanged:
+true }` in `ui/initialize` on its behalf (measured in the browser suite before
+switching it off). Turn it on together with the first `app.registerTool()`.
+The draft spec's other change, no longer requiring a double sandboxed iframe,
+needs nothing here: the view talks to `window.parent` either way, and the gzip
+bootstrap (`DecompressionStream`, then an inline script) relies only on the
+host-set `script-src 'unsafe-inline'` the spec still describes. The browser
+suite's harness is already the single-frame shape (host page, one sandboxed
+iframe, CSP sent as an HTTP header).
 
 ---
 
@@ -347,7 +386,7 @@ Recorded because each of these was a measured finding, not a preference.
 
 ---
 
-## 9. Current interaction contract (October 2026)
+## 9. Current interaction contract (November 2026)
 
 The shared app keeps source reading, drill-downs, Back navigation and conversation
 context tied to the rendered selection. These interactions use host capabilities;
@@ -355,7 +394,9 @@ the ordinary tool text and structured results remain usable without MCP Apps.
 
 | Interaction | Behavior and host requirement |
 |---|---|
-| Fullscreen / Exit fullscreen | Shown when the requested display mode is advertised. The app respects the host's returned mode, including a declined transition. Expanding the view does not change filters or run another query. |
+| Fullscreen / Exit fullscreen | The app declares inline and fullscreen in `appCapabilities.availableDisplayModes`. "Fullscreen" is shown when the host advertises it. "Exit fullscreen" is shown only after the app's own request was granted (by the reply or by a host-context update naming the requested mode): Claude reports its side panel as `fullscreen`, and a frame the host placed there gets no exit toggle, since the host's chrome owns that. The app respects the host's returned mode, including a declined transition, and a newer host event wins over a late reply. Expanding the view does not change filters or run another query. |
+| Pending call | Between the model's tool call and its result, `ontoolinput` replaces the boot line with a `role=status`, `aria-busy` line naming the tool and the arguments as filter chips (a workbench `selection` is lifted out). It only fills an empty frame, never a rendered chart, and shares nothing with the model. `ontoolinputpartial` is not used. |
+| Host layout | `safeAreaInsets` pad the page through `--safe-*` custom properties; `containerDimensions` height or maxHeight caps scrolling tables and source text (`--fit-h`, the height minus 200 px, at least 160 px). Both are read after `connect()` and on every partial context update, without re-rendering. Colours and fonts stay IWAC's own. |
 | Automatic selection context | Uses advertised text and/or structured model-context support. Initial results, drill-downs, display options and Back publish the rendered selection. Updates are serialized, identical snapshots are deduplicated and pending updates coalesce to the newest selection. They do not initiate an assistant response. |
 | Ask about this selection | Available when the host supports text messages. Sends an explicit user question with the snapshot attached to that action, including when automatic context is unsupported, pending or failed. A failed send remains retryable. |
 | Downloads and source links | Available only when the host advertises the corresponding capability. Failures are shown in the view. |
@@ -394,5 +435,12 @@ pair, provenance, source sampling, UTF-8 bounds and exclusion of full bodies and
 display arrays. `mcpb/test/context-sync.test.ts` checks serialization, coalescing,
 deduplication, failures and teardown. The real-browser suite in
 `mcpb/test/app.browser.test.mjs` covers host capability fallbacks, fullscreen,
-automatic context and explicit selection questions alongside the existing
-navigation and download flows.
+the pending state, forced colours, automatic context and explicit selection
+questions alongside the existing navigation and download flows, and plants a
+`document.modelContext` holding a tool to check that the view neither reads it
+nor advertises a `tools` capability (the WebMCP bridge stays off).
+`mcpb/test/app/selection-export-host.mjs` covers the declared display modes, host-initiated versus
+app-requested fullscreen, safe-area and container-height properties, and that a
+late tool input never replaces a chart. `mcpb/test/view-contract.test.ts` checks
+the typed dispatch at compile time (a renderer under the wrong tag fails `tsc`)
+and at run time (unknown and inherited tags render nothing).

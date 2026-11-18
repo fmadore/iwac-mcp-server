@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ContextSync, type ContextSyncStatus } from "../src/app/contextSync.js";
+import { at } from "./_must.js";
 
 interface Context {
   selection: string;
@@ -41,11 +42,11 @@ test("context updates serialize, coalesce to the newest selection, and deduplica
   sync.publish(selection("B"));
   sync.publish(selection("C"));
   assert.deepEqual(calls.map((call) => call.value.selection), ["A"]);
-  calls[0].resolve();
+  at(calls, 0).resolve();
   await turn();
   assert.deepEqual(calls.map((call) => call.value.selection), ["A", "C"]);
   assert.deepEqual(statuses, ["pending"], "stale A does not claim that C was shared");
-  calls[1].resolve();
+  at(calls, 1).resolve();
   await turn();
   sync.publish(selection("C"));
   assert.equal(calls.length, 2);
@@ -58,7 +59,7 @@ test("A -> B -> A reuses A already in flight and drops unsent B", async () => {
   sync.publish(selection("A"));
   sync.publish(selection("B"));
   sync.publish(selection("A"));
-  calls[0].resolve();
+  at(calls, 0).resolve();
   await turn();
   assert.deepEqual(calls.map((call) => call.value.selection), ["A"]);
   assert.deepEqual(statuses, ["pending", "shared"]);
@@ -67,15 +68,15 @@ test("A -> B -> A reuses A already in flight and drops unsent B", async () => {
 test("A must be sent again when B has already started before returning to A", async () => {
   const { sync, calls, statuses } = harness();
   sync.publish(selection("A"));
-  calls[0].resolve();
+  at(calls, 0).resolve();
   await turn();
   sync.publish(selection("B"));
   sync.publish(selection("A"));
-  calls[1].resolve();
+  at(calls, 1).resolve();
   await turn();
   assert.deepEqual(calls.map((call) => call.value.selection), ["A", "B", "A"]);
   assert.deepEqual(statuses, ["pending", "shared", "pending"]);
-  calls[2].resolve();
+  at(calls, 2).resolve();
   await turn();
   assert.deepEqual(statuses, ["pending", "shared", "pending", "shared"]);
 });
@@ -84,17 +85,17 @@ test("failure advances to newer work and repeating the failed snapshot does not 
   const { sync, calls, statuses } = harness();
   sync.publish(selection("A"));
   sync.publish(selection("B"));
-  calls[0].reject(new Error("stale A failed"));
+  at(calls, 0).reject(new Error("stale A failed"));
   await turn();
   assert.deepEqual(calls.map((call) => call.value.selection), ["A", "B"]);
   assert.deepEqual(statuses, ["pending"]);
-  calls[1].reject(new Error("B failed"));
+  at(calls, 1).reject(new Error("B failed"));
   await turn();
   sync.publish(selection("B"));
   assert.equal(calls.length, 2);
   assert.deepEqual(statuses, ["pending", "failed"]);
   sync.publish(selection("C"));
-  calls[2].resolve();
+  at(calls, 2).resolve();
   await turn();
   assert.deepEqual(statuses, ["pending", "failed", "pending", "shared"]);
 });
@@ -105,8 +106,8 @@ test("stop aborts the sender, drops queued work, and suppresses all later status
   sync.publish(selection("B"));
   sync.stop();
   sync.stop();
-  assert.equal(calls[0].signal.aborted, true);
-  calls[0].reject(new Error("aborted"));
+  assert.equal(at(calls, 0).signal.aborted, true);
+  at(calls, 0).reject(new Error("aborted"));
   await turn();
   sync.publish(selection("C"));
   assert.deepEqual(calls.map((call) => call.value.selection), ["A"]);

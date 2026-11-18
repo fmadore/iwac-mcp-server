@@ -1,11 +1,10 @@
 import type { SimilarPayload } from "../../viewContract.js";
-import { csv, empty, type BasePayload, type ViewResult, type ViewOptions } from "../shell.js";
+import { csv, empty, type ViewResult, type ViewOptions } from "../shell.js";
 import { horizontalBar } from "../svg.js";
 import { clip, esc, fmtNum } from "../theme.js";
 
-export function similarView(payload: BasePayload, options: ViewOptions = {}): ViewResult {
-  const p = payload as SimilarPayload,
-    neighbours = (p.neighbours ?? []).filter((n) => Number.isFinite(n.score));
+export function similarView(p: SimilarPayload, options: ViewOptions = {}): ViewResult {
+  const neighbours = (p.neighbours ?? []).filter((n) => Number.isFinite(n.score));
   if (!neighbours.length)
     return {
       title: "Similar items",
@@ -16,7 +15,7 @@ export function similarView(payload: BasePayload, options: ViewOptions = {}): Vi
   );
   return {
     title: `Nearest to “${clip(p.source?.title ?? p.source?.id ?? "this item", 60)}”`,
-    subtitle: `${neighbours.length} neighbours · ${fmtNum(Number(neighbours[0].score), 2)} down to ${fmtNum(Number(neighbours.at(-1)?.score), 2)}`,
+    subtitle: `${neighbours.length} neighbours · ${fmtNum(Number(neighbours[0]?.score), 2)} down to ${fmtNum(Number(neighbours.at(-1)?.score), 2)}`,
     body: options.timeline
       ? `<ol class="timeline">${candidates.map((n) => `<li><time>${esc(n.pub_date || "Undated")}</time> · ${esc(n.newspaper)} <button data-source="${esc(n.id)}">${esc(n.title || n.id)}</button> · ${fmtNum(Number(n.score), 3)}</li>`).join("")}</ol>`
       : horizontalBar({

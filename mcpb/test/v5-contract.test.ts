@@ -7,6 +7,7 @@ import { errorResult, extractMatchingTocEntries, inferErrorCode, keywordTerms, M
 import { MAX_INPUT_STRING_CHARS, overlongString } from "../src/tools/register.js";
 import { allowedTools, resolveToolProfile, TOOL_PROFILES } from "../src/toolProfiles.js";
 import { provenanceSummary } from "../src/provenance.js";
+import { at } from "./_must.js";
 
 describe("keywordTerms", () => {
   it("requires every word by default and keeps quoted phrases whole", () => {
@@ -37,9 +38,9 @@ describe("error codes", () => {
     assert.equal(inferErrorCode("date_from is after date_to"), "invalid_argument");
   });
   it("adds the code without changing the existing fields, and an explicit code wins", () => {
-    const body = JSON.parse(errorResult({ error: "Invalid country: Mali", valid_values: ["Benin"] }).content[0].text);
+    const body = JSON.parse(at(errorResult({ error: "Invalid country: Mali", valid_values: ["Benin"] }).content, 0).text);
     assert.deepEqual(body, { code: "invalid_argument", error: "Invalid country: Mali", valid_values: ["Benin"] });
-    assert.equal(JSON.parse(errorResult({ error: "whatever" }, "unavailable").content[0].text).code, "unavailable");
+    assert.equal(JSON.parse(at(errorResult({ error: "whatever" }, "unavailable").content, 0).text).code, "unavailable");
   });
 });
 

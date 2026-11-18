@@ -12,7 +12,7 @@ import type { SemanticMapPayload } from "../../viewContract.js";
 // scatter is only worth reading in proportion to how much of the variance it
 // actually captures — so the headline says the number, and the view says
 // outright when it is too low to trust.
-import { csv, empty, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, type ViewResult } from "../shell.js";
 import { legend, scatter } from "../svg.js";
 import { fmtInt, fmtPct } from "../theme.js";
 
@@ -30,8 +30,7 @@ const WEAK_PROJECTION = 0.25;
 /** Groups given their own colour; the tail shares one so the legend stays readable. */
 const MAX_GROUPS = 12;
 
-export function semanticMapView(payload: BasePayload): ViewResult {
-  const p = payload as SemanticMapPayload;
+export function semanticMapView(p: SemanticMapPayload): ViewResult {
   const points = (p.points ?? []).filter((x) => Number.isFinite(x.x) && Number.isFinite(x.y));
   if (!points.length) {
     return {

@@ -46,7 +46,7 @@ export function registerPublicationTools(server: Server): void {
       ...toolMeta("Search publications"),
       description:
         "Search Islamic publications (periodical issues, books). `keyword` matches title, subject, table of contents, and full OCR text " +
-        "(TOC hits come back as matching_toc_entries); use French concept keywords regardless of the user's report language. " +
+        "(TOC hits come back as matching_toc_entries); publications are in French, so French terms are what match. " +
         "Filter by newspaper/series, subject, country and year. Use list_periodicals to discover series titles, and " +
         "get_publication_fulltext for keyword excerpts from a single issue.",
       inputSchema: z.strictObject({

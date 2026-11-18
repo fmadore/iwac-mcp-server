@@ -20,7 +20,7 @@ import type { ModelBlock, SentimentPayload } from "../../viewContract.js";
 // coverage: the members do not all score the same articles, so a ring's own
 // denominator is read from its `coverage` block rather than assumed to be the
 // corpus.
-import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewResult } from "../shell.js";
 import { donut, heatmapMatrix, horizontalBar, legend } from "../svg.js";
 import {
   CENTRALITY_ORDER,
@@ -39,7 +39,7 @@ function ring(dist: Record<string, number> | undefined, scale: string[], centerL
   const colors = labels.map((l) => ordinalColor(l, scale) ?? "#888");
   return (
     donut({
-      slices: labels.map((label, i) => ({ label, value: dist[label], color: colors[i] })),
+      slices: labels.map((label, i) => ({ label, value: dist[label] ?? 0, color: colors[i] ?? "#888" })),
       centerLabel,
       size,
     }) + legend(labels, colors)
@@ -364,8 +364,7 @@ function allModels(p: SentimentPayload): ViewResult {
   };
 }
 
-export function sentimentView(payload: BasePayload): ViewResult {
-  const p = payload as SentimentPayload;
+export function sentimentView(p: SentimentPayload): ViewResult {
   if (p.by_model && Object.keys(p.by_model).length > 1) return allModels(p);
   // The model id comes from the payload rather than a default here: the view
   // must never name a model that did not produce the numbers it is drawing.

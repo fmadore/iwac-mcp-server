@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { config } from "../src/config.js";
 import { decodeVector, embeddingContract, PROBE_MIN_COSINE } from "../src/embeddingContract.js";
 import { ENCODER_DTYPES, encodeQuery, queryTokenIds } from "../src/onnxEncoder.js";
+import { at } from "./_must.js";
 
 const reference = JSON.parse(readFileSync(new URL("./embeddinggemma2-reference.json", import.meta.url), "utf8")) as {
   model: string;
@@ -27,10 +28,13 @@ function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
   let dot = 0,
     na = 0,
     nb = 0;
+  assert.equal(a.length, b.length, "vectors of one length");
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+    const x = at(a, i);
+    const y = at(b, i);
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
   }
   return dot / Math.sqrt(na * nb);
 }
@@ -39,8 +43,8 @@ test("the reference describes the contract the server ships", () => {
   const contract = embeddingContract();
   assert.equal(reference.model, `${contract.model}@${contract.revision}`);
   assert.equal(reference.query_prefix, contract.query_prefix);
-  assert.equal(reference.queries[0].query, contract.probe?.query, "the first reference query is the probe");
-  assert.equal(reference.queries[0].vector, contract.probe?.vector);
+  assert.equal(at(reference.queries, 0).query, contract.probe?.query, "the first reference query is the probe");
+  assert.equal(at(reference.queries, 0).vector, contract.probe?.vector);
 });
 
 for (const dtype of dtypes) {

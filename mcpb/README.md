@@ -46,8 +46,10 @@ npm run test:live                           # full smoke test against the real d
 npm run test:tokens -- --update             # re-baseline the token budget after an intended change
 ```
 
-`npm test` is hermetic: `test/unit.test.ts` covers the pure helpers,
-`test/fixture-server.test.mjs` spawns the built server over stdio against
+`npm test` is hermetic: `test/*.unit.test.ts` cover the pure helpers (one
+file per domain: text, query, sentiment, charts, Hijri, runtime),
+`test/fixture-server.test.mjs` (with its domain modules in
+`test/fixture-server/`) spawns the built server over stdio against
 synthetic parquet fixtures (`scripts/make-fixtures.mjs`) with `IWAC_OFFLINE=1`,
 `test/http-server.test.mjs` does the same over the `--http` transport
 (bearer auth, /health, body cap, a real Streamable-HTTP MCP call),
@@ -177,10 +179,42 @@ Environment variables (all transports unless noted):
 | `PORT` | `8000` | HTTP mode only: listen port |
 | `IWAC_MCP_BEARER_TOKEN` | — | HTTP mode only: the bearer token clients must send |
 | `IWAC_MCP_TOKEN_FILE` | `/run/secrets/iwac_mcp_token` | HTTP mode only: read the token from a mounted secret file instead |
-| `IWAC_MCP_ALLOWED_ORIGINS` | — | HTTP mode only: comma-separated exact HTTP(S) origins permitted when a request carries `Origin`; origin-less server clients and loopback origins (`localhost`, `127.0.0.1`, `[::1]`, any port) remain allowed |
+| `IWAC_MCP_ALLOWED_ORIGINS` | — | HTTP mode only: comma-separated exact HTTP(S) origins permitted when a request carries `Origin`; origin-less server clients and loopback origins (`localhost`, `127.0.0.1`, `[::1]`, any port) remain allowed. Allowed origins get CORS headers (see below). `*` on its own allows every origin (`Access-Control-Allow-Origin: *`); mixed into a list, or as `https://*.x`, it is invalid, and with `IWAC_PRIVATE_DATASET` the server refuses to start |
+| `IWAC_MCP_PUBLIC_URL` | — | HTTP mode only: the absolute Streamable HTTP URL clients reach the server at (behind nginx, `https://islam.zmo.de/mcp`), published as the Server Card's `remotes` entry. Unset, the card omits `remotes`. A value with credentials, a query or a fragment, or one that is not `http(s)://`, refuses to start |
 | `IWAC_TOOL_PROFILE` | `full` | Register a smaller tool surface: `core` (finding and reading sources), `analysis` (statistics, aggregates, sentiment, workbench) or `search` (`search`, `fetch`, `get_collection_stats`). See `src/toolProfiles.ts`; an unknown name refuses to start |
 | `IWAC_PRIVATE_DATASET` | `false` | Read the private full mirror instead of the public dataset (needs `IWAC_HF_TOKEN` or `HF_TOKEN`) |
 | `IWAC_ALLOW_PRIVATE_HTTP` | `false` | HTTP mode only: permit serving the private mirror; without it, HTTP mode refuses to start in private mode |
+| `IWAC_DUCKDB_MEMORY_LIMIT` | DuckDB default (80% of RAM) | Cap on DuckDB's memory, such as `1GB` or `512MiB`; anything else is ignored with a warning. Queries past it spill to `<IWAC_CACHE_DIR>/duckdb-tmp`. Set it in a memory-capped container, where DuckDB sees the host's RAM |
+| `IWAC_DUCKDB_THREADS` | DuckDB default (one per core) | DuckDB worker threads (a positive integer). Set it in a CPU-capped container, where DuckDB sees the host's cores |
+
+DuckDB runs sandboxed: external access is off, so it reads files only under
+`IWAC_CACHE_DIR` (its spill directory included), never installs or autoloads
+extensions, and its configuration is locked before the first query.
+
+**Browser clients (CORS).** For `/mcp`, a request whose `Origin` is allowed
+(listed, loopback, or any under `*`) is answered with
+`Access-Control-Allow-Origin: <origin>` (`*` in wildcard mode), `Vary: Origin`
+and `Access-Control-Expose-Headers: Mcp-Protocol-Version, Mcp-Session-Id, WWW-Authenticate`,
+on errors as well as successes. Its `OPTIONS` preflight is answered `204`
+before the bearer check, with `Access-Control-Allow-Methods: POST, GET, OPTIONS`,
+`Access-Control-Allow-Headers: Content-Type, Authorization, Accept, Mcp-Protocol-Version, Mcp-Session-Id, Mcp-Method, Mcp-Name, Last-Event-ID`
+and `Access-Control-Max-Age: 7200`. A disallowed origin gets `403` and no CORS
+headers; requests without `Origin` are unchanged. `Access-Control-Allow-Credentials`
+is never sent. A proxy in front must not add these headers too: browsers
+reject a response with two `Access-Control-Allow-Origin` values.
+
+**Server Card (SEP-2127).** `GET /mcp/server-card` returns the server's
+[MCP Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards.md)
+(v1 schema, `application/mcp-server-card+json`) without the bearer token and
+for any `Origin`: the Registry name `io.github.fmadore/iwac-mcp-server`, the
+build's version, title, description, website, repository and icon and, when
+`IWAC_MCP_PUBLIC_URL` is set, one `streamable-http` remote listing the
+protocol versions the endpoint answers (2026-07-28 and the SDK's 2025-era
+list). By design it carries no tools, capabilities or credentials, and nothing
+about the dataset mirror or cache. It is sent with
+`Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=3600` and an
+`ETag` (a matching `If-None-Match` gets `304`); `HEAD` and `OPTIONS` are
+answered, other methods get `405` with `Allow`. Built in `src/serverCard.ts`.
 
 ## Layout
 
@@ -301,7 +335,8 @@ Environment variables (all transports unless noted):
   Natural Earth outline the place map draws on — vendored rather than fetched
   because the CSP forbids tiles and runtime GeoJSON alike.
 
-  `test/app.test.mjs` reads the resource out of the BUILT server exactly as a
+  `test/app.test.mjs` (its render cases and interaction checks live in
+  `test/app/`) reads the resource out of the BUILT server exactly as a
   host would, evaluates the bundle in a Node vm behind a DOM shim, and drives
   the real postMessage handshake, so the payload shapes, the CSP rules, the size
   budget and the interactive round trip are all covered without a browser.
@@ -321,7 +356,7 @@ Environment variables (all transports unless noted):
   without MCP Apps draws no chart, so anything in `_meta` is invisible to that
   user, and moving the answer there would be a silent regression rather than an
   optimisation. The model therefore gains a summary computed from what it lost
-  (`trend_by_topic`, `groups`), and `test/fixture-server.test.mjs` asserts the
+  (`trend_by_topic`, `groups`), and `test/fixture-server/aggregates.mjs` asserts the
   summary matches the series it replaced. This is also why only two tools do it:
   `get_temporal_distribution` spends 99% of its payload on `distribution` and
   `get_field_distribution` 79% on `values`, but there the dense field *is* the

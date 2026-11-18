@@ -10,7 +10,7 @@ import type { CooccurrencePayload } from "../../viewContract.js";
 // off-diagonal cell, so colouring the whole matrix on one scale would wash out
 // exactly the cells the chart exists to show. This view blanks the diagonal for
 // the colour scale and reports it separately.
-import { csv, empty, panels, type BasePayload, type ViewOptions, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewOptions, type ViewResult } from "../shell.js";
 import { forceGraph, heatmapMatrix, horizontalBar } from "../svg.js";
 import { clip, fmtInt } from "../theme.js";
 
@@ -21,8 +21,7 @@ import { clip, fmtInt } from "../theme.js";
  */
 const EDGE_THRESHOLD = 0.12;
 
-export function cooccurrenceView(payload: BasePayload, options: ViewOptions = {}): ViewResult {
-  const p = payload as CooccurrencePayload;
+export function cooccurrenceView(p: CooccurrencePayload, options: ViewOptions = {}): ViewResult {
   const field = p.field ?? "subject";
   const values = (p.values ?? []).map((v) => v.value ?? "");
   const matrix = p.matrix ?? [];
@@ -44,7 +43,7 @@ export function cooccurrenceView(payload: BasePayload, options: ViewOptions = {}
   // Upper triangle only; the matrix is symmetric so both halves are one edge.
   const allEdges = values
     .flatMap((_, i) =>
-      values.slice(i + 1).map((__, k) => ({ source: i, target: i + 1 + k, weight: matrix[i][i + 1 + k] })),
+      values.slice(i + 1).map((__, k) => ({ source: i, target: i + 1 + k, weight: matrix[i]?.[i + 1 + k] ?? 0 })),
     )
     .filter((e) => e.weight > 0);
   const strongest = Math.max(1, ...allEdges.map((e) => e.weight));
@@ -52,7 +51,7 @@ export function cooccurrenceView(payload: BasePayload, options: ViewOptions = {}
 
   const network = asNetwork
     ? forceGraph({
-        nodes: values.map((label, i) => ({ label, weight: matrix[i][i] })),
+        nodes: values.map((label, i) => ({ label, weight: matrix[i]?.[i] ?? 0 })),
         edges,
         clickable: true,
         ariaLabel: `${field} co-mention network`,
@@ -118,7 +117,7 @@ export function cooccurrenceView(payload: BasePayload, options: ViewOptions = {}
           ctx.download(
             `iwac-${field}-cooccurrence.csv`,
             "text/csv",
-            csv([["", ...values], ...values.map((v, i) => [v, ...matrix[i]])]),
+            csv([["", ...values], ...values.map((v, i) => [v, ...(matrix[i] ?? [])])]),
           ),
       },
     ],

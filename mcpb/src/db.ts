@@ -1,7 +1,9 @@
-import { requestSignal, requestSnapshots, runSharedWork, waitForSharedWork, WorkQueue } from "./request.js";
+import { requestProgress, requestSignal, requestSnapshots, runSharedWork, waitForDataset, WorkQueue } from "./request.js";
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { ensureSubset, parquetList } from "./hf.js";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { ensureSubset, onSubsetDownload, parquetList } from "./hf.js";
 import { config, type Subset } from "./config.js";
 
 let _instancePromise: Promise<DuckDBInstance> | null = null;
@@ -33,13 +35,119 @@ const _views: Map<Subset, ViewState> = new Map();
  */
 function getInstance(): Promise<DuckDBInstance> {
   if (!_instancePromise) {
-    _instancePromise = DuckDBInstance.create(":memory:");
+    _instancePromise = openSandboxed();
     // If the very first open fails, drop the cached promise so a later call can retry.
     _instancePromise.catch(() => {
       _instancePromise = null;
     });
   }
   return _instancePromise;
+}
+
+/** A SQL string literal. SET cannot take bound parameters. */
+const sqlString = (s: string): string => `'${s.replace(/'/g, "''")}'`;
+
+/** Where DuckDB spills when a query outgrows memory_limit. Its default is
+ * `.tmp` under the working directory, which in the Docker image is root-owned
+ * and read-only to the `node` user; /cache is the one writable volume there
+ * (and /tmp a 128 MB tmpfs, too small to spill into). */
+export function duckdbTempDir(): string {
+  return path.join(config.cacheDir, "duckdb-tmp");
+}
+
+/** Directories beyond the cache and spill dirs; empty unless a test asked. */
+let extraAllowedDirectories: readonly string[] = [];
+
+/**
+ * Test hook, not configuration: also allow `dirs` in the sandbox of the
+ * instance this process has yet to open. In-process tests (hf-cache,
+ * shared-work and the like) write parquet under several mkdtemp() dirs and
+ * repoint config.cacheDir after the instance exists, which the locked sandbox
+ * cannot follow; they call this with os.tmpdir() before their first query.
+ * The server never calls it, and there is deliberately no environment
+ * variable behind it, so a desktop install cannot be talked into exposing the
+ * user's temp directory. Throws once the instance exists: the sandbox is
+ * locked by then and a late call would silently do nothing.
+ */
+export function allowDirectoriesForTests(dirs: readonly string[]): void {
+  if (_instancePromise) throw new Error("allowDirectoriesForTests must run before the first DuckDB query");
+  extraAllowedDirectories = [...dirs];
+}
+
+/**
+ * The statements that sandbox a fresh instance, in order. Every file this
+ * server hands DuckDB is a parquet under the dataset cache (hf.ts ensureSubset;
+ * IWAC_OFFLINE fixtures are found the same way, through IWAC_CACHE_DIR), and
+ * nothing else touches the file system: withScope's id tables are in-memory,
+ * and no COPY, EXPORT, ATTACH or INSTALL runs in the server. So external
+ * access is turned off and only the cache dir and the spill dir inside it stay
+ * reachable (plus `extraDirs`, which only tests pass, through
+ * allowDirectoriesForTests). Autoloading is off so a query cannot pull an
+ * extension (httpfs) that would reach the network, and the lock goes LAST so
+ * no statement, whichever connection runs it, can loosen any of this later.
+ *
+ * Defence in depth: every user value is bound as a parameter, but a future
+ * SQL-building bug should not be able to read /run/secrets, ~/.ssh or the
+ * rest of the user's temp directory.
+ */
+export function sandboxStatements(
+  cacheDir: string,
+  tempDir: string,
+  limits: { memoryLimit?: string; threads?: number } = {},
+  extraDirs: readonly string[] = [],
+): string[] {
+  const allowed = [...new Set([cacheDir, tempDir, ...extraDirs].map((dir) => path.resolve(dir)))];
+  return [
+    `SET GLOBAL allowed_directories = [${allowed.map(sqlString).join(", ")}]`,
+    `SET GLOBAL temp_directory = ${sqlString(path.resolve(tempDir))}`,
+    // Both values are validated in config.ts (a strict pattern, a positive int).
+    ...(limits.memoryLimit ? [`SET GLOBAL memory_limit = ${sqlString(limits.memoryLimit)}`] : []),
+    ...(limits.threads ? [`SET GLOBAL threads = ${limits.threads}`] : []),
+    "SET GLOBAL enable_external_access = false",
+    "SET GLOBAL autoinstall_known_extensions = false",
+    "SET GLOBAL autoload_known_extensions = false",
+    "SET GLOBAL lock_configuration = true",
+  ];
+}
+
+/** Create the shared instance and lock it down before any caller gets a
+ * connection. Runs inside the memoized promise, so racing first callers all
+ * wait for the same, already sandboxed, instance. */
+async function openSandboxed(): Promise<DuckDBInstance> {
+  if (config.invalidDuckdbMemoryLimit)
+    console.error(
+      `[iwac] warning: ignoring IWAC_DUCKDB_MEMORY_LIMIT=${config.invalidDuckdbMemoryLimit}; ` +
+        "expected a size such as 1GB or 512MiB. DuckDB keeps its default.",
+    );
+  const tempDir = duckdbTempDir();
+  // DuckDB creates the spill directory itself on the first spill (checked on
+  // 2.0.0, sandbox on), but not its parent. Creating only the parent keeps an
+  // unused `duckdb-tmp` out of caches that never spill, the test fixtures
+  // among them, whose scripts treat every subdirectory as a subset. Best
+  // effort: a read-only pre-seeded cache still answers every query that fits
+  // in memory.
+  await fs.mkdir(path.dirname(tempDir), { recursive: true }).catch((err: Error) => {
+    console.error(`[iwac] warning: cannot create the DuckDB spill directory's parent for ${tempDir}: ${err.message}`);
+  });
+  const instance = await DuckDBInstance.create(":memory:");
+  const conn = await instance.connect();
+  try {
+    for (const statement of sandboxStatements(
+      config.cacheDir,
+      tempDir,
+      { memoryLimit: config.duckdbMemoryLimit, threads: config.duckdbThreads },
+      extraAllowedDirectories,
+    ))
+      await conn.run(statement);
+  } catch (err) {
+    // Never hand out a half-configured instance: the memoized promise
+    // rejects, and the next caller retries from scratch.
+    conn.closeSync();
+    instance.closeSync();
+    throw err;
+  }
+  conn.closeSync();
+  return instance;
 }
 
 /** Idle connections kept for reuse. More can be open at once under load; the
@@ -140,7 +248,18 @@ export async function ensureView(subset: Subset): Promise<Set<string>> {
   } else {
     maybeRefresh(subset);
   }
-  const loadedSchema = await waitForSharedWork(p);
+  // A caller that asked for progress hears about the download it is waiting
+  // on, whichever call started it. The listener goes with this wait.
+  const progress = requestProgress();
+  const unsubscribe = progress
+    ? onSubsetDownload(subset, (done, total) => progress(subset, done, total))
+    : undefined;
+  let loadedSchema: Set<string>;
+  try {
+    loadedSchema = await waitForDataset(subset, p);
+  } finally {
+    unsubscribe?.();
+  }
   const state = _views.get(subset);
   // A refresh may finish while this waiter resumes. Keep schema and files
   // from the same committed generation.

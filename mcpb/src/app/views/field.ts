@@ -8,7 +8,7 @@ import type { FieldPayload } from "../../viewContract.js";
 // over-time panel is what makes the bylines case work — the interesting fact
 // about `author` is not who tops the list but that the signed SHARE climbs as
 // the press professionalises, which a ranking alone cannot show.
-import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewResult } from "../shell.js";
 import { columns, horizontalBar } from "../svg.js";
 import { fmtInt, fmtPct } from "../theme.js";
 
@@ -22,8 +22,7 @@ const FIELD_TITLES: Record<string, string> = {
   country: "Countries",
 };
 
-export function fieldView(payload: BasePayload): ViewResult {
-  const p = payload as FieldPayload;
+export function fieldView(p: FieldPayload): ViewResult {
   const field = p.field ?? "subject";
   const values = (p.values ?? []).filter((v) => (v.count ?? 0) > 0);
   const total = p.total_matches ?? 0;

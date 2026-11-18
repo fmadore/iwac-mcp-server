@@ -106,8 +106,8 @@ export function registerStatsTools(server: Server): void {
       ...toolMeta("Collection statistics"),
       description:
         "Overall statistics for every IWAC subset, including `fulltext_coverage` — how many items in each " +
-        "subset actually carry searchable full text in this dataset. Read that before treating any " +
-        "keyword count as a full-text census.",
+        "subset actually carry searchable full text in this dataset: a keyword count is a full-text " +
+        "census only within that coverage.",
       _meta: CHARTS_UI_META,
       inputSchema: z.strictObject({}),
       outputSchema: COLLECTION_STATS_OUTPUT,

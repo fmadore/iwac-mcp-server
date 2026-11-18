@@ -67,9 +67,20 @@ export function parseRefreshHours(v: string | undefined, fallback = 24): number 
   return v?.trim() === "0" ? 0 : parsePositiveInt(v, fallback, 24 * 365);
 }
 
+/** A DuckDB `memory_limit` such as `1GB`, `512MiB` or `1.5GB`, or undefined
+ * when unset or malformed. The value is spliced into a SET statement (DuckDB
+ * cannot bind parameters there), so only this exact shape is accepted. */
+export function parseMemoryLimit(v: string | undefined): string | undefined {
+  const raw = v?.trim() ?? "";
+  return /^\d{1,6}(?:\.\d{1,3})?(?:[KMGT]i?B|B)$/i.test(raw) ? raw : undefined;
+}
+
 export interface ParsedOrigins {
   allowed: ReadonlySet<string>;
   invalid: string[];
+  /** `IWAC_MCP_ALLOWED_ORIGINS=*`: every origin may call the endpoint from a
+   * browser. Only ever true when `*` is the whole value. */
+  any: boolean;
 }
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -86,15 +97,25 @@ export function isLoopbackOrigin(origin: string): boolean {
 }
 
 /** Parse the exact HTTP(S) origins allowed to reach the MCP endpoint.
- * Paths, credentials, queries, fragments, opaque origins, and wildcard values
- * are rejected: accepting any of them would turn the allowlist into a false
- * sense of DNS-rebinding protection. */
+ * Paths, credentials, queries, fragments, opaque origins, and wildcard
+ * patterns are rejected: accepting any of them would turn the allowlist into a
+ * false sense of DNS-rebinding protection. The one exception is a bare `*` as
+ * the WHOLE value, an explicit opt-in for a public, token-less-in-the-browser
+ * deployment (see http.ts); mixed with origins, or as `https://*.x`, it is
+ * still invalid, so a typo cannot widen the list by accident. */
 export function parseAllowedOrigins(v: string | undefined): ParsedOrigins {
   const allowed = new Set<string>();
   const invalid: string[] = [];
+  if (v?.trim() === "*") return { allowed, invalid, any: true };
   for (const raw of v?.split(",") ?? []) {
     const candidate = raw.trim();
     if (!candidate) continue;
+    // The URL parser accepts `https://*.example` as a literal host. It could
+    // never match (no browser sends it), but it reads as a pattern that works.
+    if (candidate.includes("*")) {
+      invalid.push(candidate);
+      continue;
+    }
     try {
       const url = new URL(candidate);
       const valid =
@@ -111,7 +132,7 @@ export function parseAllowedOrigins(v: string | undefined): ParsedOrigins {
       invalid.push(candidate);
     }
   }
-  return { allowed, invalid };
+  return { allowed, invalid, any: false };
 }
 
 /**
@@ -135,6 +156,7 @@ const httpOrigins = parseAllowedOrigins(envString("IWAC_MCP_ALLOWED_ORIGINS"));
 const privateDataset = parseBool(envString("IWAC_PRIVATE_DATASET"), false);
 const cacheBase = resolveCacheDir();
 const dimensionality = envString("IWAC_EMBEDDING_DIMENSIONALITY");
+const memoryLimit = envString("IWAC_DUCKDB_MEMORY_LIMIT");
 
 export function datasetCacheDir(base: string, usePrivate: boolean): string {
   return usePrivate ? path.join(base, "private-full") : base;
@@ -190,4 +212,13 @@ export const config = {
   bearerToken: readBearerToken(),
   httpAllowedOrigins: httpOrigins.allowed,
   invalidHttpOrigins: httpOrigins.invalid,
+  httpAnyOrigin: httpOrigins.any,
+  // DuckDB resource caps, applied once before its configuration is locked
+  // (db.ts). Unset keeps DuckDB's defaults: 80% of RAM and one thread per
+  // core, both of which overshoot a CPU- and memory-capped container, where
+  // DuckDB sees the host's cores and memory rather than the cgroup's.
+  duckdbMemoryLimit: parseMemoryLimit(memoryLimit),
+  // Reported once at start-up (db.ts) instead of silently running uncapped.
+  invalidDuckdbMemoryLimit: memoryLimit !== undefined && !parseMemoryLimit(memoryLimit) ? memoryLimit : undefined,
+  duckdbThreads: parsePositiveInt(envString("IWAC_DUCKDB_THREADS"), 0, 1024) || undefined,
 };

@@ -1,3 +1,4 @@
+// biome-ignore-all lint/style/noNonNullAssertion: every index below is bounded by n and d, given that every row is d long (the caller, get_semantic_map, validates each embedding against the contract dimension first), and these are the O(n*d*iterations) inner loops, where a per-read guard would cost time for a branch that cannot run.
 // Two-component PCA over a set of embeddings, by power iteration.
 //
 // This is the cheap stand-in for the UMAP "semantic landscape" the
@@ -30,23 +31,22 @@ export interface Projection {
  */
 export function project2d(vectors: number[][], iterations = 64): Projection {
   const n = vectors.length;
-  const d = n ? vectors[0].length : 0;
+  const d = vectors[0]?.length ?? 0;
   if (!n || !d) return { points: [], explained: [0, 0], totalVariance: 0 };
   if (n === 1) return { points: [[0, 0]], explained: [0, 0], totalVariance: 0 };
 
   // Centre. PCA on uncentred data finds the mean direction as PC1, which for
   // text embeddings is a strong, uninformative "average document" axis.
   const mean = new Float64Array(d);
-  for (const v of vectors) for (let j = 0; j < d; j++) mean[j] += v[j];
-  for (let j = 0; j < d; j++) mean[j] /= n;
+  for (const v of vectors) for (let j = 0; j < d; j++) mean[j]! += v[j]!;
+  for (let j = 0; j < d; j++) mean[j]! /= n;
 
   const X = new Float64Array(n * d);
   let totalVariance = 0;
-  for (let i = 0; i < n; i++) {
-    const v = vectors[i];
+  for (const [i, v] of vectors.entries()) {
     const off = i * d;
     for (let j = 0; j < d; j++) {
-      const c = v[j] - mean[j];
+      const c = v[j]! - mean[j]!;
       X[off + j] = c;
       totalVariance += c * c;
     }
@@ -72,20 +72,20 @@ export function project2d(vectors: number[][], iterations = 64): Projection {
       for (let i = 0; i < n; i++) {
         let s = 0;
         const off = i * d;
-        for (let j = 0; j < d; j++) s += X[off + j] * axis[j];
+        for (let j = 0; j < d; j++) s += X[off + j]! * axis[j]!;
         scores[i] = s;
       }
       // axis = Xᵀ · scores
       axis.fill(0);
       for (let i = 0; i < n; i++) {
-        const s = scores[i];
+        const s = scores[i]!;
         if (s === 0) continue;
         const off = i * d;
-        for (let j = 0; j < d; j++) axis[j] += X[off + j] * s;
+        for (let j = 0; j < d; j++) axis[j]! += X[off + j]! * s;
       }
       if (!normalise(axis)) break;
       let alignment = 0;
-      for (let j = 0; j < d; j++) alignment += previous[j] * axis[j];
+      for (let j = 0; j < d; j++) alignment += previous[j]! * axis[j]!;
       if (1 - Math.abs(alignment) < 1e-12) break;
     }
     // Final scores against the converged axis.
@@ -93,7 +93,7 @@ export function project2d(vectors: number[][], iterations = 64): Projection {
     for (let i = 0; i < n; i++) {
       let s = 0;
       const off = i * d;
-      for (let j = 0; j < d; j++) s += X[off + j] * axis[j];
+      for (let j = 0; j < d; j++) s += X[off + j]! * axis[j]!;
       scores[i] = s;
       variance += s * s;
     }
@@ -103,10 +103,10 @@ export function project2d(vectors: number[][], iterations = 64): Projection {
     // coordinate is made positive. Without this the scatter can mirror itself
     // between two runs on identical data.
     let pivot = 0;
-    for (let j = 1; j < d; j++) if (Math.abs(axis[j]) > Math.abs(axis[pivot])) pivot = j;
-    if (axis[pivot] < 0) {
-      for (let j = 0; j < d; j++) axis[j] = -axis[j];
-      for (let i = 0; i < n; i++) scores[i] = -scores[i];
+    for (let j = 1; j < d; j++) if (Math.abs(axis[j]!) > Math.abs(axis[pivot]!)) pivot = j;
+    if (axis[pivot]! < 0) {
+      for (let j = 0; j < d; j++) axis[j] = -axis[j]!;
+      for (let i = 0; i < n; i++) scores[i] = -scores[i]!;
     }
     return { axis, scores, variance };
   };
@@ -123,14 +123,14 @@ export function project2d(vectors: number[][], iterations = 64): Projection {
   // Deflate: remove PC1 from the data so the next pass finds the orthogonal
   // direction of greatest remaining variance.
   for (let i = 0; i < n; i++) {
-    const s = first.scores[i];
+    const s = first.scores[i]!;
     const off = i * d;
-    for (let j = 0; j < d; j++) X[off + j] -= s * first.axis[j];
+    for (let j = 0; j < d; j++) X[off + j]! -= s * first.axis[j]!;
   }
   const second = component();
 
   const points: [number, number][] = [];
-  for (let i = 0; i < n; i++) points.push([first.scores[i], second.scores[i]]);
+  for (let i = 0; i < n; i++) points.push([first.scores[i]!, second.scores[i]!]);
   return {
     points,
     explained: [
@@ -144,9 +144,9 @@ export function project2d(vectors: number[][], iterations = 64): Projection {
 /** In-place L2 normalise; false if the vector is all zeros (nothing left to find). */
 function normalise(v: Float64Array): boolean {
   let norm = 0;
-  for (let j = 0; j < v.length; j++) norm += v[j] * v[j];
+  for (let j = 0; j < v.length; j++) norm += v[j]! * v[j]!;
   if (!(norm > 0)) return false;
   const inv = 1 / Math.sqrt(norm);
-  for (let j = 0; j < v.length; j++) v[j] *= inv;
+  for (let j = 0; j < v.length; j++) v[j]! *= inv;
   return true;
 }

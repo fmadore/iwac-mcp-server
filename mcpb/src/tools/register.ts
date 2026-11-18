@@ -1,5 +1,11 @@
 import { provenanceSummary, requestProvenance, PROVENANCE_META_KEY } from "../provenance.js";
-import { withRequest } from "../request.js";
+import {
+  datasetsStillLoading,
+  type ProgressReporter,
+  REQUEST_DEADLINE_MS,
+  requestDeadlineExpired,
+  withRequest,
+} from "../request.js";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { registerArticleTools } from "./articles.js";
 import { registerSentimentTools } from "./sentiment.js";
@@ -75,6 +81,152 @@ export function overlongString(value: unknown, max = MAX_INPUT_STRING_CHARS, pat
     }
   }
   return undefined;
+}
+
+type ToolCallback = Parameters<McpServer["registerTool"]>[2];
+type ToolExtra = Parameters<ToolCallback>[1];
+type ToolOutcome = Awaited<ReturnType<ToolCallback>>;
+
+/** True for the errors a call's own deadline produces: the aborted signal's
+ * reason (also what an aborted fetch throws), a DuckDB statement interrupted
+ * by withConnection, and a wait in the query queue cut short. */
+function isAbortLike(err: unknown): boolean {
+  const e = err as { name?: unknown; message?: unknown } | undefined;
+  return (
+    e?.name === "TimeoutError" ||
+    e?.name === "AbortError" ||
+    /\binterrupt|cancelled while queued/i.test(String(e?.message ?? ""))
+  );
+}
+
+/**
+ * What a call that ran out of time tells the model, or undefined to let the
+ * outcome through unchanged. The one place this mapping lives.
+ *
+ * Without it a first call that started a subset download (~185 MB for
+ * articles) and outlived the 120 s deadline surfaced as the SDK's rendering of
+ * the bare abort ("The operation was aborted due to timeout"), and the
+ * fan-out tools (search, get_collection_stats) as "Hugging Face could not be
+ * reached", though the download was healthy and still running. A client
+ * cancellation is not a deadline: it propagates as itself.
+ */
+function deadlineOutcome(clientSignal: AbortSignal | undefined, deadlineMs: number, err?: unknown): ToolOutcome | undefined {
+  if (clientSignal?.aborted || !requestDeadlineExpired()) return undefined;
+  const loading = datasetsStillLoading();
+  if (loading.length > 0) {
+    const which = loading.length === 1 ? `${loading[0]} subset` : `${loading.join(", ")} subsets`;
+    return errorResult(
+      {
+        error:
+          `The IWAC ${which} is still being downloaded in the background (a one-time download on first use, ` +
+          "which goes on after this call). Retry in a minute.",
+        still_loading: loading,
+      },
+      "unavailable",
+    );
+  }
+  // A returned tool error, or one with its own message (the query encoder's
+  // "still being prepared"), already says what happened.
+  if (err === undefined || !isAbortLike(err)) return undefined;
+  return errorResult(
+    {
+      error:
+        `The query exceeded the ${Math.round(deadlineMs / 1000)} s time limit; narrow the selection ` +
+        "(a shorter date range, a country or subset, a more specific keyword) and retry.",
+    },
+    "invalid_argument",
+  );
+}
+
+/** At most one progress notification per this many milliseconds. */
+export const PROGRESS_INTERVAL_MS = 1_000;
+
+/**
+ * A reporter that turns download bytes into `notifications/progress` for a
+ * caller that sent a progress token, or undefined when it sent none.
+ * Concurrent downloads (get_collection_stats loads every subset) are summed,
+ * so `progress` only ever increases, as the specification requires. Sending
+ * never throws and never fails the call: a closed stream just drops it.
+ *
+ * Over HTTP the server answers in JSON mode, where the SDK drops mid-call
+ * notifications, so in practice this reaches stdio clients (Claude Desktop),
+ * the ones that pay for a first-run download.
+ */
+export function progressReporter(extra: Pick<ToolExtra, "mcpReq">, now = Date.now): ProgressReporter | undefined {
+  const token = extra.mcpReq._meta?.progressToken;
+  if (token === undefined) return undefined;
+  const parts = new Map<string, { done: number; total: number | undefined }>();
+  let lastProgress = 0;
+  let lastSent = Number.NEGATIVE_INFINITY;
+  return (key, done, total) => {
+    parts.set(key, { done, total });
+    const at = now();
+    if (at - lastSent < PROGRESS_INTERVAL_MS) return;
+    let progress = 0;
+    let sum: number | undefined = 0;
+    for (const part of parts.values()) {
+      progress += part.done;
+      sum = sum === undefined || part.total === undefined ? undefined : sum + part.total;
+    }
+    if (progress <= lastProgress) return;
+    lastProgress = progress;
+    lastSent = at;
+    const mb = (n: number) => Math.round(n / 1e6);
+    const message =
+      `Downloading the IWAC ${[...parts.keys()].join(", ")} data (one-time): ` +
+      (sum ? `${mb(progress)} of ${mb(sum)} MB` : `${mb(progress)} MB`);
+    try {
+      extra.mcpReq
+        .notify({
+          method: "notifications/progress",
+          params: { progressToken: token, progress, ...(sum ? { total: sum } : {}), message },
+        })
+        .catch(() => {});
+    } catch {
+      // Same as a rejected send: progress is a courtesy, never a failure.
+    }
+  };
+}
+
+/**
+ * The handler every recorded tool runs behind: the request scope and its
+ * deadline, the input length guard, the deadline mapping, and provenance on
+ * success. Exported for tests, which inject a short deadline.
+ */
+export function wrapToolCallback(
+  name: string,
+  callback: ToolCallback,
+  options: { deadlineMs?: number } = {},
+): (input: Parameters<ToolCallback>[0], extra: ToolExtra) => Promise<ToolOutcome> {
+  const deadlineMs = options.deadlineMs ?? REQUEST_DEADLINE_MS;
+  return (input, extra) =>
+    withRequest(
+      extra.mcpReq.signal,
+      async () => {
+        const overlong = overlongString(input);
+        if (overlong)
+          return errorResult({ error: `'${overlong}' exceeds ${MAX_INPUT_STRING_CHARS} characters` }, "invalid_argument");
+        let result: ToolOutcome;
+        try {
+          result = await callback(input, extra);
+        } catch (err) {
+          const mapped = deadlineOutcome(extra.mcpReq.signal, deadlineMs, err);
+          if (mapped) return mapped;
+          throw err;
+        }
+        if (result.isError) return deadlineOutcome(extra.mcpReq.signal, deadlineMs) ?? result;
+        const provenance = requestProvenance(name, input);
+        return {
+          ...result,
+          _meta: { ...result._meta, [PROVENANCE_META_KEY]: provenance },
+          content: [
+            ...(Array.isArray(result.content) ? result.content : []),
+            { type: "text" as const, text: JSON.stringify({ provenance: provenanceSummary(provenance) }) },
+          ],
+        };
+      },
+      { deadlineMs, progress: progressReporter(extra) },
+    );
 }
 
 /** One recorded registration call, ready to apply to a fresh server. */
@@ -169,26 +321,8 @@ function recordRegistrations(): Replay[] {
       const definition = ALWAYS_LOAD.has(name)
         ? { ...registered, _meta: { ...registered._meta, [ALWAYS_LOAD_META_KEY]: true } }
         : registered;
-      recorded.push((s) =>
-        s.registerTool(name, definition, (input, extra) =>
-          withRequest(extra.mcpReq.signal, async () => {
-            const overlong = overlongString(input);
-            if (overlong)
-              return errorResult({ error: `'${overlong}' exceeds ${MAX_INPUT_STRING_CHARS} characters` }, "invalid_argument");
-            const result = await callback(input, extra);
-            if (result.isError) return result;
-            const provenance = requestProvenance(name, input);
-            return {
-              ...result,
-              _meta: { ...result._meta, [PROVENANCE_META_KEY]: provenance },
-              content: [
-                ...(Array.isArray(result.content) ? result.content : []),
-                { type: "text" as const, text: JSON.stringify({ provenance: provenanceSummary(provenance) }) },
-              ],
-            };
-          }),
-        ),
-      );
+      const handler = wrapToolCallback(name, callback);
+      recorded.push((s) => s.registerTool(name, definition, handler));
     },
     registerResource(...args: Parameters<McpServer["registerResource"]>) {
       recorded.push((s) => s.registerResource(...args));

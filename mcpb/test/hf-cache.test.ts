@@ -7,9 +7,15 @@ import { describe, it } from "node:test";
 
 import { config, datasetCacheDir, PRIVATE_DATASET_REPO } from "../src/config.js";
 import { withRequest } from "../src/request.js";
-import { ensureView, pendingRefresh, query, viewGeneration, viewName } from "../src/db.js";
+import { allowDirectoriesForTests, ensureView, pendingRefresh, query, viewGeneration, viewName } from "../src/db.js";
 import { downloadName, ensureSubset, isDatasetAccessError } from "../src/hf.js";
 import { CACHE_MANIFEST_FILE, parseCacheManifest, remoteIdentity } from "../src/hfCache.js";
+import { at } from "./_must.js";
+
+// These tests write parquet under several mkdtemp() dirs and repoint
+// config.cacheDir after the shared DuckDB instance exists, which its locked
+// sandbox cannot follow; open the temp dir to it, as only a test may.
+allowDirectoriesForTests([os.tmpdir()]);
 
 function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
@@ -96,22 +102,22 @@ describe("Hugging Face cache freshness", () => {
       // The legacy file has the same length as the Hub file. Its SHA differs,
       // so size alone must not suppress the initial refresh.
       let { files, downloaded } = await ensureSubset("articles");
-      assert.equal(await fs.readFile(files[0], "utf8"), "bravo");
+      assert.equal(await fs.readFile(at(files, 0), "utf8"), "bravo");
       assert.equal(downloads, 1);
       assert.equal(downloaded, true);
       // The new revision lands beside the stale copy, never on top of it (a
       // live view or another process may still be reading that). Both stay immutable.
-      assert.notEqual(files[0], localFile);
+      assert.notEqual(at(files, 0), localFile);
       assert.equal(await fs.readFile(localFile, "utf8"), "alpha");
-      assert.deepEqual(await parquetIn(subsetDir), [path.basename(files[0]), path.basename(localFile)].sort());
+      assert.deepEqual(await parquetIn(subsetDir), [path.basename(at(files, 0)), path.basename(localFile)].sort());
 
       // A republish with another five-byte payload changes the LFS identity,
       // and with it the local name.
       payload = "cider";
-      const previous = files[0];
+      const previous = at(files, 0);
       ({ files } = await ensureSubset("articles"));
-      assert.equal(await fs.readFile(files[0], "utf8"), "cider");
-      assert.notEqual(files[0], previous);
+      assert.equal(await fs.readFile(at(files, 0), "utf8"), "cider");
+      assert.notEqual(at(files, 0), previous);
       assert.equal(downloads, 2);
 
       // Matching sidecar identity avoids both hashing and downloading.
@@ -127,7 +133,7 @@ describe("Hugging Face cache freshness", () => {
       const manifest = JSON.parse(await fs.readFile(path.join(subsetDir, CACHE_MANIFEST_FILE), "utf8")) as {
         files: Record<string, { identity?: string }>;
       };
-      assert.equal(manifest.files[path.basename(files[0])]?.identity, `lfs:${sha256("cider")}`);
+      assert.equal(manifest.files[path.basename(at(files, 0))]?.identity, `lfs:${sha256("cider")}`);
 
       // A damaged current manifest recovers only its complete backup, never a
       // glob that combines old and new content-named shards.
@@ -181,8 +187,8 @@ describe("private dataset access", () => {
       }) as typeof fetch;
       const { files } = await ensureSubset("articles");
       // No content identity in this listing, so the Hub name is kept.
-      assert.equal(path.basename(files[0]), "train.parquet");
-      assert.equal(await fs.readFile(files[0], "utf8"), "private");
+      assert.equal(path.basename(at(files, 0)), "train.parquet");
+      assert.equal(await fs.readFile(at(files, 0), "utf8"), "private");
       assert.equal(requests.length, 2);
       assert.ok(requests.every((r) => r.auth === "Bearer hf_test_only" && r.url.includes(PRIVATE_DATASET_REPO)));
       // Even with cached text, invalid/missing credentials must fail online.
@@ -250,7 +256,7 @@ describe("download verification", () => {
 
       served = listed;
       const { files } = await ensureSubset("documents");
-      assert.equal(await fs.readFile(files[0], "utf8"), listed);
+      assert.equal(await fs.readFile(at(files, 0), "utf8"), listed);
     } finally {
       Object.assign(config, original);
       globalThis.fetch = originalFetch;
@@ -292,7 +298,7 @@ describe("background dataset refresh", () => {
       versions.push(await fs.readFile(file));
       await fs.rm(file);
     }
-    let payload: Buffer = versions[0];
+    let payload: Buffer = at(versions, 0);
     let hubDown = false;
     try {
       Object.assign(config, {
@@ -318,7 +324,7 @@ describe("background dataset refresh", () => {
         return new Response(new Uint8Array(payload));
       }) as typeof fetch;
 
-      const count = async () => Number((await query("SELECT count(*) AS n FROM images"))[0].n);
+      const count = async () => Number(at(await query("SELECT count(*) AS n FROM images"), 0).n);
       const first = await ensureView("images");
       assert.equal(first.has("added"), false);
       assert.equal(await count(), 1);
@@ -334,11 +340,11 @@ describe("background dataset refresh", () => {
       });
       const oldRequest = withRequest(undefined, async () => {
         await ensureView("images");
-        const firstCount = Number((await query(`SELECT count(*) AS n FROM ${viewName("images")}`))[0].n);
+        const firstCount = Number(at(await query(`SELECT count(*) AS n FROM ${viewName("images")}`), 0).n);
         pinned();
         await gate;
         assert.equal(
-          Number((await query(`SELECT count(*) AS n FROM ${viewName("images")}`))[0].n),
+          Number(at(await query(`SELECT count(*) AS n FROM ${viewName("images")}`), 0).n),
           firstCount,
           "one request retains one immutable snapshot across refresh",
         );
@@ -348,7 +354,7 @@ describe("background dataset refresh", () => {
 
       // A newer revision is published. The call that notices is answered from
       // the loaded view at once; the swap happens in the background.
-      payload = versions[1];
+      payload = at(versions, 1);
       config.refreshIntervalMs = 1;
       await new Promise((resolve) => setTimeout(resolve, 5));
       assert.equal((await ensureView("images")).has("added"), false);

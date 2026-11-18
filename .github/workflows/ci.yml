@@ -179,15 +179,16 @@ jobs:
   # token, so scripts/auth-proxy.mjs adds it on loopback, as nginx does in
   # production. conformance-baseline.yml lists, check by check, the failures
   # only the suite's reference fixtures could pass; any other failure, or a
-  # baselined check that starts passing, fails the run. Still continue-on-error
-  # until a CI run confirms the local result (exit 0 on 28 October 2026).
+  # baselined check that starts passing, fails the run. A gate since November
+  # 2026: it ran as continue-on-error until CI confirmed the local result (exit
+  # 0 on 28 October 2026), and it then concluded `success` on consecutive main
+  # pushes (runs 42647458182 on 9 November and 44033311173 on 17 November).
   # 0.2.0-alpha.12 is pinned on purpose: `latest` (0.1.x) predates 2026-07-28.
   conformance:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
-    name: MCP conformance (2026-07-28, non-blocking)
+    name: MCP conformance (2026-07-28)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    continue-on-error: true
     defaults:
       run:
         working-directory: mcpb

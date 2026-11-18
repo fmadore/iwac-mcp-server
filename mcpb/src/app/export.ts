@@ -5,11 +5,10 @@ import { esc } from "./theme.js";
 export function chartSvg(root: HTMLElement, result: ViewResult, payload: BasePayload): string {
   const theme = document.documentElement.getAttribute("data-theme") ?? "light";
   const styles = document.querySelector("style")?.textContent ?? "";
-  const svgs = Array.from(root.querySelectorAll(".chart svg"));
-  const dimensions = svgs.map((svg) => {
+  const dimensions = Array.from(root.querySelectorAll(".chart svg"), (svg) => {
     const [, , width = 900, height = 300] = (svg.getAttribute("viewBox") ?? "0 0 900 300")
       .split(/\s+/).map(Number);
-    return { width, height };
+    return { svg, width, height };
   });
   const width = Math.max(900, ...dimensions.map((d) => d.width + 40));
   const parts: string[] = [];
@@ -37,12 +36,12 @@ export function chartSvg(root: HTMLElement, result: ViewResult, payload: BasePay
   if (subtitle) text(subtitle);
   const scope = Array.from(root.querySelectorAll(".chip")).map((chip) => chip.textContent).join(" · ");
   if (scope) text(`Selection: ${scope}`, 12);
-  svgs.forEach((svg, i) => {
+  dimensions.forEach((d) => {
+    const { svg } = d;
     y += 18;
     const panel = svg.closest(".panel");
     const caption = panel?.querySelector("h2")?.textContent || svg.getAttribute("aria-label");
     if (caption) text(caption, 14);
-    const d = dimensions[i];
     parts.push(`<svg x="20" y="${y}" width="${d.width}" height="${d.height}" style="width:${d.width}px;height:${d.height}px" viewBox="0 0 ${d.width} ${d.height}">${svg.innerHTML}</svg>`);
     y += d.height + 8;
     const legend = svg.nextElementSibling?.matches(".legend") ? svg.nextElementSibling : panel?.querySelector(".legend");

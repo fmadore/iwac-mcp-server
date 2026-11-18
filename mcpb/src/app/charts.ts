@@ -15,20 +15,33 @@
 // Bundled to a single IIFE and inlined into one HTML string at build time
 // (scripts/bundle.mjs) because MCP App resources render under a deny-by-default
 // CSP: no external stylesheet, font, or script may load.
-import { App } from "@modelcontextprotocol/ext-apps";
+import { App, type McpUiDisplayMode, type McpUiHostContext } from "@modelcontextprotocol/ext-apps";
 import { ViewRequests, wireActions } from "./actions.js";
 import { ContextSync } from "./contextSync.js";
 import { buildModelContext } from "./modelContext.js";
 import { chartSvg } from "./export.js";
-import { chips, empty, type BasePayload, type ViewContext, type ViewOptions, type ViewResult } from "./shell.js";
+import { chips, empty, pending, type BasePayload, type ViewContext, type ViewOptions, type ViewResult } from "./shell.js";
 import { esc } from "./theme.js";
 import { setTheme } from "./theme.js";
-import { VIEWS } from "./views/index.js";
+import { renderView } from "./views/index.js";
 import { selectionFrom } from "../selection.js";
-import { VIEW_DATA_META_KEY, isViewName } from "../viewContract.js";
+import { VIEW_DATA_META_KEY } from "../viewContract.js";
 
 declare const __IWAC_VERSION__: string;
-const app = new App({ name: "IWAC charts", version: __IWAC_VERSION__ });
+// Declaring the modes lets a host offer its own expand control. Picture in
+// picture is left out on purpose: a heatmap or a reader page needs width, and a
+// thumbnail-sized frame would show a scroll box rather than a chart.
+//
+// The WebMCP bridge (ext-apps 2.1) is switched off. The view registers no
+// app-side tools, so there is nothing to mirror into `document.modelContext`,
+// and leaving it on would only make connect() probe that object and, if the
+// page ever gained WebMCP tools by accident, advertise a `tools` capability on
+// the view's behalf. Turn it on together with the first `app.registerTool()`.
+const app = new App(
+  { name: "IWAC charts", version: __IWAC_VERSION__ },
+  { availableDisplayModes: ["inline", "fullscreen"] },
+  { autoResize: true, webMcpBridge: false },
+);
 const root = document.getElementById("root") as HTMLElement;
 
 /** Last payload rendered, so a failed re-call can fall back to it. */
@@ -40,8 +53,21 @@ let options: ViewOptions = {};
 let optionsView: string | undefined;
 const requests = new ViewRequests(root);
 const history: { payload: BasePayload; options: ViewOptions }[] = [];
-let displayMode: "inline" | "fullscreen" | "pip" = "inline";
+type DisplayMode = McpUiDisplayMode;
+let displayMode: DisplayMode = "inline";
 let displayGeneration = 0;
+/**
+ * Whether the current fullscreen is one THIS app asked for. Claude reports its
+ * side panel as `fullscreen`, so a frame can start there without ever asking;
+ * an "Exit fullscreen" button would then promise something the host's own
+ * chrome owns. The toggle is offered only to undo the app's own expansion.
+ */
+let ownFullscreen = false;
+/** Mode of the request in flight, so a host that announces the grant through
+ * host-context-changed before answering still counts as granting OUR request. */
+let requestedMode: DisplayMode | null = null;
+/** Set by the first render; the in-flight placeholder must never replace a chart. */
+let rendered = false;
 let contextStatus: "pending" | "shared" | "failed" = "pending";
 let connected = false;
 const hostRequestOptions = { timeout: 5000 };
@@ -89,9 +115,40 @@ function clearModelContext(): void {
   });
 }
 
-function applyDisplayMode(mode: typeof displayMode): void {
+/** `requested`: the new mode is the one this app asked for. */
+function applyDisplayMode(mode: DisplayMode, requested: boolean): void {
+  if (mode !== displayMode) ownFullscreen = requested && mode === "fullscreen";
   displayMode = mode;
   document.documentElement.setAttribute("data-display-mode", mode);
+}
+
+function displayToggle(): { target: DisplayMode; label: string } | undefined {
+  const available = app.getHostContext()?.availableDisplayModes ?? [];
+  if (displayMode === "fullscreen")
+    return ownFullscreen && available.includes("inline") ? { target: "inline", label: "Exit fullscreen" } : undefined;
+  return available.includes("fullscreen") ? { target: "fullscreen", label: "Fullscreen" } : undefined;
+}
+
+/**
+ * Safe-area insets and the container height arrive as host context, which a
+ * stylesheet cannot read, so they are mirrored into custom properties. Context
+ * updates are partial: a key that is absent leaves its property untouched.
+ */
+function applyHostLayout(context: McpUiHostContext): void {
+  const style = document.documentElement.style;
+  const insets = context.safeAreaInsets;
+  if (insets)
+    for (const side of ["top", "right", "bottom", "left"] as const)
+      style.setProperty(`--safe-${side}`, `${Math.max(0, Number(insets[side]) || 0)}px`);
+  const box = context.containerDimensions;
+  if (box) {
+    const height = "height" in box ? box.height : box.maxHeight;
+    // Leave room for the title, chips and action row above and below a
+    // scrolling table, but never shrink it below a usable strip.
+    if (typeof height === "number" && height > 0)
+      style.setProperty("--fit-h", `${Math.max(160, Math.round(height) - 200)}px`);
+    else style.removeProperty("--fit-h");
+  }
 }
 function navigate(next: BasePayload): void {
   if (current.view) {
@@ -224,6 +281,7 @@ const ctx: ViewContext = {
 
 function render(payload: BasePayload): void {
   current = payload;
+  rendered = true;
 
   if (payload.error) {
     clearModelContext();
@@ -237,11 +295,18 @@ function render(payload: BasePayload): void {
     options = {};
   }
 
-  const view = payload.view && isViewName(payload.view) ? VIEWS[payload.view] : undefined;
-  if (!view) {
+  let drawn: ViewResult | undefined;
+  try {
+    drawn = renderView(payload, options);
+  } catch (err) {
+    clearModelContext();
+    root.innerHTML = empty(`Could not draw this chart: ${(err as Error).message}`);
+    return;
+  }
+  if (!drawn) {
     clearModelContext();
     // A tool declared this resource but its payload carries no view this bundle
-    // knows — most likely a server newer than the packaged UI. Say which.
+    // knows, most likely a server newer than the packaged UI. Say which.
     root.innerHTML = empty(
       payload.view
         ? `This chart bundle has no view named "${payload.view}". Update the IWAC extension.`
@@ -249,15 +314,7 @@ function render(payload: BasePayload): void {
     );
     return;
   }
-
-  let result: ViewResult;
-  try {
-    result = view(payload, options);
-  } catch (err) {
-    clearModelContext();
-    root.innerHTML = empty(`Could not draw this chart: ${(err as Error).message}`);
-    return;
-  }
+  const result = drawn;
 
   const notes = (result.notes ?? [])
     .filter((x): x is string => typeof x === "string" && x.length > 0)
@@ -344,19 +401,24 @@ function render(payload: BasePayload): void {
       },
     });
   }
-  const targetMode = displayMode === "fullscreen" ? "inline" : "fullscreen";
-  if (connected && app.getHostContext()?.availableDisplayModes?.includes(targetMode)) {
+  const toggle = connected ? displayToggle() : undefined;
+  if (toggle) {
     actions.push({
       id: "fullscreen",
-      label: displayMode === "fullscreen" ? "Exit fullscreen" : "Fullscreen",
+      label: toggle.label,
       async run() {
         const generation = ++displayGeneration;
-        const response = await app.requestDisplayMode({ mode: targetMode }, hostRequestOptions);
-        if (!connected || generation !== displayGeneration) return;
-        // A host may decline the requested mode and return the current one.
-        applyDisplayMode(response.mode);
-        render(current);
-        document.getElementById("act-fullscreen")?.focus();
+        requestedMode = toggle.target;
+        try {
+          const response = await app.requestDisplayMode({ mode: toggle.target }, hostRequestOptions);
+          if (!connected || generation !== displayGeneration) return;
+          // A host may decline the requested mode and return the current one.
+          applyDisplayMode(response.mode, response.mode === toggle.target);
+          render(current);
+          document.getElementById("act-fullscreen")?.focus();
+        } finally {
+          if (generation === displayGeneration) requestedMode = null;
+        }
       },
     });
   }
@@ -416,6 +478,20 @@ app.ontoolresult = (result) => {
   render(readPayload(result));
 };
 
+// The host forwards the model's arguments before the server answers. Show
+// what is being computed instead of the static boot line, but only into an
+// empty frame: once anything has rendered, a later input (or the app's own
+// re-call, which has ViewRequests' loading state) must not wipe the chart.
+// Nothing here reaches model context; the arguments are the model's own.
+// `ontoolinputpartial` is not used: streamed fragments would flicker chips
+// for a state that lasts a second or two.
+app.ontoolinput = ({ arguments: args }) => {
+  if (rendered) return;
+  const tool = app.getHostContext()?.toolInfo?.tool;
+  root.setAttribute("aria-busy", "true");
+  root.innerHTML = pending(tool?.title || tool?.name, args);
+};
+
 app.ontoolcancelled = () => {
   requests.invalidate();
   transientError = "Request cancelled. Your previous selection is still available.";
@@ -437,10 +513,16 @@ app.onteardown = async () => {
 app.onhostcontextchanged = (context) => {
   if (context.theme) setTheme(context.theme);
   if (context.displayMode) {
+    // Any host-side change supersedes a request still in flight; it counts as
+    // our grant only when it lands on the mode we asked for.
     displayGeneration++;
-    applyDisplayMode(context.displayMode);
+    applyDisplayMode(context.displayMode, context.displayMode === requestedMode);
+    requestedMode = null;
   }
-  if (current.view) render(current);
+  applyHostLayout(context);
+  // Insets and container size are pure CSS; re-rendering for them would only
+  // reset scroll positions and focus.
+  if ((context.theme || context.displayMode || context.availableDisplayModes) && current.view) render(current);
 };
 
 setTheme(undefined);
@@ -450,7 +532,8 @@ app
     connected = true;
     const host = app.getHostContext();
     setTheme(host?.theme);
-    applyDisplayMode(host?.displayMode ?? "inline");
+    applyDisplayMode(host?.displayMode ?? "inline", false);
+    if (host) applyHostLayout(host);
     const caps = app.getHostCapabilities();
     ctx.canDownload = Boolean(caps?.downloadFile);
     ctx.canOpenLink = Boolean(caps?.openLinks);
@@ -460,5 +543,6 @@ app
     if (current.view) render(current);
   })
   .catch((err) => {
+    root.removeAttribute("aria-busy");
     root.innerHTML = empty(`Could not connect to the host: ${(err as Error).message}`);
   });

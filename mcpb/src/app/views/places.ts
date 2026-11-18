@@ -16,7 +16,7 @@ import type { Place, PlacesPayload } from "../../viewContract.js";
 //   * Only `Lieux` index entries carry coordinates (555 of 683). A place with
 //     no geocoded authority record is not on the map and never will be, so it
 //     goes in the same ranking rather than silently vanishing.
-import { csv, empty, panels, type BasePayload, type ViewResult } from "../shell.js";
+import { csv, empty, panels, type ViewResult } from "../shell.js";
 import { BASEMAP, BASEMAP_BOUNDS } from "../basemap.js";
 import { bubbleMap, horizontalBar } from "../svg.js";
 import { fmtInt } from "../theme.js";
@@ -74,8 +74,7 @@ const COUNTRY_NAMES = new Set(
 
 const isCountryLevel = (p: Place): boolean => COUNTRY_NAMES.has(fold(p.place ?? ""));
 
-export function placesView(payload: BasePayload): ViewResult {
-  const p = payload as PlacesPayload;
+export function placesView(p: PlacesPayload): ViewResult {
   const places = (p.places ?? []).filter((x) => (x.count ?? 0) > 0);
   if (!places.length && !p.ungeocoded?.length) {
     return {

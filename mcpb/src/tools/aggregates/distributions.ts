@@ -3,6 +3,7 @@ import { chartResult } from "../shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
+import { itemAt } from "../../checked.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
 import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
 import { AGG_SUBSETS, aggregateFilters, filterInputs, withScope, explode, PIPE_FIELDS } from "./shared.js";
@@ -217,12 +218,15 @@ export function registerDistributionsTools(server: Server): void {
         for (const r of pairRows) {
           const i = index.get(String(r.a));
           const j = index.get(String(r.b));
-          if (i !== undefined && j !== undefined) matrix[i][j] = Number(r.c);
+          if (i !== undefined && j !== undefined) itemAt(matrix, i)[j] = Number(r.c);
         }
         // Strongest pairs, upper triangle only — the matrix is symmetric, so
         // listing both halves would just repeat every pair.
         const topPairs = values
-          .flatMap((a, i) => values.slice(i + 1).map((b, k) => ({ a, b, count: matrix[i][i + 1 + k] })))
+          .flatMap((a, i) => {
+            const row = itemAt(matrix, i);
+            return values.slice(i + 1).map((b, k) => ({ a, b, count: itemAt(row, i + 1 + k) }));
+          })
           .filter((p) => p.count > 0)
           .sort((x, y) => y.count - x.count)
           .slice(0, 15);

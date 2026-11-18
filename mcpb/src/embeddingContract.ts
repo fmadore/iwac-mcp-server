@@ -128,14 +128,19 @@ export function decodeVector(base64: string): Float32Array {
   return out;
 }
 
+/** NaN, which every caller treats as a failed check, unless the lengths agree. */
 function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  if (a.length !== b.length) return Number.NaN;
   let dot = 0,
     na = 0,
     nb = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+    // In range for both (equal lengths); a hole would poison the score, not mask it.
+    const x = a[i] ?? Number.NaN;
+    const y = b[i] ?? Number.NaN;
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
   }
   return dot / Math.sqrt(na * nb);
 }

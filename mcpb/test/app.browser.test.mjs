@@ -25,6 +25,7 @@ window.addEventListener('message',event=>{
  if(event.source!==frame.contentWindow) return;
  const m=event.data,h=window.host;
  if(m.method==='ui/initialize'){
+   h.init=m.params;
    const params=new URLSearchParams(location.search),minimal=params.has('minimal'),messageOnly=params.has('messageOnly'),structuredOnly=params.has('structuredOnly');
    const capabilities=minimal?{serverTools:{}}:{serverTools:{},downloadFile:{},openLinks:{},message:{text:{}},...(!messageOnly?{updateModelContext:structuredOnly?{structuredContent:{}}:{text:{}}}:{})};
    if(params.has('readOnly'))delete capabilities.serverTools;
@@ -91,7 +92,14 @@ await withFixtureScope(async (scope) => {
     };
     await page.goto(url);
     await page.waitForFunction(() => window.host?.ready);
+    // The model's arguments arrive before the result: a status line with the
+    // selection as chips replaces the boot text, and shares nothing yet.
+    await page.evaluate(() => window.host.send({ jsonrpc: "2.0", method: "ui/notifications/tool-input", params: { arguments: { keyword: "imam" } } }));
+    await view.locator(".pending[role=status]").filter({ hasText: "keyword: imam" }).waitFor();
+    assert.equal(await view.locator("#root").getAttribute("aria-busy"), "true");
+    assert.equal(await contextCount(), 0, "a pending call must not update model context");
     await emit(BASE);
+    assert.equal(await view.locator("#root").getAttribute("aria-busy"), null);
     const initialContext = await expectContextAfter(0);
     assert.ok(JSON.stringify(initialContext).includes("imam"), JSON.stringify(initialContext));
     assert.equal(await page.evaluate(() => window.host.messages.length), 0, "context synchronization must not send a user message");
@@ -177,6 +185,12 @@ await withFixtureScope(async (scope) => {
     assert.ok((await view.locator(".chart").textContent()).includes("2000"));
 
     await emit({ ...BASE, group_by: "country", distribution: undefined, distribution_by_group: { Benin: { 2000: 3 }, Togo: { 2000: 1 } } });
+    // Windows high contrast must not flatten series colours: the legend swatch
+    // keeps its palette colour, while axis text follows the system text colour.
+    await page.emulateMedia({ forcedColors: "active" });
+    const swatch = await view.locator(".swatch").first().evaluate((el) => [el.style.backgroundColor, getComputedStyle(el).backgroundColor]);
+    assert.equal(swatch[1], swatch[0], "forced colours replaced a legend swatch");
+    await page.emulateMedia({ forcedColors: "none" });
     await view.locator("#act-svg").click();
     await page.waitForFunction(() => window.host.downloads.length === 4);
     const svg = await page.evaluate(() => window.host.downloads.at(-1).contents[0].resource.text);
@@ -294,7 +308,30 @@ await withFixtureScope(async (scope) => {
     await fallback.waitFor();
     assert.ok((await fallback.textContent()).includes("text results remain available"));
     await unsupported.close();
-    console.log("BROWSER APP CHECKS PASSED (Chromium, CSP, exports, fullscreen, context sync, messages, focus, capabilities)");
+    // ext-apps 2.1's WebMCP bridge stays off (webMcpBridge: false in charts.ts):
+    // even when the frame's document exposes a model context holding a tool,
+    // the view must neither read it nor advertise a `tools` capability.
+    const webMcp = await browser.newPage();
+    await webMcp.addInitScript(() => {
+      if (window === window.top) return;
+      const calls = [];
+      window.__webMcpCalls = calls;
+      const tool = { name: "planted", description: "planted", inputSchema: { type: "object" } };
+      document.modelContext = {
+        registerTool: async () => { calls.push("registerTool"); },
+        getTools: async () => { calls.push("getTools"); return [tool]; },
+        executeTool: async () => { calls.push("executeTool"); return {}; },
+        addEventListener: () => { calls.push("addEventListener"); },
+        removeEventListener: () => {},
+      };
+    });
+    await webMcp.goto(url);
+    await webMcp.waitForFunction(() => window.host?.ready);
+    const init = await webMcp.evaluate(() => window.host.init);
+    assert.equal(init.appCapabilities.tools, undefined, JSON.stringify(init.appCapabilities));
+    assert.deepEqual(await webMcp.frameLocator("#app").locator("body").evaluate(() => window.__webMcpCalls), []);
+    await webMcp.close();
+    console.log("BROWSER APP CHECKS PASSED (Chromium, CSP, exports, fullscreen, context sync, messages, focus, capabilities, WebMCP off)");
   } finally {
     await browser?.close();
     await new Promise((resolve) => server.close(resolve));

@@ -13,6 +13,7 @@ import { z } from "zod";
 import { ensureView, getById, q, query, viewName, type Bindable } from "../db.js";
 import { ALL_SUBSETS, type Subset } from "../config.js";
 import { isDatasetAccessError } from "../hf.js";
+import { itemAt } from "../checked.js";
 import {
   capText,
   colsFor,
@@ -154,8 +155,9 @@ export function interleave(lists: Hit[][], limit: number): Hit[] {
   const max = Math.max(0, ...lists.map((l) => l.length));
   for (let i = 0; i < max && out.length < limit; i++) {
     for (const list of lists) {
-      if (i < list.length) {
-        out.push(list[i]);
+      const hit = list[i];
+      if (hit !== undefined) {
+        out.push(hit);
         if (out.length >= limit) break;
       }
     }
@@ -299,8 +301,8 @@ export function registerSearchTools(server: Server): void {
         "(persons/places/organisations/events/subjects). " +
         "Pass ONE concept or name — e.g. 'Tijaniyya', 'laïcité', 'Sheikh Gumi', 'pèlerinage'. Matching is accent- " +
         "and case-insensitive; a multi-word query requires every word to appear somewhere in the item, so prefer a " +
-        "single concept per call. Write query strings and concept keywords in French for press/publication/document/index discovery even when the user's report " +
-        "language is not French. Academic references are multilingual, so try French and English title/abstract terms when relevant; metadata/filter labels remain French. Use the French transliteration of Islamic terms (Tabaski not 'Eid al-Adha', charia " +
+        "single concept per call. Press, publications, documents and index are in French, so French terms are what match " +
+        "them. Academic references are multilingual (French and English titles/abstracts); metadata/filter labels are French. Islamic terms appear in French transliteration (Tabaski not 'Eid al-Adha', charia " +
         "not 'sharia', Maouloud not 'Mawlid'). Returns {results:[{id,title,url,category}], ranking}; each result's " +
         "`category` names its subset and the `ranking` field documents the ordering. Pass an id to `fetch` to read " +
         "the full text. For filtered queries (by country, date, or newspaper) use the search_* tools instead.",
@@ -389,16 +391,20 @@ export function registerSearchTools(server: Server): void {
           (s) => TEXT_COLS[s],
           (s) => HAS_HEAVY_TEXT[s] && fast.find((r) => r.subset === s)?.ok === true,
         );
-        for (let i = 0; i < SEARCH_SUBSETS.length; i++) {
-          const attempted = HAS_HEAVY_TEXT[deep[i].subset] && fast[i].ok;
-          if (attempted) {
-            coverage[deep[i].subset].fulltext = deep[i].ok && deep[i].searchable ? "searched" : "unavailable";
-            if (!deep[i].ok || !deep[i].searchable) deepFailures.push(deep[i].subset);
+        // Both passes map SEARCH_SUBSETS in order, so deep[i] and fast[i] are
+        // one subset, and fast[i].hits is the very array perSubset[i] holds.
+        for (const [i, d] of deep.entries()) {
+          const f = itemAt(fast, i);
+          const attempted = HAS_HEAVY_TEXT[d.subset] && f.ok;
+          const cell = coverage[d.subset];
+          if (attempted && cell) {
+            cell.fulltext = d.ok && d.searchable ? "searched" : "unavailable";
+            if (!d.ok || !d.searchable) deepFailures.push(d.subset);
           }
-          const seen = new Set(perSubset[i].map((h) => h.id));
+          const seen = new Set(f.hits.map((h) => h.id));
           // Appended, not merged: within a category the metadata matches stay
           // ahead of the items that matched only deep inside an OCR blob.
-          for (const hit of deep[i].hits) if (!seen.has(hit.id)) perSubset[i].push(hit);
+          for (const hit of d.hits) if (!seen.has(hit.id)) f.hits.push(hit);
         }
       }
 
@@ -453,8 +459,10 @@ export function registerSearchTools(server: Server): void {
           valid_categories: ALL_SUBSETS,
         });
       }
-      const subset = m[1].toLowerCase();
-      const localId = m[2].trim();
+      // Both groups are mandatory, so the defaults never apply.
+      const [, category = "", rest = ""] = m;
+      const subset = category.toLowerCase();
+      const localId = rest.trim();
       if (!isSubset(subset)) {
         return errorResult({ error: `Unknown category '${subset}'.`, valid_categories: ALL_SUBSETS });
       }

@@ -136,17 +136,24 @@ export function registerTopicsTools(server: Server): void {
           // maximum is work the server can do once, exactly.
           const shape: NonNullable<ChartModelPayload<"topics">["trend_by_topic"]> = {};
           for (const [label, byYear] of Object.entries(series)) {
-            const years = Object.keys(byYear).sort();
-            if (!years.length) continue;
-            let peak = years[0];
-            for (const y of years) if (byYear[y] > byYear[peak]) peak = y;
-            const totalForBand = years.reduce((a, y) => a + byYear[y], 0);
+            // Code-unit order, as the default sort gives the keys.
+            const years = Object.entries(byYear).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+            const first = years[0];
+            const last = years.at(-1);
+            if (!first || !last) continue;
+            let [peak, peakCount] = first;
+            for (const [y, c] of years)
+              if (c > peakCount) {
+                peak = y;
+                peakCount = c;
+              }
+            const totalForBand = years.reduce((a, [, c]) => a + c, 0);
             // Median year by cumulative count: says "half this topic's coverage
             // predates X", which separates a topic that faded from one that is new.
             let running = 0;
-            let median = years[0];
-            for (const y of years) {
-              running += byYear[y];
+            let median = first[0];
+            for (const [y, c] of years) {
+              running += c;
               if (running >= totalForBand / 2) {
                 median = y;
                 break;
@@ -154,14 +161,16 @@ export function registerTopicsTools(server: Server): void {
             }
             shape[label] = {
               total: totalForBand,
-              first: years[0],
-              last: years[years.length - 1],
+              first: first[0],
+              last: last[0],
               peak_year: peak,
-              peak_count: byYear[peak],
+              peak_count: peakCount,
               median_year: median,
             };
           }
-          payload.span = sortedPeriods.length ? [sortedPeriods[0], sortedPeriods[sortedPeriods.length - 1]] : [];
+          const firstPeriod = sortedPeriods[0];
+          const lastPeriod = sortedPeriods.at(-1);
+          payload.span = firstPeriod !== undefined && lastPeriod !== undefined ? [firstPeriod, lastPeriod] : [];
           payload.trend_by_topic = shape;
           payload.note =
             `Per-topic trends are summarised (first/last/peak/median year); the full per-year series is rendered ` +
