@@ -24,3 +24,4 @@ items in [TODO.md](../TODO.md).
 | D15 | **Releases are immutable**: a version published on GitHub or the MCP Registry is never replaced; fix with a new version. The published bytes are the tested bytes. |
 | D16 | **The skill has one source**, `.agents/skills/iwac-mcp/`, embedded at build time and served over SEP-2640. |
 | D17 | **One named default sentiment model** (v6.0.0: `claude-haiku-5-5`, for reach), chosen by id; single-model surfaces name it, the consensus is never a model, and moving it is a major version. |
+| D18 | **The handshake name is `iwac-mcp-server`** (decided 2026-11-18). The MCP Registry entry and the Server Card use the namespaced `io.github.fmadore/iwac-mcp-server`, which their schemas require; its last segment is the handshake name, so the two do not contradict. Clients and logs key on the handshake name, so it does not move. |

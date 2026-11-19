@@ -59,9 +59,10 @@
   Prerequisites, and where the repo stands:
   - [x] Remote over HTTPS, and authentication fits: "no authentication for
     public data" is an accepted mode, and nginx injects the bearer the app
-    requires, so the public endpoint needs no client auth. Confirm the
-    `*.zmo.de` certificate is valid again first (it was revoked/superseded in
-    late July 2026, which locked out schannel clients).
+    requires, so the public endpoint needs no client auth. The `*.zmo.de`
+    certificate is valid again (checked 2026-11-18 with a schannel client:
+    issued 2026-08-05, expires 2027-02-20; it had been revoked/superseded in
+    late July 2026).
   - [x] Every tool has a top-level `title` and `readOnlyHint: true` /
     `destructiveHint: false` (`toolMeta()` in `mcpb/src/tools/shared/results.ts`,
     used by all 39 tools).

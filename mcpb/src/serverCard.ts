@@ -19,6 +19,9 @@
 //   them, since that script cannot import TypeScript);
 // - title, description and website come from manifest.json, as they do there;
 // - version is the build-time `__IWAC_VERSION__`, as in the MCP handshake;
+// - the handshake itself keeps the bare name `iwac-mcp-server` (decision D18):
+//   the card's schema requires a namespaced `name`, and the registry name's
+//   last segment is that same string, so the two identify one server;
 // - protocol versions are the SDK's own lists (see PROTOCOL_VERSIONS).
 import { createHash } from "node:crypto";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/server";
