@@ -23,6 +23,7 @@
 // and the tools return exactly the same content and structuredContent as before.
 // That is why this needs no capability negotiation and no second tool.
 import type { Server } from "./_shared.js";
+import { currentUiDomain } from "../uiDomain.js";
 
 /** Injected by esbuild (scripts/bundle.mjs): the whole chart UI as one
  * self-contained HTML document, inline CSS and JS included, because MCP App
@@ -41,8 +42,57 @@ export const UI_MIME_TYPE = "text/html;profile=mcp-app";
 
 export const CHARTS_UI_URI = "ui://iwac/charts.html";
 
+/**
+ * The same document under a second URI, for views that need the whole screen
+ * (the semantic map). Claude reads `preferredDisplayMode` from the resource,
+ * not the tool, so a hint on the shared resource would push every small
+ * timeline into the side panel. The HTML string is shared in memory; a host
+ * fetches and caches each URI separately, which costs one extra download for
+ * hosts that render both.
+ */
+export const WIDE_UI_URI = "ui://iwac/charts-wide.html";
+
 /** `_meta` block a tool spreads in to declare its UI. */
 export const CHARTS_UI_META = { ui: { resourceUri: CHARTS_UI_URI } };
+export const WIDE_UI_META = { ui: { resourceUri: WIDE_UI_URI } };
+
+/**
+ * `_meta` for the one tool that opens IWAC without a prompt. Claude lists a
+ * tool marked this way on its Artifacts page, where people can pin it to the
+ * sidebar; opening it starts a conversation with the view already running.
+ * The key is the OpenAI MCP extensions' `openai/ui`, which Claude reads as
+ * well. Claude's conditions: `_meta.ui.resourceUri` is set, the tool is
+ * visible to the model, every input is optional (Claude may fill optional
+ * ones itself), the title is at most 60 characters, and the name has no `__`,
+ * `..` or dot beside an underscore. Only remote connectors qualify, so this is
+ * inert in the local extension.
+ *
+ * get_collection_stats carries it: it takes no input, and its view (every
+ * subset with its coverage, each a drill-down) is the natural front page.
+ */
+export const ENTRY_POINT_UI_META = { ...CHARTS_UI_META, "openai/ui": { entrypoints: [{ type: "global" }] } };
+
+/**
+ * `_meta.ui` for a resource's content item. Claude ignores the `resources/list`
+ * entry's `_meta.ui` once the content item carries one, so everything lives
+ * here: the frame preference, the per-connector sandbox host over HTTP (see
+ * uiDomain.ts) and, for the wide view, Claude's `preferredDisplayMode`, an
+ * extension outside the spec that other hosts ignore and Claude treats as a
+ * one-time hint after the tool succeeds, never as a forced switch.
+ */
+export function uiContentMeta(options: { wide?: boolean } = {}): { ui: Record<string, unknown> } {
+  const domain = currentUiDomain();
+  return {
+    ui: {
+      // Hosts' defaults vary and the chart CSS draws on a transparent
+      // background, so ask explicitly for the host's frame rather than
+      // rendering as loose ink on the conversation.
+      prefersBorder: true,
+      ...(domain ? { domain } : {}),
+      ...(options.wide ? { preferredDisplayMode: "fullscreen" } : {}),
+    },
+  };
+}
 
 /**
  * Payload tags the app dispatches on (`src/app/views/index.ts`). Every
@@ -60,22 +110,26 @@ export function registerAppResources(server: Server): void {
       ? __IWAC_UI_CHARTS__
       : "<!DOCTYPE html><p>IWAC charts: run `npm run build` to bundle the UI.</p>";
 
+  const description =
+    "Interactive charts for the IWAC statistics tools: coverage over time, periodical runs, " +
+    "country and newspaper comparisons, sentiment breakdowns and collection composition.";
   server.registerResource(
     "iwac-charts",
     CHARTS_UI_URI,
+    { title: "IWAC charts", description, mimeType: UI_MIME_TYPE, _meta: { ui: { prefersBorder: true } } },
+    async () => ({ contents: [{ uri: CHARTS_UI_URI, mimeType: UI_MIME_TYPE, text: html, _meta: uiContentMeta() }] }),
+  );
+  server.registerResource(
+    "iwac-charts-wide",
+    WIDE_UI_URI,
     {
-      title: "IWAC charts",
-      description:
-        "Interactive charts for the IWAC statistics tools: coverage over time, periodical runs, " +
-        "country and newspaper comparisons, sentiment breakdowns and collection composition.",
+      title: "IWAC charts (full screen)",
+      description: `${description} This copy asks Claude to open full screen, for views that need the width.`,
       mimeType: UI_MIME_TYPE,
-      // Hosts' defaults vary and the chart CSS draws on a transparent
-      // background, so ask explicitly for the host's frame rather than
-      // rendering as loose ink on the conversation.
       _meta: { ui: { prefersBorder: true } },
     },
     async () => ({
-      contents: [{ uri: CHARTS_UI_URI, mimeType: UI_MIME_TYPE, text: html, _meta: { ui: { prefersBorder: true } } }],
+      contents: [{ uri: WIDE_UI_URI, mimeType: UI_MIME_TYPE, text: html, _meta: uiContentMeta({ wide: true }) }],
     }),
   );
 }

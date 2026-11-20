@@ -7,7 +7,7 @@ import { z } from "zod";
 import { ensureView, q, query, queryOne, queryScalarSingle, viewName, type Bindable } from "../db.js";
 import { config, ALL_SUBSETS, type Subset } from "../config.js";
 import { isDatasetAccessError } from "../hf.js";
-import { CHARTS_UI_META, VIEW } from "./appUi.js";
+import { CHARTS_UI_META, ENTRY_POINT_UI_META, VIEW } from "./appUi.js";
 import {
   COUNTRIES,
   countryParam,
@@ -108,7 +108,7 @@ export function registerStatsTools(server: Server): void {
         "Overall statistics for every IWAC subset, including `fulltext_coverage` — how many items in each " +
         "subset actually carry searchable full text in this dataset: a keyword count is a full-text " +
         "census only within that coverage.",
-      _meta: CHARTS_UI_META,
+      _meta: ENTRY_POINT_UI_META,
       inputSchema: z.strictObject({}),
       outputSchema: COLLECTION_STATS_OUTPUT,
     },

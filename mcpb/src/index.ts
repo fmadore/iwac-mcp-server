@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { registeredToolNames, registerServerFeatures } from "./tools/register.js";
 import { attachSkills } from "./tools/skills.js";
+import { SERVER_ICON } from "./serverIcon.js";
 import { startHttpServer } from "./http.js";
 import { stopSharedWork } from "./request.js";
 import { config } from "./config.js";
@@ -61,7 +62,7 @@ const MAX_TOOL_INPUT_ELEMENTS = 1_000;
  */
 export function createServer(): McpServer {
   const server = new McpServer(
-    { name: "iwac-mcp-server", version: VERSION },
+    { name: "iwac-mcp-server", version: VERSION, icons: [SERVER_ICON] },
     {
       instructions: RESOLVED_INSTRUCTIONS,
       cacheHints: CACHE_HINTS,

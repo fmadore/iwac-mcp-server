@@ -180,7 +180,8 @@ Environment variables (all transports unless noted):
 | `IWAC_MCP_BEARER_TOKEN` | — | HTTP mode only: the bearer token clients must send |
 | `IWAC_MCP_TOKEN_FILE` | `/run/secrets/iwac_mcp_token` | HTTP mode only: read the token from a mounted secret file instead |
 | `IWAC_MCP_ALLOWED_ORIGINS` | — | HTTP mode only: comma-separated exact HTTP(S) origins permitted when a request carries `Origin`; origin-less server clients and loopback origins (`localhost`, `127.0.0.1`, `[::1]`, any port) remain allowed. Allowed origins get CORS headers (see below). `*` on its own allows every origin (`Access-Control-Allow-Origin: *`); mixed into a list, or as `https://*.x`, it is invalid, and with `IWAC_PRIVATE_DATASET` the server refuses to start |
-| `IWAC_MCP_PUBLIC_URL` | — | HTTP mode only: the absolute Streamable HTTP URL clients reach the server at (behind nginx, `https://islam.zmo.de/mcp`), published as the Server Card's `remotes` entry. Unset, the card omits `remotes`. A value with credentials, a query or a fragment, or one that is not `http(s)://`, refuses to start |
+| `IWAC_MCP_PUBLIC_URL` | — | HTTP mode only: the absolute Streamable HTTP URL clients reach the server at (behind nginx, `https://islam.zmo.de/mcp`), published as the Server Card's `remotes` entry. Unset, the card omits `remotes`. A value with credentials, a query or a fragment, or one that is not `http(s)://`, refuses to start. Also the base of the chart view's Claude sandbox host (see below) |
+| `IWAC_MCP_UI_DOMAIN` | `true` | HTTP mode only, with `IWAC_MCP_PUBLIC_URL` set: give the chart resources Claude's per-connector sandbox host (`_meta.ui.domain`). `false` leaves it out, for a host that rejects a Claude-shaped value |
 | `IWAC_TOOL_PROFILE` | `full` | Register a smaller tool surface: `core` (finding and reading sources), `analysis` (statistics, aggregates, sentiment, workbench) or `search` (`search`, `fetch`, `get_collection_stats`). See `src/toolProfiles.ts`; an unknown name refuses to start |
 | `IWAC_PRIVATE_DATASET` | `false` | Read the private full mirror instead of the public dataset (needs `IWAC_HF_TOKEN` or `HF_TOKEN`) |
 | `IWAC_ALLOW_PRIVATE_HTTP` | `false` | HTTP mode only: permit serving the private mirror; without it, HTTP mode refuses to start in private mode |
@@ -202,6 +203,16 @@ and `Access-Control-Max-Age: 7200`. A disallowed origin gets `403` and no CORS
 headers; requests without `Origin` are unchanged. `Access-Control-Allow-Credentials`
 is never sent. A proxy in front must not add these headers too: browsers
 reject a response with two `Access-Control-Allow-Origin` values.
+
+**Chart sandbox host (`_meta.ui.domain`).** Claude serves an MCP App view from
+`<first 32 hex characters of SHA-256(connector URL)>.claudemcpcontent.com` and
+refuses to render it when the declared value does not match. It hashes the URL
+exactly as the user typed it, so `https://islam.zmo.de/mcp` and
+`https://islam.zmo.de/mcp/` differ, and the endpoint answers both. Each request
+therefore gets the value for the URL it arrived on: the scheme, host and mount
+of `IWAC_MCP_PUBLIC_URL` plus the request path's own trailing slash (a proxy in
+front must pass the path through unchanged). stdio has no connector URL and
+never sets it. Without the field the sandbox host changes per conversation.
 
 **Server Card (SEP-2127).** `GET /mcp/server-card` returns the server's
 [MCP Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards.md)

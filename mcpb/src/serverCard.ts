@@ -159,10 +159,12 @@ export function serveableServerCard(card: ServerCard): ServedServerCard {
 
 /** The process's card, from the build version and IWAC_MCP_PUBLIC_URL. The
  * caller decides what an invalid URL means (http.ts refuses to start). */
-export function serverCardFromEnv(): { served: ServedServerCard; invalidPublicUrl?: string } {
+export function serverCardFromEnv(): { served: ServedServerCard; publicUrl?: string; invalidPublicUrl?: string } {
   const publicUrl = parsePublicUrl(envString("IWAC_MCP_PUBLIC_URL"));
   const served = serveableServerCard(buildServerCard({ version: VERSION, publicUrl: publicUrl.url }));
-  return publicUrl.invalid === undefined ? { served } : { served, invalidPublicUrl: publicUrl.invalid };
+  return publicUrl.invalid === undefined
+    ? { served, publicUrl: publicUrl.url }
+    : { served, invalidPublicUrl: publicUrl.invalid };
 }
 
 /** True when an If-None-Match header names this entity tag (or `*`). Weak

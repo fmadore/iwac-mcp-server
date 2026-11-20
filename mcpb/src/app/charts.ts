@@ -1,6 +1,7 @@
 // Browser side of every IWAC MCP App chart.
 //
-// ONE resource (`ui://iwac/charts.html`) serves all of them. Each `ui://`
+// ONE document serves all of them (as `ui://iwac/charts.html`, and as
+// `charts-wide.html` for views that ask Claude for full screen). Each `ui://`
 // resource is a standalone HTML document that can share nothing with its
 // siblings, so N resources means N copies of the MCP SDK and zod — ~190 kb
 // each, against ~4 kb for the chart that actually differs. Many tools may
@@ -17,10 +18,20 @@
 // CSP: no external stylesheet, font, or script may load.
 import { App, type McpUiDisplayMode, type McpUiHostContext } from "@modelcontextprotocol/ext-apps";
 import { ViewRequests, wireActions } from "./actions.js";
+import { registerViewTools, type ViewToolResult } from "./appTools.js";
 import { ContextSync } from "./contextSync.js";
 import { buildModelContext } from "./modelContext.js";
 import { chartSvg } from "./export.js";
-import { chips, empty, pending, type BasePayload, type ViewContext, type ViewOptions, type ViewResult } from "./shell.js";
+import {
+  type Action,
+  chips,
+  empty,
+  pending,
+  type BasePayload,
+  type ViewContext,
+  type ViewOptions,
+  type ViewResult,
+} from "./shell.js";
 import { esc } from "./theme.js";
 import { setTheme } from "./theme.js";
 import { renderView } from "./views/index.js";
@@ -32,11 +43,13 @@ declare const __IWAC_VERSION__: string;
 // picture is left out on purpose: a heatmap or a reader page needs width, and a
 // thumbnail-sized frame would show a scroll box rather than a chart.
 //
-// The WebMCP bridge (ext-apps 2.1) is switched off. The view registers no
-// app-side tools, so there is nothing to mirror into `document.modelContext`,
-// and leaving it on would only make connect() probe that object and, if the
-// page ever gained WebMCP tools by accident, advertise a `tools` capability on
-// the view's behalf. Turn it on together with the first `app.registerTool()`.
+// The WebMCP bridge (ext-apps 2.1) stays off although the view now registers
+// tools (appTools.ts). Those reach the host over the Apps `tools/list` and
+// `tools/call` channel, which the bridge does not touch; the bridge would only
+// add a second route, mirroring them into `document.modelContext` and serving
+// whatever tools that object holds as if they were the view's own. No host
+// IWAC targets discovers view tools through WebMCP, so the second route would
+// be surface without a user.
 const app = new App(
   { name: "IWAC charts", version: __IWAC_VERSION__ },
   { availableDisplayModes: ["inline", "fullscreen"] },
@@ -66,6 +79,15 @@ let ownFullscreen = false;
 /** Mode of the request in flight, so a host that announces the grant through
  * host-context-changed before answering still counts as granting OUR request. */
 let requestedMode: DisplayMode | null = null;
+/** What the current payload rendered as, and the buttons it offered. The view's
+ * tools read both, so they describe exactly what a person sees. */
+let currentResult: ViewResult | undefined;
+let currentActions: Action[] = [];
+/** The follow-up query in flight, so a tool that clicked a mark can wait for it. */
+let inflight: Promise<void> | undefined;
+/** Outcome of the latest follow-up query: undefined while none has run since a
+ * tool reset it, null on success, otherwise the message the view showed. */
+let lastLoadError: string | null | undefined;
 /** Set by the first render; the in-flight placeholder must never replace a chart. */
 let rendered = false;
 let contextStatus: "pending" | "shared" | "failed" = "pending";
@@ -203,28 +225,56 @@ function readPayload(result: unknown): BasePayload {
   }
 }
 
-const ctx: ViewContext = {
-  async run(name, args) {
-    if (!app.getHostCapabilities()?.serverTools) {
-      transientError = "This host cannot open further IWAC results. Ask in the conversation to inspect this selection.";
-      render(current);
+/**
+ * Call a server tool from the view and show its result, keeping the current
+ * chart (with the error above it) when the call fails. `requireView` refuses a
+ * result that has no chart, for the assistant's show_result: a person's clicks
+ * only reach tools that draw.
+ */
+async function load(name: string, args: Record<string, unknown>, requireView = false): Promise<void> {
+  if (!app.getHostCapabilities()?.serverTools) {
+    transientError = "This host cannot open further IWAC results. Ask in the conversation to inspect this selection.";
+    lastLoadError = transientError;
+    render(current);
+    return;
+  }
+  const ticket = requests.begin();
+  try {
+    const result = await app.callServerTool({ name, arguments: args });
+    if (!requests.isCurrent(ticket)) {
+      lastLoadError = "A newer request replaced this one.";
       return;
     }
-    const ticket = requests.begin();
-    try {
-      const result = await app.callServerTool({ name, arguments: args });
-      if (!requests.isCurrent(ticket)) return;
-      const next = readPayload(result);
-      if (next.error) throw new Error(String(next.error));
-      transientError = null;
-      navigate(next);
-    } catch (error) {
-      if (!requests.isCurrent(ticket)) return;
-      transientError = (error as Error).message;
-      render(current);
-    } finally {
-      requests.finish(ticket);
+    const next = readPayload(result);
+    if (next.error) throw new Error(String(next.error));
+    if (requireView && !next.view) throw new Error(`${name} returned no chart view; call it directly instead.`);
+    transientError = null;
+    lastLoadError = null;
+    navigate(next);
+  } catch (error) {
+    if (!requests.isCurrent(ticket)) {
+      lastLoadError = "A newer request replaced this one.";
+      return;
     }
+    transientError = (error as Error).message;
+    lastLoadError = transientError;
+    render(current);
+  } finally {
+    requests.finish(ticket);
+  }
+}
+
+/** Remember a follow-up query as the one in flight until it settles. */
+function track(work: Promise<void>): Promise<void> {
+  inflight = work;
+  return work.finally(() => {
+    if (inflight === work) inflight = undefined;
+  });
+}
+
+const ctx: ViewContext = {
+  run(name, args) {
+    return track(load(name, args));
   },
   setOption(key, value) {
     const focused = document.activeElement?.id;
@@ -282,6 +332,8 @@ const ctx: ViewContext = {
 function render(payload: BasePayload): void {
   current = payload;
   rendered = true;
+  currentResult = undefined;
+  currentActions = [];
 
   if (payload.error) {
     clearModelContext();
@@ -377,6 +429,7 @@ function render(payload: BasePayload): void {
     });
 
   const snapshot = buildModelContext(payload, options, result);
+  currentResult = result;
   if (connected && app.getHostCapabilities()?.message?.text) {
     actions.push({
       id: "ask-selection",
@@ -445,6 +498,7 @@ function render(payload: BasePayload): void {
 
   requests.sync();
   wireActions(root, actions, ctx);
+  currentActions = actions;
 
   result.wire?.(root, ctx);
   root.querySelectorAll<SVGElement>("[data-key]").forEach((el) => {
@@ -466,6 +520,78 @@ function render(payload: BasePayload): void {
     showContextStatus();
   }
 }
+
+// -----------------------------------------------------------------------------
+// Tools for the assistant (appTools.ts)
+// -----------------------------------------------------------------------------
+
+/**
+ * Buttons the assistant may not press: sending a chat message, the display
+ * toggle (hosts honour it only after a real click), and anything that hands
+ * the user a file or opens a link.
+ */
+const ASSISTANT_REFUSED = new Set(["ask-selection", "fullscreen", "csv", "json", "svg"]);
+const pressable = (action: Action) => !ASSISTANT_REFUSED.has(action.id) && action.capability === undefined;
+
+function viewState(): ViewToolResult {
+  if (current.error) return { text: `The IWAC view shows an error: ${String(current.error)}`, isError: true };
+  if (!currentResult) return { text: "The IWAC view has nothing drawn yet.", isError: true };
+  const summary = selectionText(buildModelContext(current, options, currentResult));
+  return { text: transientError ? `The last request in the view failed: ${transientError}\n\n${summary}` : summary };
+}
+
+/** Run something a person could do, then report what the view shows. A
+ * follow-up query it started is awaited, and its failure is the result. */
+async function act(work: () => unknown): Promise<ViewToolResult> {
+  lastLoadError = undefined;
+  try {
+    await work();
+    if (inflight) await inflight;
+  } catch (error) {
+    return { text: `That did not work: ${(error as Error).message}`, isError: true };
+  }
+  if (typeof lastLoadError === "string") return { text: `The view could not load that: ${lastLoadError}`, isError: true };
+  return viewState();
+}
+
+function markElements(): SVGElement[] {
+  return [...root.querySelectorAll<SVGElement>("[data-key]")];
+}
+
+registerViewTools(app, {
+  describe: viewState,
+  marks: () => {
+    const seen = new Set<string>();
+    const marks: { key: string; label: string }[] = [];
+    for (const el of markElements()) {
+      const key = el.getAttribute("data-key");
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      marks.push({ key, label: el.getAttribute("aria-label") ?? key });
+    }
+    return marks;
+  },
+  actions: () => currentActions.filter(pressable).map(({ id, label }) => ({ id, label })),
+  runAction(id) {
+    const action = currentActions.find((a) => a.id === id);
+    if (!action || !pressable(action)) {
+      const ids = currentActions.filter(pressable).map((a) => a.id);
+      return Promise.resolve({
+        text: `No button "${id}" the assistant may press here. Available: ${ids.join(", ") || "none"}.`,
+        isError: true,
+      });
+    }
+    return act(() => action.run(ctx));
+  },
+  openMark(key) {
+    const el = markElements().find((candidate) => candidate.getAttribute("data-key") === key);
+    if (!el) return Promise.resolve({ text: `No chart mark "${key}" in this view; call describe_view.`, isError: true });
+    return act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  },
+  show(tool, args) {
+    return act(() => track(load(tool, args, true)));
+  },
+});
 
 // -----------------------------------------------------------------------------
 // Boot

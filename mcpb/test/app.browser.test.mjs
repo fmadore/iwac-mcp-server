@@ -14,16 +14,18 @@ const hostHtml = `<!doctype html><html><head><meta name="viewport" content="widt
 <iframe id="app" title="IWAC research view" sandbox="allow-scripts allow-same-origin" src="/app"></iframe>
 <script>
 const frame=document.getElementById('app');
-window.host={ready:false,pending:[],downloads:[],links:[],contexts:[],messages:[],displayRequests:[],displayPending:[],deny:{},displayMode:'inline',forceDisplayMode:null,deferDisplay:false,
+window.host={ready:false,pending:[],responses:{},downloads:[],links:[],contexts:[],messages:[],displayRequests:[],displayPending:[],deny:{},displayMode:'inline',forceDisplayMode:null,deferDisplay:false,
   send(message){frame.contentWindow.postMessage(message,location.origin)},
   payload(payload){this.send({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{content:[{type:'text',text:JSON.stringify(payload)}],structuredContent:payload}})},
   answer(id,payload,isError=false){this.send({jsonrpc:'2.0',id,result:{content:[{type:'text',text:JSON.stringify(payload)}],structuredContent:payload,...(isError?{isError:true}:{})}})},
   context(context){this.send({jsonrpc:'2.0',method:'ui/notifications/host-context-changed',params:context})},
-  cancel(reason){this.send({jsonrpc:'2.0',method:'ui/notifications/tool-cancelled',params:{reason}})}
+  cancel(reason){this.send({jsonrpc:'2.0',method:'ui/notifications/tool-cancelled',params:{reason}})},
+  request(id,method,params){this.send({jsonrpc:'2.0',id,method,params})}
 };
 window.addEventListener('message',event=>{
  if(event.source!==frame.contentWindow) return;
  const m=event.data,h=window.host;
+ if(m.id!==undefined&&!m.method){h.responses[m.id]=m;return;}
  if(m.method==='ui/initialize'){
    h.init=m.params;
    const params=new URLSearchParams(location.search),minimal=params.has('minimal'),messageOnly=params.has('messageOnly'),structuredOnly=params.has('structuredOnly');
@@ -82,6 +84,7 @@ await withFixtureScope(async (scope) => {
     };
     const contextCount = () => page.evaluate(() => window.host.contexts.length);
     const lastContext = () => page.evaluate(() => window.host.contexts.at(-1));
+    const flushFramesIn = (frame) => frame.locator("body").evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const flushFrames = () => view.locator("body").evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const expectContextAfter = async (previousCount) => {
       await page.waitForFunction((n) => window.host.contexts.length > n, previousCount);
@@ -308,9 +311,86 @@ await withFixtureScope(async (scope) => {
     await fallback.waitFor();
     assert.ok((await fallback.textContent()).includes("text results remain available"));
     await unsupported.close();
+    // The view's own tools: the host lists them over the Apps channel and
+    // calls them as the assistant would. They act only through what a person
+    // could do: buttons, marks and follow-up queries via the host.
+    {
+      const tp = await browser.newPage();
+      await tp.goto(url);
+      await tp.waitForFunction(() => window.host?.ready);
+      const tv = tp.frameLocator("#app");
+      await tp.evaluate((p) => window.host.payload(p), BASE);
+      await tv.locator("h1").waitFor();
+      const ask = async (id, method, params) => {
+        await tp.evaluate(([i, m, a]) => window.host.request(i, m, a), [id, method, params]);
+        await tp.waitForFunction((i) => window.host.responses[i], id);
+        return tp.evaluate((i) => window.host.responses[i], id);
+      };
+      const callTool = (id, name, args = {}) => ask(id, "tools/call", { name, arguments: args });
+      const toolText = (r) => r.result?.content?.map((c) => c.text).join("") ?? JSON.stringify(r);
+      const listed = await ask("t-list", "tools/list", {});
+      assert.deepEqual(listed.result.tools.map((t) => t.name).sort(), ["describe_view", "open_chart_mark", "run_view_action", "show_result"]);
+      for (const t of listed.result.tools) assert.ok(t.title && t.description.length <= 200 && t.inputSchema?.type === "object", JSON.stringify(t));
+      const described = await callTool("t-describe", "describe_view");
+      assert.ok(!described.result.isError, toolText(described));
+      assert.ok(toolText(described).includes("imam") && toolText(described).includes("Chart marks"), toolText(described));
+      assert.ok(!toolText(described).includes("fullscreen ="), "the display toggle must not be offered to the assistant");
+      const refused = await callTool("t-refuse", "run_view_action", { id: "fullscreen" });
+      assert.equal(refused.result.isError, true, toolText(refused));
+      assert.equal(await tp.evaluate(() => window.host.displayRequests.length), 0);
+      const missing = await callTool("t-missing", "open_chart_mark", { key: "no-such-mark" });
+      assert.equal(missing.result.isError, true);
+      // show_result goes through the host like a click, and Back returns.
+      await tp.evaluate(() => window.host.request("t-show", "tools/call", { name: "show_result", arguments: { tool: "fetch", arguments: { id: "articles:101" } } }));
+      await tp.waitForFunction(() => window.host.pending.length > 0);
+      const forwarded = await tp.evaluate(() => window.host.pending.shift());
+      assert.equal(forwarded.params.name, "fetch");
+      assert.deepEqual(forwarded.params.arguments, { id: "articles:101" });
+      await tp.evaluate(([id, payload]) => window.host.answer(id, payload), [forwarded.id, READER]);
+      await tp.waitForFunction(() => window.host.responses["t-show"]);
+      const shown = await tp.evaluate(() => window.host.responses["t-show"]);
+      assert.ok(!shown.result.isError, toolText(shown));
+      await tv.locator("h1").filter({ hasText: "Source item" }).waitFor();
+      const back = await callTool("t-back", "run_view_action", { id: "back" });
+      assert.ok(!back.result.isError && toolText(back).includes("imam"), toolText(back));
+      await tv.locator("h1").filter({ hasNotText: "Source item" }).waitFor();
+      // A result without a chart is refused rather than drawn as an error page.
+      await tp.evaluate(() => window.host.request("t-noview", "tools/call", { name: "show_result", arguments: { tool: "search", arguments: { query: "imam" } } }));
+      await tp.waitForFunction(() => window.host.pending.length > 0);
+      const plain = await tp.evaluate(() => window.host.pending.shift());
+      await tp.evaluate((id) => window.host.answer(id, { results: [] }), plain.id);
+      await tp.waitForFunction(() => window.host.responses["t-noview"]);
+      assert.equal((await tp.evaluate(() => window.host.responses["t-noview"])).result.isError, true);
+      // Claude's side panel opens at about half the chat width, 320 px at the
+      // least: nothing may force a horizontal scroll there.
+      // Claude reports its side panel as `fullscreen`, so measure in that mode.
+      await tp.setViewportSize({ width: 320, height: 720 });
+      await tp.evaluate(() => window.host.context({ displayMode: "fullscreen", containerDimensions: { width: 320, height: 720 } }));
+      await tv.locator("html[data-display-mode=fullscreen]").waitFor({ state: "attached" });
+      await flushFramesIn(tv);
+      // Every render case the DOM harness draws, not just the timeline.
+      const { addOverviewCases } = await import("./app/cases-overview.mjs");
+      const { addAggregateCases } = await import("./app/cases-aggregates.mjs");
+      const { addMapCases } = await import("./app/cases-maps.mjs");
+      const cases = [];
+      addOverviewCases(cases);
+      addAggregateCases(cases);
+      addMapCases(cases);
+      const overflowing = [];
+      for (const [name, payload] of [["timeline", BASE], ...cases]) {
+        await tp.evaluate((p) => window.host.payload(p), payload);
+        await tv.locator("h1, .empty").first().waitFor();
+        await flushFramesIn(tv);
+        const overflow = await tv.locator("body").evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        if (overflow > 0) overflowing.push(`${name} (+${overflow} px)`);
+      }
+      assert.deepEqual(overflowing, [], `views overflow a 320 px side panel: ${overflowing.join(", ")}`);
+      await tp.close();
+    }
     // ext-apps 2.1's WebMCP bridge stays off (webMcpBridge: false in charts.ts):
     // even when the frame's document exposes a model context holding a tool,
-    // the view must neither read it nor advertise a `tools` capability.
+    // the view must neither read it nor serve it. The `tools` capability it
+    // does advertise is for its own registered tools, checked above.
     const webMcp = await browser.newPage();
     await webMcp.addInitScript(() => {
       if (window === window.top) return;
@@ -328,7 +408,11 @@ await withFixtureScope(async (scope) => {
     await webMcp.goto(url);
     await webMcp.waitForFunction(() => window.host?.ready);
     const init = await webMcp.evaluate(() => window.host.init);
-    assert.equal(init.appCapabilities.tools, undefined, JSON.stringify(init.appCapabilities));
+    assert.deepEqual(init.appCapabilities.tools, { listChanged: true }, JSON.stringify(init.appCapabilities));
+    await webMcp.evaluate(() => window.host.request("w-list", "tools/list", {}));
+    await webMcp.waitForFunction(() => window.host.responses["w-list"]);
+    const bridged = await webMcp.evaluate(() => window.host.responses["w-list"].result.tools.map((t) => t.name));
+    assert.ok(!bridged.includes("planted"), `a document.modelContext tool leaked into tools/list: ${bridged}`);
     assert.deepEqual(await webMcp.frameLocator("#app").locator("body").evaluate(() => window.__webMcpCalls), []);
     await webMcp.close();
     console.log("BROWSER APP CHECKS PASSED (Chromium, CSP, exports, fullscreen, context sync, messages, focus, capabilities, WebMCP off)");

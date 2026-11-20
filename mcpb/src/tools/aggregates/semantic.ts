@@ -9,7 +9,7 @@ import { projectAsync } from "../../projection.js";
 import { createHash } from "node:crypto";
 import { limitWarning, resolveLimit } from "../shared/limits.js";
 import { viewGeneration } from "../../db.js";
-import { CHARTS_UI_META, VIEW } from "../appUi.js";
+import { CHARTS_UI_META, VIEW, WIDE_UI_META } from "../appUi.js";
 import {
   codePointBoundary,
   COUNTRIES,
@@ -129,7 +129,7 @@ export function registerSemanticTools(server: Server): void {
       ...toolMeta("Semantic scatter"),
       description:
         "Stable-hash sample of matching stored embeddings, projected with PCA. Reports eligible, invalid, missing and capped counts, seed and explained variance. Group counts describe the sample. Coordinates are chart-only; this is not the published UMAP landscape. Needs no API key.",
-      _meta: CHARTS_UI_META,
+      _meta: WIDE_UI_META,
       inputSchema: z.strictObject({
         subset: z.string().optional().describe("articles (default) | documents | publications | references"),
         ...filterInputs(),

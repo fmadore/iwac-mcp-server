@@ -50,10 +50,46 @@ export async function handshakeChecks({ root, client, fail }) {
     }
   }
 
+  // The full-screen copy: same document, plus Claude's one-time display hint.
+  // Over stdio there is no connector URL, so neither copy names a sandbox host.
+  {
+    const wide = await client.readResource({ uri: "ui://iwac/charts-wide.html" });
+    const narrow = await client.readResource({ uri: "ui://iwac/charts.html" });
+    if (wide.contents[0]?.text !== narrow.contents[0]?.text) fail("the full-screen chart resource must serve the same document");
+    if (wide.contents[0]?._meta?.ui?.preferredDisplayMode !== "fullscreen")
+      fail(`full-screen resource should prefer fullscreen, got ${JSON.stringify(wide.contents[0]?._meta)}`);
+    if (narrow.contents[0]?._meta?.ui?.preferredDisplayMode !== undefined)
+      fail("the shared chart resource must not ask for fullscreen: every small chart would open in the side panel");
+    for (const read of [wide, narrow])
+      if (read.contents[0]?._meta?.ui?.domain !== undefined) fail("stdio must not declare a sandbox domain (it has no connector URL)");
+  }
+
+  // Claude's sidebar entry point needs a raster data: URI icon under 10 KB.
+  {
+    const icon = client.getServerVersion()?.icons?.[0];
+    if (!/^data:image\/(png|jpeg);base64,/.test(icon?.src ?? "")) fail(`serverInfo icon must be an inline PNG/JPEG data: URI, got ${icon?.src?.slice(0, 40)}`);
+    else if (Buffer.from(icon.src.split(",")[1], "base64").length > 10_000) fail("serverInfo icon must stay under 10 KB");
+  }
+
   const tools = await client.listTools();
   const names = tools.tools.map((t) => t.name);
-  // Every chart-bearing tool points at the SAME resource — that is what keeps the
-  // suite to one copy of the SDK (docs/mcp-apps-roadmap.md §2.2).
+  // Exactly one tool opens IWAC without a prompt, and it must meet Claude's
+  // entry-point conditions: a UI, model-visible, no required input, a safe name.
+  {
+    const entries = tools.tools.filter((t) => t._meta?.["openai/ui"]?.entrypoints?.some((e) => e.type === "global"));
+    if (entries.map((t) => t.name).join() !== "get_collection_stats")
+      fail(`get_collection_stats should be the one global entry point, got ${entries.map((t) => t.name).join(", ") || "none"}`);
+    for (const t of entries) {
+      if ((t.inputSchema?.required ?? []).length) fail(`entry point ${t.name} must have no required input`);
+      if (/__|\.\.|\._|_\./.test(t.name)) fail(`entry point name ${t.name} breaks Claude's naming rule`);
+      if ((t.title ?? "").length > 60) fail(`entry point ${t.name} title exceeds 60 characters`);
+      if (t._meta?.ui?.visibility && !t._meta.ui.visibility.includes("model")) fail(`entry point ${t.name} must stay model-visible`);
+    }
+  }
+  if (tools.tools.find((x) => x.name === "get_semantic_map")?._meta?.ui?.resourceUri !== "ui://iwac/charts-wide.html")
+    fail("get_semantic_map should open the full-screen chart resource");
+  // Every other chart-bearing tool points at the SAME resource — that is what
+  // keeps the suite to one copy of the SDK (docs/mcp-apps-roadmap.md §2.2).
   for (const n of [
     "get_temporal_distribution",
     "get_topic_distribution",
@@ -61,7 +97,6 @@ export async function handshakeChecks({ root, client, fail }) {
     "get_cooccurrence",
     "get_lexical_metrics",
     "get_place_distribution",
-    "get_semantic_map",
     "get_similar_items",
     "get_collection_stats",
     "get_newspaper_stats",

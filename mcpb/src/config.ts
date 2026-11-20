@@ -209,6 +209,9 @@ export const config = {
   // public endpoint runs, so serving the mirror over it takes a second,
   // explicit opt-in rather than one stray variable in a compose file.
   allowPrivateHttp: parseBool(envString("IWAC_ALLOW_PRIVATE_HTTP"), false),
+  // Stamp Claude's per-connector sandbox host on the chart view over HTTP
+  // (src/uiDomain.ts). Needs IWAC_MCP_PUBLIC_URL; false serves the view without it.
+  uiDomain: parseBool(envString("IWAC_MCP_UI_DOMAIN"), true),
   bearerToken: readBearerToken(),
   httpAllowedOrigins: httpOrigins.allowed,
   invalidHttpOrigins: httpOrigins.invalid,

@@ -1,6 +1,6 @@
 {
   "tokenizer": "o200k_base",
-  "footprint": 15708,
+  "footprint": 15723,
   "instructions": 384,
   "tools": {
     "search": 587,
@@ -16,7 +16,7 @@
     "list_subjects": 117,
     "list_locations": 234,
     "list_persons": 235,
-    "get_collection_stats": 373,
+    "get_collection_stats": 387,
     "get_newspaper_stats": 235,
     "get_country_comparison": 204,
     "get_temporal_distribution": 847,
@@ -24,7 +24,7 @@
     "get_field_distribution": 635,
     "get_cooccurrence": 590,
     "get_place_distribution": 613,
-    "get_semantic_map": 689,
+    "get_semantic_map": 690,
     "get_similar_items": 396,
     "get_lexical_metrics": 564,
     "search_publications": 540,

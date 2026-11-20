@@ -252,6 +252,33 @@ try {
   corsCheck(corsGet, "the SDK's 405 to an allowlisted origin");
   await corsGet.body?.cancel();
 
+  // Claude hashes the connector URL exactly as typed, trailing slash included,
+  // and refuses to render a view whose `_meta.ui.domain` does not match. The
+  // endpoint answers on both /mcp and /mcp/, so each must get its own value.
+  {
+    const { createHash } = await import("node:crypto");
+    const expected = (url) => `${createHash("sha256").update(url).digest("hex").slice(0, 32)}.claudemcpcontent.com`;
+    for (const [path, connectorUrl] of [["/mcp", PUBLIC_URL], ["/mcp/", `${PUBLIC_URL}/`]]) {
+      for (const uri of ["ui://iwac/charts.html", "ui://iwac/charts-wide.html"]) {
+        const res = await fetch(`${BASE}${path}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": "resources/read",
+            "Mcp-Name": uri,
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: "domain", method: "resources/read", params: {
+            uri, _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} },
+          } }),
+        });
+        const body = await res.json().catch(() => ({}));
+        const domain = body.result?.contents?.[0]?._meta?.ui?.domain;
+        if (domain !== expected(connectorUrl))
+          fail(`${uri} read via ${path} should name ${expected(connectorUrl)} (hash of ${connectorUrl}), got ${domain ?? JSON.stringify(body).slice(0, 200)}`);
+      }
+    }
+  }
+
   // The v2 handler owns protocol/media validation. These raw checks guard the
   // adapter boundary around it, including the local pre-parsing of JSON bodies.
   const wrongMediaType = await fetch(`${BASE}/mcp`, {

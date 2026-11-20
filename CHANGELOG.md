@@ -6,6 +6,21 @@ full notes, which are also its GitHub Release body, live in
 Git history and on the [releases page](https://github.com/fmadore/iwac-mcp-server/releases).
 [docs/decisions.md](docs/decisions.md) records the decisions in force.
 
+## 6.2.0 — 2026-11-20
+
+Built for Claude's full-screen apps. The chart view gives Claude four tools to
+work in it (read it, press its buttons, open a chart mark, load another chart),
+the collection overview can be opened without a prompt and pinned to Claude's
+sidebar, the charts keep a stable sandbox host over HTTP, and the semantic map
+asks for full screen. [Notes](docs/releases/v6.2.0.md).
+
+## 6.1.0 — 2026-11-18
+
+Browser clients can reach the HTTP endpoint (CORS), which also serves an MCP
+Server Card; DuckDB runs sandboxed; a call cut off during the first download
+says so; the charts gain display modes, a pending state and host sizing.
+[Notes](docs/releases/v6.1.0.md).
+
 ## 6.0.0 — 2026-11-02
 
 Claude Haiku 5.5 joins the sentiment panel as its sixth model and becomes the

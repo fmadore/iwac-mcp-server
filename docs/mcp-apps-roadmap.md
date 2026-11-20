@@ -291,9 +291,9 @@ only module that knows more than one chart exists.
   hand-rolled spiral placement is feasible but nothing in the suite needs it yet.
 - **Bounded-region drill-down on the map.** Clicking a country filters; there is
   no lasso or box select, and adding one means real hit-testing.
-- **Decoded-script headroom.** After the ext-apps 2.1.0 upgrade (below) the
-  decoded UI script is 492.3 KB against its 500 KB gate, so about 7.7 KB remain.
-  The next SDK minor or a new view may need a size pass before it fits.
+- **Decoded-script headroom.** With the view tools (below) the decoded UI
+  script is 496.1 KB against its 500 KB gate, so about 3.9 KB remain. The next
+  SDK minor or a new view will need a size pass before it fits.
 - **Host fonts.** The app ignores `styles.variables` (including `--font-sans`)
   and never calls `applyHostFonts`. Colours and type deliberately mirror the
   IwacVisualizations module, and a host's `@font-face` or `@import` would need a
@@ -319,11 +319,13 @@ moved from 191.4 KB to 193.2 KB for the resource and from 487.8 KB to 492.3 KB
 for the decoded script, both inside their gates; the option is a runtime flag,
 so turning the bridge off does not shrink the bundle.
 
-The app passes `webMcpBridge: false`. It registers no app-side tools, so there
-is nothing to mirror into `document.modelContext`, and with the bridge on a
-document exposing WebMCP tools made the view advertise `tools: { listChanged:
-true }` in `ui/initialize` on its behalf (measured in the browser suite before
-switching it off). Turn it on together with the first `app.registerTool()`.
+The app passes `webMcpBridge: false`. With the bridge on, a document exposing
+WebMCP tools made the view advertise and serve them as its own (measured in the
+browser suite before switching it off). Since the view started registering its
+own tools (below) it advertises `tools: { listChanged: true }` for those, which
+the host lists over the Apps `tools/list` channel; that channel does not depend
+on the bridge, so the bridge stays off and a planted `document.modelContext`
+tool still never reaches `tools/list`.
 The draft spec's other change, no longer requiring a double sandboxed iframe,
 needs nothing here: the view talks to `window.parent` either way, and the gzip
 bootstrap (`DecompressionStream`, then an inline script) relies only on the
@@ -384,6 +386,45 @@ Recorded because each of these was a measured finding, not a preference.
    than an error — so every row scored 0 and the tool returned the entire subset
    as "neighbours" of a nonexistent item. Both are now closed and tested.
 
+Shipped after Claude's 10 November 2026 launch of full-screen apps (public
+preview for developers; some features reach organisations gradually):
+
+- **View tools for the assistant** (`mcpb/src/app/appTools.ts`). The view
+  registers `describe_view`, `run_view_action`, `open_chart_mark` and
+  `show_result` with `app.registerTool()`. Claude lists them while the view is
+  open and asks before each call; they act only through what a person can do
+  (its buttons, its marks, a follow-up `callServerTool`) and refuse the
+  message, display-toggle, download and link buttons. Results are text
+  (Claude ignores `structuredContent` when text is present). They cost nothing
+  in the always-on footprint, since they live in the view, not the server's
+  `tools/list`. Claude supports them for remote connectors on the web only.
+- **Entry point.** `get_collection_stats` carries
+  `_meta["openai/ui"].entrypoints: [{ type: "global" }]`, so Claude lists the
+  collection overview on its Artifacts page and people can pin it to the
+  sidebar (+15 tokens). The server declares a 128 px inline JPEG icon in
+  `serverInfo.icons` for the tile and the panel title bar; a per-tool icon
+  would be billed to every turn.
+- **Stable sandbox host.** Over HTTP both chart resources set `_meta.ui.domain`
+  to Claude's hash of the connector URL, worked out per request because the
+  endpoint answers with and without the trailing slash (see `src/uiDomain.ts`
+  and the server README). `IWAC_MCP_UI_DOMAIN=false` turns it off.
+- **A full-screen resource.** `ui://iwac/charts-wide.html` serves the same
+  document with Claude's `preferredDisplayMode: "fullscreen"`, a hint read from
+  the resource; `get_semantic_map` points at it. Putting the hint on the shared
+  resource would send every small timeline to the side panel.
+- **Side panel width.** The browser suite renders every view case at 320 px in
+  `fullscreen` mode (Claude reports its side panel that way) and fails on any
+  horizontal overflow.
+
+Not done, on purpose: **embedded sites** (`_meta.ui.csp.frameDomains`) would
+need `frame-ancestors` on islam.zmo.de and, for a custom connector, approval
+per conversation in a limited set of organisations. **App-only server tools**
+(`visibility: ["app"]`): every follow-up the view makes goes to a tool the model
+already has, so none is needed yet; one becomes worth adding when the view needs
+data no model-visible tool returns.
+
+The decoded UI script is now 496.1 KB against its 500 KB gate (3.9 KB left).
+
 ---
 
 ## 9. Current interaction contract (November 2026)
@@ -400,6 +441,7 @@ the ordinary tool text and structured results remain usable without MCP Apps.
 | Automatic selection context | Uses advertised text and/or structured model-context support. Initial results, drill-downs, display options and Back publish the rendered selection. Updates are serialized, identical snapshots are deduplicated and pending updates coalesce to the newest selection. They do not initiate an assistant response. |
 | Ask about this selection | Available when the host supports text messages. Sends an explicit user question with the snapshot attached to that action, including when automatic context is unsupported, pending or failed. A failed send remains retryable. |
 | Downloads and source links | Available only when the host advertises the corresponding capability. Failures are shown in the view. |
+| Assistant in the view | `describe_view` returns the selection summary, the buttons the assistant may press and up to 120 chart marks. `run_view_action` presses a button, `open_chart_mark` clicks a mark, `show_result` loads another IWAC chart tool's result into the frame (refusing results without a chart). Each waits for the follow-up query it started and returns the new selection summary, or the error the view showed. The host asks the user before each call. |
 
 Automatic sharing displays its pending, successful or failed state. A stale update
 cannot mark a newer selection as shared. A result with no active view clears its

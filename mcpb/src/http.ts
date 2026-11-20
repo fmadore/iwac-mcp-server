@@ -58,6 +58,7 @@ import {
   type ServedServerCard,
   serverCardFromEnv,
 } from "./serverCard.js";
+import { connectorUrlFor, withConnectorUrl } from "./uiDomain.js";
 
 /** Methods a browser may use on /mcp. POST carries every MCP message, and GET
  * is listed so a client probing for a 2025-era event stream reads the
@@ -229,7 +230,7 @@ export function startHttpServer(createServer: () => McpServer): void {
   // Built once: every field is fixed for the life of the process. A malformed
   // IWAC_MCP_PUBLIC_URL would publish a broken endpoint to every client that
   // discovers the server, so it stops the start like the other URL settings.
-  const { served: serverCard, invalidPublicUrl } = serverCardFromEnv();
+  const { served: serverCard, publicUrl, invalidPublicUrl } = serverCardFromEnv();
   if (invalidPublicUrl !== undefined) {
     console.error(
       `[iwac] FATAL: IWAC_MCP_PUBLIC_URL is not a usable public endpoint: ${invalidPublicUrl}. ` +
@@ -339,7 +340,10 @@ export function startHttpServer(createServer: () => McpServer): void {
       body = raw.length ? JSON.parse(raw) : undefined;
     }
 
-    await nodeHandler(req, res, body);
+    // The chart view's sandbox host is derived from the URL this client typed
+    // (src/uiDomain.ts); the resource handler reads it from this scope.
+    const connectorUrl = publicUrl !== undefined && config.uiDomain ? connectorUrlFor(publicUrl, path) : undefined;
+    await withConnectorUrl(connectorUrl, () => nodeHandler(req, res, body));
   }
 
   const server = http.createServer((req, res) => {

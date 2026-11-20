@@ -8,11 +8,13 @@ interface that lets an AI assistant search and analyse the collection directly:
 plus archival documents, audiovisual recordings and fieldwork photographs from
 Benin, Burkina Faso, Côte d'Ivoire, Niger, Nigeria, and Togo.
 
-There are two ways to connect, depending on which assistant you use:
+There are three ways to connect, depending on which assistant you use:
 
 - **[Claude Desktop](#claude-desktop)** — a one-click install. *Recommended for
   most users:* it is free, runs on your own machine, and includes the full
   toolset plus an optional research skill.
+- **[Claude on the web](#claude-on-the-web-custom-connector)**: add the hosted
+  endpoint as a custom connector, with nothing to install.
 - **[ChatGPT](#chatgpt)** — connect to the hosted endpoint as a custom
   connector. Requires a paid ChatGPT plan.
 
@@ -124,6 +126,33 @@ collection was embedded with on your own computer, so your queries stay there.
 The first semantic search downloads that model once (~350 MB). If you would
 rather skip the download, turn off **Semantic search** in the extension's
 settings; every other tool works without it.
+
+---
+
+## Claude on the web (custom connector)
+
+The hosted endpoint also works as a Claude **custom connector**, on claude.ai
+and in Claude Desktop, with nothing to install. Add it under **Customize >
+Connectors** with this URL and no authentication:
+
+```
+https://islam.zmo.de/mcp/
+```
+
+Charts open in the conversation and can be expanded to the side panel or full
+screen. In the newer Claude experience you can also:
+
+- **Open IWAC without a prompt.** The collection overview appears on Claude's
+  Artifacts page; pin it to the sidebar to reach it in one click. Each opening
+  starts a new conversation with the overview on screen.
+- **Let Claude work in the open chart.** Claude can read the chart, press its
+  buttons, open the sources behind a bar or country, and load another IWAC
+  chart into the same view, where Back still works. It asks before each of
+  these steps.
+
+Some of these features reach organisations gradually, so they may not appear
+in every account yet. Use the URL exactly as shown, trailing slash included:
+the chart view is tied to the address you entered, and both forms work.
 
 ---
 
