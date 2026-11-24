@@ -43,8 +43,18 @@ export function keywordTerms(keyword: string | undefined, mode?: KeywordMode): s
   return terms;
 }
 
+/** The refusal for a keyword that has text but no term, such as `""`: adding
+ * no predicate would return the whole subset while the echo still shows the
+ * keyword (D7's silent-widening trap). A blank keyword stays "no keyword". */
+export const EMPTY_KEYWORD_ERROR = "keyword has no search term (an empty quoted phrase?), so nothing would be filtered";
+
+/** True when `keyword` holds text that splits into no term at all. */
+export function keywordHasNoTerms(keyword: string | undefined, terms: readonly string[]): boolean {
+  return terms.length === 0 && !!keyword?.trim();
+}
+
 /** Require every term of `keyword` (see keywordTerms) across `cols`. Returns
- * an error message when the keyword splits into too many terms. */
+ * an error message when the keyword splits into too many terms, or into none. */
 export function allTermsFilter(
   schema: Set<string>,
   where: string[],
@@ -56,6 +66,7 @@ export function allTermsFilter(
   const terms = keywordTerms(keyword, mode);
   if (terms.length > MAX_KEYWORD_TERMS)
     return `A keyword matches at most ${MAX_KEYWORD_TERMS} terms; quote a phrase or narrow it`;
+  if (keywordHasNoTerms(keyword, terms)) return EMPTY_KEYWORD_ERROR;
   for (const term of terms) keywordFilter(schema, where, params, cols, term);
   return undefined;
 }
@@ -111,8 +122,10 @@ export function equalsFilterIfExists(
   where: string[],
   params: Bindable[],
   column: string,
-  value: string | undefined,
+  rawValue: string | undefined,
 ): void {
+  // Trimmed first: a whitespace-only value would otherwise match empty cells.
+  const value = rawValue?.trim();
   if (!value || !schema.has(column)) return;
   where.push(foldedEquals(q(column)));
   params.push(value);
@@ -124,8 +137,9 @@ export function likeFilterIfExists(
   where: string[],
   params: Bindable[],
   column: string,
-  value: string | undefined,
+  rawValue: string | undefined,
 ): void {
+  const value = rawValue?.trim();
   if (!value || !schema.has(column)) return;
   where.push(foldedLike(q(column)));
   params.push(`%${escapeLike(value)}%`);
@@ -148,8 +162,9 @@ export function pipeValueFilterIfExists(
   where: string[],
   params: Bindable[],
   column: string,
-  value: string | undefined,
+  rawValue: string | undefined,
 ): void {
+  const value = rawValue?.trim();
   if (!value || !schema.has(column)) return;
   where.push(pipeValueEquals(q(column)));
   params.push(value);

@@ -4,7 +4,14 @@ import type { Subset } from "../../config.js";
 import { EXACT_FIELDS, type Selection } from "../../selection.js";
 import { resolveSentimentModel, sentimentCols } from "../shared/sentiment.js";
 import { q, query, viewName } from "../../db.js";
-import { foldedEquals, keywordTerms, MAX_KEYWORD_TERMS, pipeValueEquals } from "../shared/filters.js";
+import {
+  EMPTY_KEYWORD_ERROR,
+  foldedEquals,
+  keywordHasNoTerms,
+  keywordTerms,
+  MAX_KEYWORD_TERMS,
+  pipeValueEquals,
+} from "../shared/filters.js";
 import { hijriFilter, requireHijriColumns, resolveHijriMonth } from "../shared/calendar.js";
 import {
   COUNTRIES,
@@ -162,6 +169,8 @@ export function aggregateFilters(
       echo,
       err: { error: `A keyword matches at most ${MAX_KEYWORD_TERMS} terms; quote a phrase or narrow it` },
     };
+  if (!args.keyword_aliases?.length && keywordHasNoTerms(args.keyword, terms))
+    return { where, params, echo, err: { error: EMPTY_KEYWORD_ERROR } };
   if (args.keyword_aliases?.length) {
     if (!args.keyword || args.keyword_mode === "all_terms")
       return { where, params, echo, err: { error: "Aliases require a literal keyword" } };

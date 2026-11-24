@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { query } from "../src/db.js";
 import { keywordExcerpts } from "../src/tools/shared/text.js";
 import { aggregateFilters } from "../src/tools/aggregates/shared.js";
+import { allTermsFilter, equalsFilterIfExists, likeFilterIfExists, pipeValueFilterIfExists } from "../src/tools/shared/filters.js";
+import type { Bindable } from "../src/db.js";
+import { tokenize } from "../src/tools/search.js";
 
 test("blank keyword selections are rejected and excerpt helpers remain bounded", () => {
   for (const keyword of ["", " ", "\n\t"]) {
@@ -43,4 +46,40 @@ test("country_raw selects a grouped country combination without widening to its 
   const rows = await query(`SELECT country FROM (VALUES ('Niger'), ('Nigeria'), ('Niger|Nigeria')) t(country)
     WHERE ${filter.where.join(" AND ")}`, filter.params);
   assert.deepEqual(rows.map((r) => r.country), ["Niger|Nigeria"]);
+});
+
+// #70: three silent-widening edge cases of the one keyword rule (D7).
+test("an empty quoted keyword is refused instead of selecting the whole subset", () => {
+  for (const keyword of ['""', '" "', '""  ""']) {
+    const agg = aggregateFilters("articles", new Set(["title"]), { keyword });
+    assert.match(agg.err?.error ?? "", /no search term/, keyword);
+    const where: string[] = [];
+    assert.match(allTermsFilter(new Set(["title"]), where, [], ["title"], keyword) ?? "", /no search term/, keyword);
+    assert.equal(where.length, 0);
+  }
+  // A literal keyword with aliases is matched as written, so it is still runnable.
+  assert.equal(aggregateFilters("articles", new Set(["title"]), { keyword: '""', keyword_aliases: ["hadj"] }).err, undefined);
+  // An absent or blank keyword on the per-subset tools still means "no keyword".
+  assert.equal(allTermsFilter(new Set(["title"]), [], [], ["title"], undefined), undefined);
+  assert.equal(allTermsFilter(new Set(["title"]), [], [], ["title"], ""), undefined);
+});
+
+test("unified search keeps a quoted phrase whole, like every other tool", () => {
+  assert.deepEqual(tokenize('"Ibrahim Niasse"'), ["Ibrahim Niasse"]);
+  assert.deepEqual(tokenize('"La Mecque" hadj'), ["La Mecque", "hadj"]);
+  assert.deepEqual(tokenize('"a" b'), []);
+  assert.deepEqual(tokenize('""'), []);
+});
+
+test("whitespace-only exact filters add no predicate instead of matching empty cells", () => {
+  const schema = new Set(["subject", "newspaper"]);
+  for (const helper of [equalsFilterIfExists, likeFilterIfExists, pipeValueFilterIfExists]) {
+    const where: string[] = [];
+    const params: Bindable[] = [];
+    helper(schema, where, params, "subject", "   ");
+    assert.deepEqual([where, params], [[], []], helper.name);
+    helper(schema, where, params, "subject", "  Hadj ");
+    assert.equal(where.length, 1, helper.name);
+    assert.ok(String(params[0]).includes("Hadj") && !String(params[0]).includes(" Hadj"), helper.name);
+  }
 });

@@ -19,6 +19,26 @@ export async function searchChecks({ call }) {
     structured: true,
     check: (p) => (p.results?.length ? null : "multi-word tokenized query matched nothing"),
   });
+  // #70: a quoted phrase is one term, not two tokens with the quotes bound in.
+  await call("search", { query: '"La Mecque"' }, {
+    structured: true,
+    check: (p) => (p.results?.length ? null : "a quoted phrase matched nothing (quotes bound into the pattern)"),
+  });
+  await call("search", { query: Array.from({ length: 13 }, (_, i) => `mot${i}`).join(" ") }, {
+    expectError: true,
+    checkBody: (b) => (b.includes("at most 12 terms") ? null : "search must cap the number of terms"),
+  });
+  // An empty quoted phrase has text but no term: refuse, never widen to all.
+  for (const [tool, args] of [
+    ["search_references", { keyword: '""' }],
+    ["search_articles", { keyword: '""' }],
+    ["get_temporal_distribution", { keyword: '" "' }],
+  ]) {
+    await call(tool, args, {
+      expectError: true,
+      checkBody: (b) => (b.includes("no search term") ? null : `${tool} must refuse an empty quoted keyword`),
+    });
+  }
   await call("search", { query: "PELERINAGE" }, {
     check: (p) => (p.results?.length ? null : "unaccented uppercase query matched nothing (fold regressed)"),
   });

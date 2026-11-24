@@ -24,7 +24,9 @@ import {
   foldedLike,
   HAS_HEAVY_TEXT,
   itemUrl,
+  keywordTerms,
   limitWarning,
+  MAX_KEYWORD_TERMS,
   pageText,
   resolveLimit,
   structuredResult,
@@ -57,10 +59,9 @@ const MIN_TOKEN_CHARS = 2;
  * other means "this term is unattested in the collection".
  */
 export function tokenize(queryStr: string): string[] {
-  return queryStr
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= MIN_TOKEN_CHARS);
+  // The same keyword rule as every other tool (D7): a "quoted phrase" is one
+  // term matched as written, not two tokens with the quotes bound in.
+  return keywordTerms(queryStr).filter((t) => t.length >= MIN_TOKEN_CHARS);
 }
 
 /**
@@ -324,7 +325,13 @@ export function registerSearchTools(server: Server): void {
       // for it would be indistinguishable from a genuine absence — the exact
       // confusion validateEnum exists to prevent — so refuse it as a
       // self-correctable tool error instead.
-      if (tokenize(queryStr).length === 0) {
+      const tokens = tokenize(queryStr);
+      if (tokens.length > MAX_KEYWORD_TERMS) {
+        return errorResult({
+          error: `Query '${queryStr.slice(0, 80)}' matches at most ${MAX_KEYWORD_TERMS} terms; quote a phrase or narrow it`,
+        });
+      }
+      if (tokens.length === 0) {
         return errorResult({
           error:
             `Query '${queryStr}' has no usable search term: every word is shorter than ${MIN_TOKEN_CHARS} ` +
