@@ -6,6 +6,15 @@ full notes, which are also its GitHub Release body, live in
 Git history and on the [releases page](https://github.com/fmadore/iwac-mcp-server/releases).
 [docs/decisions.md](docs/decisions.md) records the decisions in force.
 
+## 6.3.0 (2026-11-24)
+
+Fixes that change what a researcher gets back: `search` honours quoted phrases
+and an empty quoted keyword is refused instead of selecting everything; topics on
+`references` are identified by model as well as id (new exact field
+`topic_model`); BibTeX keeps url and doi verbatim and CSL-JSON exports theses as
+`thesis`; publication keyword pages fill their limit and full-text results carry
+their url. [Notes](docs/releases/v6.3.0.md).
+
 ## 6.2.0 — 2026-11-20
 
 Built for Claude's full-screen apps. The chart view gives Claude four tools to
