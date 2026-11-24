@@ -282,15 +282,25 @@ export function registerResearchTools(server: Server): void {
           });
           for (const field of ["country", "newspaper", "lda_topic_id"])
             if (schema.has(field)) {
+              // A topic is (model, id): references carry a French and an English
+              // LDA model whose ids overlap. Group on both, show the label, and
+              // keep topic_id / topic_model so a cell can be drilled into.
+              const topic = field === "lda_topic_id";
+              const model = topic && schema.has("lda_model_name") ? "NULLIF(TRIM(lda_model_name), '')" : "NULL";
+              const label = topic && schema.has("lda_topic_label") ? "NULLIF(TRIM(lda_topic_label), '')" : "NULL";
               const dist = await query(
-                `SELECT CAST(${q(field)} AS VARCHAR) AS value, COUNT(*) AS count FROM ${v} WHERE ${whereSql(filter.where)} GROUP BY 1 ORDER BY 2 DESC, 1`,
+                topic
+                  ? `SELECT CAST(lda_topic_id AS VARCHAR) AS value, ${model} AS topic_model, min(${label}) AS label, COUNT(*) AS count FROM ${v} WHERE ${whereSql(filter.where)} GROUP BY 1, 2 ORDER BY 4 DESC, 1, 2`
+                  : `SELECT CAST(${q(field)} AS VARCHAR) AS value, COUNT(*) AS count FROM ${v} WHERE ${whereSql(filter.where)} GROUP BY 1 ORDER BY 2 DESC, 1`,
                 filter.params,
               );
               rows.push(
                 ...dist.map((r) => ({
                   selection: i === 0 ? "A" : "B",
                   field,
-                  value: String(r.value || "(missing)"),
+                  value: r.value && r.label ? `${r.value}: ${r.label}` : String(r.value || "(missing)"),
+                  ...(r.value && topic ? { topic_id: String(r.value) } : {}),
+                  ...(r.topic_model ? { topic_model: String(r.topic_model) } : {}),
                   count: Number(r.count),
                   share: Number(m.total) ? Number(r.count) / Number(m.total) : 0,
                 })),
@@ -301,13 +311,13 @@ export function registerResearchTools(server: Server): void {
         // then order the cells by category rank so a page never splits A from B.
         const ranked = new Map<string, number>();
         for (const r of rows) {
-          const key = JSON.stringify([r.field, r.value]);
+          const key = JSON.stringify([r.field, r.value, r.topic_model ?? null]);
           ranked.set(key, (ranked.get(key) ?? 0) + Number(r.count));
         }
         const order = new Map(
           [...ranked].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([key], i) => [key, i]),
         );
-        const rank = (r: ComparisonRow) => order.get(JSON.stringify([r.field, r.value])) ?? 0;
+        const rank = (r: ComparisonRow) => order.get(JSON.stringify([r.field, r.value, r.topic_model ?? null])) ?? 0;
         const cells = rows.sort((a, b) => rank(a) - rank(b) || a.selection.localeCompare(b.selection));
         const chartCap = cells.findIndex((r) => rank(r) >= 40);
         return pagedCells(

@@ -78,14 +78,21 @@ export function registerTopicsTools(server: Server): void {
         }
         const topicWhereSql = `WHERE ${topicWhere.join(" AND ")}`;
 
+        // Topic ids restart at 0 in every LDA model, and `references` carries a
+        // French and an English model, so a topic is (model, id), not an id.
+        const modelSel = schema.has("lda_model_name") ? "NULLIF(trim(lda_model_name), '')" : "NULL";
         const rows = await query(
           `SELECT lda_topic_label AS label, CAST(coalesce(lda_topic_id, -1) AS INTEGER) AS topic_id,
-                  COUNT(*) AS count, ROUND(AVG(lda_topic_prob), 3) AS avg_prob
+                  ${modelSel} AS topic_model, COUNT(*) AS count, ROUND(AVG(lda_topic_prob), 3) AS avg_prob
            FROM ${viewName(subset)} ${topicWhereSql}
-           GROUP BY 1, 2 ORDER BY count DESC, topic_id`,
+           GROUP BY 1, 2, 3 ORDER BY count DESC, topic_id, topic_model`,
           topicParams,
         );
         const classified = rows.reduce((a, r) => a + Number(r.count), 0);
+        // The model is named only when the result spans several: with one, the
+        // id already identifies the topic within this selection, and the long
+        // model hash would only cost tokens.
+        const severalModels = new Set(rows.map((r) => r.topic_model ?? null)).size > 1;
 
         const payload: ChartModelPayload<"topics"> & Record<string, unknown> = {
           view: VIEW.topics,
@@ -95,6 +102,7 @@ export function registerTopicsTools(server: Server): void {
           classified,
           topics: rows.map((r) => ({
             topic_id: Number(r.topic_id),
+            ...(severalModels && r.topic_model != null ? { topic_model: String(r.topic_model) } : {}),
             label: String(r.label),
             count: Number(r.count),
             avg_prob: Number(r.avg_prob),
@@ -183,6 +191,10 @@ export function registerTopicsTools(server: Server): void {
           viewOnly = { periods: sortedPeriods, series_by_topic: series };
         }
 
+        if (severalModels)
+          payload.note =
+            "Topic ids restart at 0 in each LDA model (topic_model), so select a topic with exact topic_id AND topic_model." +
+            (payload.note ? ` ${payload.note}` : "");
         if (classified < total) {
           payload.note =
             `${total - classified} of ${total} matching items carry no topic assignment` +

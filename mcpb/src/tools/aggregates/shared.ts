@@ -104,11 +104,13 @@ export function aggregateFilters(
         ? sentimentCols(model)[sentiment[1] as "polarity" | "centrality" | "subjectivity"]
         : field === "topic_id"
           ? "lda_topic_id"
-          : field === "min_prob"
-            ? "lda_topic_prob"
-            : field === "country_raw"
-              ? "country"
-              : field;
+          : field === "topic_model"
+            ? "lda_model_name"
+            : field === "min_prob"
+              ? "lda_topic_prob"
+              : field === "country_raw"
+                ? "country"
+                : field;
     if (!schema.has(col)) return unavailable(field);
     if (!Array.isArray(values) || !values.length || values.some((v) => typeof v !== "string" || !v.trim()))
       return { where, params, echo, err: { error: `Exact filter '${field}' needs nonempty values` } };
@@ -120,7 +122,11 @@ export function aggregateFilters(
         where.push(`${q(col)} ${field === "min_prob" ? ">=" : "="} ?`);
         params.push(n);
       } else {
-        where.push(field === "newspaper" || field === "country_raw" ? foldedEquals(q(col)) : pipeValueEquals(q(col)));
+        where.push(
+          field === "newspaper" || field === "country_raw" || field === "topic_model"
+            ? foldedEquals(q(col))
+            : pipeValueEquals(q(col)),
+        );
         params.push(value);
       }
     }

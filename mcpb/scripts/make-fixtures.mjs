@@ -314,30 +314,34 @@ const SUBSET_SQL = {
       -- Toy 4-d vectors over title + abstract (the live column is 768-d and
       -- covers only the references that have an abstract): the two Nigeria
       -- sharia-politics rows sit together, apart from the Benin/Togo pair.
-      embedding_abstract FLOAT[]
+      embedding_abstract FLOAT[],
+      -- Two LDA models whose ids both start at 0, as on the live subset (a
+      -- French k=16 and an English k=8 model): topic 0 exists in each, so an
+      -- id alone selects two unrelated topics (#84).
+      lda_topic_id BIGINT, lda_topic_prob DOUBLE, lda_topic_label VARCHAR, lda_model_name VARCHAR
     );
     INSERT INTO "references" VALUES
       ('301', 'ref-301', 'Muslim Politics across Northern Nigeria and Niger', 'Smith, John', '',
        'Article de revue', 'Article de revue', '2015', '', '', '', '12', '3', '201', '229', 0, '', '',
        'This article surveys Muslim political mobilisation across the Niger–Nigeria borderlands. Drawing on fieldwork in Maradi, Kano and Zinder, it traces how reformist movements, Sufi orders and state institutions negotiated authority between 1990 and 2010, and argues that cross-border religious networks shaped electoral politics on both sides in ways national frames systematically miss, with lasting consequences for how sharia debates travelled.',
        '', 'Maradi|Kano', 'Anglais', 'Niger|Nigeria', '10.1000/test-301', '', 'Journal of West African Studies', '', '', '${IWAC}301',
-       [0.9, 0.1, 0.0, 0.1]),
+       [0.9, 0.1, 0.0, 0.1], 0, 0.7, 'islamic_youth_association - young_woman - young_muslims', 'lda-sha256:en'),
       ('302', 'ref-302', 'L''islam au Bénin : histoire et société', 'Kadiri, Aïcha', '',
        'Livre', 'Livre', '1999', 'Éditions du Golfe', '', '', '', '', '', '', 240, '1re', '',
        'Synthèse historique sur les communautés musulmanes béninoises.',
        'Islam', 'Cotonou', 'Français', 'Benin', '', '', '', '', '', '${IWAC}302',
-       [0.2, 0.8, 0.1, 0.1]),
+       [0.2, 0.8, 0.1, 0.1], 0, 0.8, 'houphouët_boigny - wahhabite - réformiste', 'lda-sha256:fr'),
       ('303', 'ref-303', 'Confréries et politique au Togo', 'Mensah, Paul', 'Doe, Jane',
        'Chapitre de livre', 'Chapitre de livre', '2005', 'Academia', 'Religions ouest-africaines', '7',
        '', '', '145', '168', 0, '', '',
        'Le chapitre analyse le rôle des confréries soufies dans la vie politique togolaise.',
        'Confréries', 'Lomé', 'Français', 'Togo', '', '', '', '', '', '${IWAC}303',
-       [0.1, 0.9, 0.2, 0.0]),
+       [0.1, 0.9, 0.2, 0.0], 0, 0.8, 'houphouët_boigny - wahhabite - réformiste', 'lda-sha256:fr'),
       ('304', 'ref-304', 'Sharia Implementation in Northern Nigeria', 'Adamu, Bello', '',
        'Rapport', 'Rapport', '2003', 'Policy Institute', '', '', '', '', '', '', 88, '', '',
        'Report on the first years of sharia implementation across twelve northern Nigerian states.',
        '', 'Kano', 'Anglais', 'Nigeria', '', 'https://example.org/report-304', '', '', '', '${IWAC}304',
-       [0.85, 0.2, 0.05, 0.1]);
+       [0.85, 0.2, 0.05, 0.1], 1, 0.6, 'sharia - northern_nigeria - state', 'lda-sha256:en');
   `,
 
   documents: `

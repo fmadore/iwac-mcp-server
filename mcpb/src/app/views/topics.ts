@@ -30,7 +30,8 @@ export function topicsView(p: TopicsPayload): ViewResult {
 
   const map = treemap({
     items: topics.map((t) => ({
-      key: String(t.topic_id),
+      // "id@model" when the result spans models that share ids (#84).
+      key: t.topic_model ? `${t.topic_id}@${t.topic_model}` : String(t.topic_id),
       label: shortLabel(t.label ?? ""),
       value: t.count ?? 0,
       // Full label plus how dominant the topic is where it is assigned.
@@ -104,12 +105,14 @@ export function topicsView(p: TopicsPayload): ViewResult {
     wire(root, ctx) {
       root.querySelectorAll<SVGElement>(".hit[data-key]").forEach((el) => {
         el.addEventListener("click", () => {
-          const id = el.getAttribute("data-key");
-          if (id !== null)
-            void ctx.run("get_temporal_distribution", {
-              subset: p.subset ?? "articles",
-              ...narrowSelection(selectionFrom(p.filters), "topic_id", id),
-            });
+          const key = el.getAttribute("data-key");
+          if (key === null) return;
+          const at = key.indexOf("@");
+          const selection = narrowSelection(selectionFrom(p.filters), "topic_id", at < 0 ? key : key.slice(0, at));
+          void ctx.run("get_temporal_distribution", {
+            subset: p.subset ?? "articles",
+            ...(at < 0 ? selection : narrowSelection(selection, "topic_model", key.slice(at + 1))),
+          });
         });
       });
     },

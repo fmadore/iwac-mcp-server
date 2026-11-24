@@ -39,7 +39,10 @@ article/publication search.
   historical substring semantics. Use `exact.newspaper` for a complete title.
 - `exact` intersects fields **and values within each field**. For example,
   `spatial: ["Cotonou", "Lomé"]` requires both tags. Supported fields are
-  subject, spatial, author, language, country, country_raw, newspaper, topic_id and min_prob.
+  subject, spatial, author, language, country, country_raw, newspaper, topic_id, topic_model
+  and min_prob. `topic_model` (the stored `lda_model_name`) goes with `topic_id` where a
+  subset carries several LDA models: `references` has a French and an English model whose
+  ids both start at 0, so an id alone selects two unrelated topics.
   `country_raw` matches a whole pipe-joined cell for coverage/comparison drilldowns;
   `country` requires individual pipe-separated country tags.
   Numeric topic/probability values are represented as strings in this map.

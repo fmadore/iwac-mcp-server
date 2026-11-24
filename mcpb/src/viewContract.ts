@@ -342,6 +342,8 @@ export interface TemporalPayload extends ChartPayloadBase {
 
 export interface Topic {
   topic_id?: number;
+  /** Set when the result spans several LDA models, whose ids overlap. */
+  topic_model?: string;
   label?: string;
   count?: number;
   avg_prob?: number;

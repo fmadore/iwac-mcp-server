@@ -22,6 +22,7 @@ import { project2d } from "../src/pca.js";
 import { csv, csvCell } from "../src/app/shell.js";
 import { fmtInt, THOUSANDS_SEP } from "../src/app/theme.js";
 import { carryFilters, temporalView } from "../src/app/views/temporal.js";
+import { topicsView } from "../src/app/views/topics.js";
 import { VIEWS } from "../src/app/views/index.js";
 import { VIEW } from "../src/tools/appUi.js";
 import { at } from "./_must.js";
@@ -342,5 +343,44 @@ describe("PCA projection", () => {
     assert.equal(same.points.length, 3);
     assert.ok(same.points.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)));
     assert.deepEqual(same.explained, [0, 0]);
+  });
+});
+
+describe("topics view", () => {
+  // #84: references carry a French and an English LDA model that both number
+  // topics from 0. Each topic is its own mark, and a click drills into its
+  // own model, not into both topics that share the id.
+  it("keys and drills into a topic by (id, model)", () => {
+    const view = topicsView({
+      view: "topics",
+      subset: "references",
+      filters: {},
+      topics: [
+        { topic_id: 0, topic_model: "lda-sha256:fr", label: "houphouët_boigny - wahhabite", count: 51, avg_prob: 0.6 },
+        { topic_id: 0, topic_model: "lda-sha256:en", label: "islamic_youth_association - young_woman", count: 9, avg_prob: 0.5 },
+      ],
+    });
+    const keys = [...view.body.matchAll(/data-key="([^"]+)"/g)].map((m) => String(m[1]).replace(/&#34;|&quot;/g, '"'));
+    assert.deepEqual(keys, ["0@lda-sha256:fr", "0@lda-sha256:en"], "two topics sharing an id need two keys");
+    const runs: Record<string, unknown>[] = [];
+    const marks = keys.map((key) => {
+      let onClick: (() => void) | undefined;
+      return {
+        getAttribute: () => key,
+        addEventListener: (_: string, fn: () => void) => (onClick = fn),
+        click: () => onClick?.(),
+      };
+    });
+    const root = { querySelectorAll: () => marks } as unknown as HTMLElement;
+    const ctx = { run: (_tool: string, args: Record<string, unknown>) => void runs.push(args) };
+    view.wire?.(root, ctx as never);
+    for (const m of marks) m.click();
+    assert.deepEqual(
+      runs.map((r) => (r.exact as Record<string, string[]>) ?? {}).sort((a, b) => String(a.topic_model).localeCompare(String(b.topic_model))),
+      [
+        { topic_id: ["0"], topic_model: ["lda-sha256:en"] },
+        { topic_id: ["0"], topic_model: ["lda-sha256:fr"] },
+      ],
+    );
   });
 });

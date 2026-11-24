@@ -25,6 +25,29 @@ test("research workbench counts, exact selection, normalization, provenance and 
       exact: { topic_id: ["12"], spatial: ["Cotonou"] },
     });
     assert.equal(topic.classified, sources.total_matches);
+    // #84: references carry two LDA models that both number topics from 0.
+    // Each topic is its own mark, names its model, and drilling into it
+    // returns exactly the count the mark shows.
+    const refTopics = await call("get_topic_distribution", { subset: "references" });
+    const zeros = refTopics.topics.filter((t) => t.topic_id === 0);
+    assert.deepEqual(zeros.map((t) => [t.topic_model, t.count]), [["lda-sha256:fr", 2], ["lda-sha256:en", 1]]);
+    assert.match(refTopics.note, /topic_id AND topic_model/);
+    for (const t of refTopics.topics) {
+      const drill = await call("explore_corpus", {
+        subset: "references",
+        selection: { exact: { topic_id: [String(t.topic_id)], topic_model: [t.topic_model] } },
+      });
+      assert.equal(drill.total_matches, t.count, `${t.topic_model} topic ${t.topic_id}`);
+    }
+    const refCompare = await call("explore_corpus", {
+      mode: "compare", subset: "references", selection: {}, comparison: { country: "Benin" }, limit: 50,
+    });
+    const topicCells = refCompare.rows.filter((r) => r.field === "lda_topic_id" && r.selection === "A");
+    assert.deepEqual(
+      topicCells.map((r) => [r.topic_id, r.topic_model, r.count]).sort(),
+      [["0", "lda-sha256:en", 1], ["0", "lda-sha256:fr", 2], ["1", "lda-sha256:en", 1]],
+    );
+    assert.ok(topicCells.every((r) => r.value.startsWith(`${r.topic_id}: `)), "comparison rows carry the topic label");
     const context = await call("explore_corpus", {
       mode: "concordance",
       selection: { keyword: "pèlerinage", country: "Benin" },

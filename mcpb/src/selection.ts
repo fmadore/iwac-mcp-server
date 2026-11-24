@@ -23,6 +23,9 @@ export const EXACT_FIELDS = [
   "country_raw",
   "newspaper",
   "topic_id",
+  // The LDA model a topic_id belongs to: references carry a French and an
+  // English model whose ids both start at 0, so an id alone is ambiguous.
+  "topic_model",
   "min_prob",
   "scored_by",
 ] as const;
