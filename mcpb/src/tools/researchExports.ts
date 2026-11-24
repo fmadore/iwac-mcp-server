@@ -33,11 +33,16 @@ function issued(stored: string | undefined): { "date-parts": number[][] } | unde
 function citationType(subset: Subset, row: Row): string {
   if (subset === "articles") return "article-newspaper";
   if (subset === "images") return "graphic";
+  const stored = value(row, "type") ?? "";
+  // The data qualifies its degree labels ("Thèse de doctorat", "Mémoire de
+  // maitrise", "Mémoire de licence"); a bare "Thèse" or "Mémoire" never occurs.
+  if (/^(?:Thèse|Mémoire)(?:\s|$)/u.test(stored)) return "thesis";
   const known: Record<string, string> = {
     "Article de revue": "article-journal", Livre: "book", "Chapitre de livre": "chapter", Rapport: "report",
-    "Thèse": "thesis", "Mémoire": "thesis",
+    "Communication scientifique": "paper-conference", "Compte rendu de livre": "review-book",
+    "Article d'encyclopédie": "entry-encyclopedia", "Article de blog": "post-weblog", "Working paper": "report",
   };
-  return known[value(row, "type") ?? ""] ?? "document";
+  return known[stored] ?? "document";
 }
 
 export function citationItem(subset: Subset, row: Row): Row {
@@ -51,6 +56,8 @@ export function citationItem(subset: Subset, row: Row): Row {
     page: [value(row, "page_start"), value(row, "page_end")].filter(Boolean).join("–") || undefined,
   };
   for (const [key, field] of Object.entries(fields)) if (field !== undefined) item[key] = field;
+  // CSL's genre carries the degree; the stored label is kept as written.
+  if (item.type === "thesis") item.genre = value(row, "type");
   // Keep a non-machine-readable date as supplied, without synthesizing a year.
   if (value(row, "date") && !fields.issued) item.note = `Stored date: ${value(row, "date")}`;
   return item;
@@ -65,6 +72,17 @@ function bibEscape(text: string): string {
   return [...text.replace(/[\r\n]+/g, " ")].map((char) => escapes[char] ?? char).join("");
 }
 
+/**
+ * `url` and `doi` are verbatim fields in biblatex (and inside `\url{}`), so
+ * LaTeX escapes would end up in the link: `afrique_ouest` became
+ * `afrique\_ouest` in every IWAC url. Keep them as written, but still strip
+ * line breaks and percent-encode the three characters that could close the
+ * field or start a command, which keeps hostile metadata inert.
+ */
+function bibVerbatim(text: string): string {
+  return text.replace(/[\r\n]+/g, "").replace(/[{}\\]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
 export function bibliography(items: Row[]): string {
   return items.map((item) => {
     const types: Record<string, string> = { book: "book", chapter: "incollection", "article-journal": "article", "article-newspaper": "article", report: "techreport" };
@@ -75,7 +93,8 @@ export function bibliography(items: Row[]): string {
       if (encoded) fields.push([key, encoded]);
     }
     const mapping = { title: "title", publisher: "publisher", DOI: "doi", URL: "url", volume: "volume", issue: "number", page: "pages", edition: "edition", note: "note" };
-    for (const [key, target] of Object.entries(mapping)) if (item[key]) fields.push([target, bibEscape(String(item[key]))]);
+    for (const [key, target] of Object.entries(mapping))
+      if (item[key]) fields.push([target, (key === "URL" || key === "DOI" ? bibVerbatim : bibEscape)(String(item[key]))]);
     if (item["container-title"]) fields.push([item.type === "chapter" ? "booktitle" : "journal", bibEscape(String(item["container-title"]))]);
     const date = (item.issued as { "date-parts": number[][] } | undefined)?.["date-parts"][0];
     if (date) {

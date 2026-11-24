@@ -22,6 +22,19 @@ test("citation exports preserve known metadata without inferring missing names, 
   assert.equal(unknown.note, "Stored date: 2024-02-31");
   const thesis = bibliography([citationItem("references", { id: "references:3", type: "Mémoire" })]);
   assert.ok(thesis.startsWith("@misc{"), "a stored thesis label does not establish a doctoral degree");
+  // #69: the data's labels are qualified ("Thèse de doctorat", 45 rows;
+  // "Mémoire de maitrise", 64), so exact-label matching left all 114 theses
+  // as CSL `document`. CSL `thesis` asserts no degree; genre keeps the label.
+  for (const label of ["Thèse de doctorat", "Mémoire de maitrise", "Mémoire de licence", "Thèse"]) {
+    const item = citationItem("references", { id: "references:5", type: label });
+    assert.deepEqual([item.type, item.genre], ["thesis", label], label);
+    assert.ok(bibliography([item]).startsWith("@misc{"), `${label} stays @misc in BibTeX`);
+  }
+  assert.equal(citationItem("references", { id: "references:6", type: "Thésaurus" }).type, "document");
+  for (const [label, type] of [
+    ["Communication scientifique", "paper-conference"], ["Compte rendu de livre", "review-book"],
+    ["Article d'encyclopédie", "entry-encyclopedia"], ["Article de blog", "post-weblog"], ["Working paper", "report"],
+  ]) assert.equal(citationItem("references", { id: "references:7", type: label }).type, type, label);
   assert.deepEqual(citationItem("articles", { id: "articles:4", date: "2024-02" }).issued, { "date-parts": [[2024, 2]] });
 });
 
@@ -30,11 +43,21 @@ test("BibTeX preserves literal names and escapes metadata with hostile syntax", 
     id: "articles:10", title: "{Title} & 50% _ \\input{x}", author: "Research and Development|Smith, John",
     date: "2024-02-29", url: "https://example.org/a_b",
   })]);
+  // Changed deliberately for #69: url and doi are verbatim fields, so `_` stays
+  // as written (it used to become `a\_b`, a broken link in every IWAC url).
   assert.match(bib, /^@article\{iwac-articles:10,/);
   assert.ok(bib.includes("author = {{Research and Development} and {Smith, John}}"));
   assert.ok(bib.includes("\\{Title\\} \\& 50\\% \\_ \\textbackslash{}input\\{x\\}"));
   assert.ok(bib.includes("date = {2024-02-29}"));
-  assert.ok(bib.includes("url = {https://example.org/a\\_b}"));
+  assert.ok(bib.includes("url = {https://example.org/a_b}"));
+  // The verbatim fields stay inert: braces and backslashes are percent-encoded
+  // and line breaks dropped, so hostile metadata cannot close the field.
+  const hostile = bibliography([citationItem("references", {
+    id: "references:11", url: "https://example.org/x}\n@misc{evil,\\input{y}", doi: "10.1007/978-3-031-89940-9_23#%&~$^",
+  })]);
+  assert.ok(hostile.includes("url = {https://example.org/x%7D@misc%7Bevil,%5Cinput%7By%7D}"), hostile);
+  assert.ok(hostile.includes("doi = {10.1007/978-3-031-89940-9_23#%&~$^}"), hostile);
+  assert.equal(hostile.split("\n@").length, 1, "no injected entry");
 });
 
 test("manifest identifies its exact page and the projection excludes body/model blobs", () => {
