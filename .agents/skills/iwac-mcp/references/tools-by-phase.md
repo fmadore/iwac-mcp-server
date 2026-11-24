@@ -275,7 +275,7 @@ Counts of matching items per year (or month) — one call replaces paging throug
 
 #### The Islamic calendar *(v1.3.0+)*
 
-**Reach for `granularity="lunar_month"` for any observance question.** It pools every year into the twelve lunar months, and it is the only bucket a Gregorian axis structurally cannot produce: the Hijri year drifts ~11 days annually, so across 1961–2025 each observance smears over all twelve Gregorian months and disappears. Measured over the 13,261 fully-dated articles, the archive's rhythm is unmistakable — **Ramadan +74 %, Dhu al-Hijja +68 %** (hajj and Tabaski), **Shawwal +42 %** (Korité, 1 Shawwal) against an even split, with the six ordinary months 24–32 % below it. **Rabi' I is flat (−5 %)**, so Maouloud is *not* treated as a news event the way the others are — a finding in its own right.
+**Reach for `granularity="lunar_month"` for any observance question.** It pools every year into the twelve lunar months, and it is the only bucket a Gregorian axis structurally cannot produce: the Hijri year drifts ~11 days annually, so across 1961–2025 each observance smears over all twelve Gregorian months and disappears. Measured over the 13,261 fully-dated articles, the collection's rhythm is unmistakable — **Ramadan +74 %, Dhu al-Hijja +68 %** (hajj and Tabaski), **Shawwal +42 %** (Korité, 1 Shawwal) against an even split, with the six ordinary months 24–32 % below it. **Rabi' I is flat (−5 %)**, so Maouloud is *not* treated as a news event the way the others are — a finding in its own right.
 
 - `lunar_month` implies `calendar="hijri"`; you do not have to pass both (and `lunar_month` + `calendar="gregorian"` is refused as incoherent).
 - `calendar="hijri"` with `granularity="year"` or `"month"` gives a Hijri *time series* instead (`1440`, `1440-09`).
@@ -356,7 +356,7 @@ Readability, lexical richness and length of the press text, by year, newspaper o
 - `group_by` (optional, validated): year (default) | newspaper | country; filter block; `top_n`
 - `Lisibilite_OCR` is a **French** readability score (higher = easier), so non-French items are excluded from that metric and counted in `readability_excluded` — 9 articles corpus-wide — rather than reported as unreadable
 - `Richesse_Lexicale_OCR` is MATTR, a moving-average type-token ratio that is **already length-robust**: do not normalise it by word count or bin it by length
-- The scores are computed upstream from the archive's own OCR, so they cover nearly every article, including those whose full text the public dataset withholds
+- The scores are computed upstream from the collection's own OCR, so they cover nearly every article, including those whose full text the public dataset withholds
 
 ### get_similar_items *(v0.13.0)*
 The items nearest a given one in meaning, by cosine similarity over the stored embeddings — finds pieces on the same event that share no vocabulary. **Needs no query encoder**: it reads the item's own stored vector, so it works even where semantic search is off.

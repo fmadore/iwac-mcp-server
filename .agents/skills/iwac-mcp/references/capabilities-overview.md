@@ -4,7 +4,7 @@ Source material for answering capability questions in plain language ("what can 
 
 ## What the collection is
 
-The Islam West Africa Collection (IWAC, <https://islam.zmo.de>) is a curated digital archive documenting Islam and Muslim life in francophone West Africa — Burkina Faso, Côte d'Ivoire, Benin, Togo and Niger (plus Nigerian audiovisual recordings) — from the 1960s to the 2020s. Where most digitisation projects in African studies focus on manuscripts, IWAC preserves the region's **print culture**: six decades of press coverage, and the publications Muslim communities produced about themselves.
+The Islam West Africa Collection (IWAC, <https://islam.zmo.de>; in French, Collection Islam Afrique de l'Ouest, CIAO) is a curated digital collection documenting Islam and Muslim life in francophone West Africa — Burkina Faso, Côte d'Ivoire, Benin, Togo and Niger (plus Nigerian audiovisual recordings) — from the 1960s to the 2020s. Where most digitisation projects in African studies focus on manuscripts, IWAC preserves the region's **print culture**: six decades of press coverage, and the publications Muslim communities produced about themselves.
 
 Six kinds of material:
 
