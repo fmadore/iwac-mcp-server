@@ -141,7 +141,7 @@ export function registerStatsTools(server: Server): void {
         }),
       );
       // Nothing loaded is a failure, not an empty collection: a payload of
-      // zero counts would read as "the archive is empty". A refused
+      // zero counts would read as "the collection is empty". A refused
       // private-dataset token says what to fix; anything else is an outage.
       if (entries.every(([, n]) => n === null)) {
         const access = entries.map(([, , , , err]) => err).find(isDatasetAccessError);
@@ -533,7 +533,7 @@ export function registerStatsTools(server: Server): void {
         ...(invalid ? { invalid_date_count: invalid } : {}),
         // The keys are zero-padded numbers so they sort; the model (and the
         // chart) should show names. Sending the table beats making either
-        // hard-code a transliteration that would drift from the archive's.
+        // hard-code a transliteration that would drift from the collection's.
         ...(granularity === "lunar_month"
           ? {
               month_labels: Object.fromEntries(HIJRI_MONTHS.map((m, i) => [String(i + 1).padStart(2, "0"), m])),

@@ -34,7 +34,7 @@ export interface PaginationEnvelope<T> {
 export const PAGE_CHAR_BUDGET = 40_000;
 
 /** The hint a filtered list that matched nothing carries: a bare empty list
- * reads as "the archive holds nothing", when one filter may exclude all. */
+ * reads as "the collection holds nothing", when one filter may exclude all. */
 export const EMPTY_FILTER_HINT =
   "No record matches all these filters. Drop or broaden them one at a time to find the one that excludes everything.";
 
@@ -117,7 +117,7 @@ export async function runListQuery<T = Row>(opts: {
 /**
  * Up to five stored values of `column` close to `value` (Jaro-Winkler ≥ 0.85
  * on folded text), for a filter that matched nothing: "Tidjaniya" → the
- * archive's "Tijaniyya". Pipe-joined columns are exploded first. Empty when
+ * collection's "Tijaniyya". Pipe-joined columns are exploded first. Empty when
  * the column is absent or nothing is close.
  */
 export async function nearMissValues(

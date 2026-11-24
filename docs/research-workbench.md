@@ -82,7 +82,7 @@ restores the original literal query.
 Coverage's annotation count means at least one model has a polarity label.
 Nonempty embeddings and available OCR are availability measures, not quality
 certificates. Missing columns are disclosed in `metrics`; a blank heatmap cell
-is not a historical zero. The archive does not establish a newspaper's complete
+is not a historical zero. The collection does not establish a newspaper's complete
 publication lifetime. Cropped cells and absent metadata cannot establish that an
 event or source was absent.
 

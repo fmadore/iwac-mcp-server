@@ -32,7 +32,7 @@ keywords:
   - Model Context Protocol
   - MCP server
   - digital humanities
-  - digital archive
+  - digital collection
   - Islam
   - West Africa
   - Benin
@@ -53,7 +53,7 @@ references:
         orcid: "https://orcid.org/0000-0003-0959-2092"
     year: 2026
     url: "https://islam.zmo.de/s/westafrica/"
-    notes: "The archive this server reads from."
+    notes: "The collection this server reads from."
   - type: data
     title: "Islam West Africa Collection (Hugging Face dataset)"
     authors:

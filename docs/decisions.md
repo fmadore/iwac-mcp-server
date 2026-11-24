@@ -7,7 +7,7 @@ items in [TODO.md](../TODO.md).
 
 | # | Decision |
 |---|---|
-| D1 | **Read-only.** No tool writes to the archive or the dataset. |
+| D1 | **Read-only.** No tool writes to the collection or the dataset. |
 | D2 | **Data from the Hugging Face dataset**, lazily downloaded per subset and queried through DuckDB views; the server never queries islam.zmo.de's Omeka S at request time. |
 | D3 | **Every result carries its canonical `url`** on islam.zmo.de; citations use it. |
 | D4 | **Public by default.** The private full mirror needs an explicit opt-in, and HTTP mode serves it only with a second flag (`IWAC_ALLOW_PRIVATE_HTTP`). |

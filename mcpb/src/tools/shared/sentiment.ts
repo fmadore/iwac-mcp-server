@@ -33,7 +33,7 @@ export interface SentimentModel {
  * that and claude-haiku-5-5 reaches past it; see their entries below.
  *
  * Generation 1 (`gemini-3-flash-preview`, `gpt-5-mini`, `ministral-14b-2512`) is
- * NOT served here. Its columns still exist on the Hub, but the archive's own
+ * NOT served here. Its columns still exist on the Hub, but the collection's own
  * annotations were emptied on 2026-08-07 and the two generations differ in
  * model, prompt AND subjectivity dtype — so mixing them in one vocabulary would
  * put cross-model comparisons one typo away from confounding all three. Retired

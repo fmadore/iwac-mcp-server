@@ -8,7 +8,7 @@ import fc from "fast-check";
 
 import { extractMatchingTocEntries, foldText, keywordExcerpts, keywordTerms } from "../src/tools/_shared.js";
 
-/** Characters the archive's French press and Arabic transliteration actually use. */
+/** Characters the collection's French press and Arabic transliteration actually use. */
 const ARCHIVE_CHARS = [..."aàâäeéèêëiîïoôöuùûücçœæAÉÈÇŒİIıẞßḥḤṣṢṭẓāīūĀĪŪʿʾ'’-«» ., ;:\n0123456789"];
 const archiveText = fc.string({ unit: fc.constantFrom(...ARCHIVE_CHARS), maxLength: 400 });
 const anyText = fc.oneof(archiveText, fc.string({ unit: "grapheme", maxLength: 200 }));

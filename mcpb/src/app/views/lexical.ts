@@ -72,7 +72,7 @@ export function lexicalView(p: LexicalPayload): ViewResult {
         : null,
       "MATTR is a moving-average type-token ratio and is already length-robust: comparing it across groups of " +
         "different article lengths is valid, and normalising it by word count would not be.",
-      "The scores are computed upstream from the archive's own OCR, so they cover articles whose full text this " +
+      "The scores are computed upstream from the collection's own OCR, so they cover articles whose full text this " +
         "dataset does not ship.",
       p.note,
     ],

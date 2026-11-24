@@ -57,7 +57,7 @@ executes both desktop bundles on their native platforms.
   contract applies (`keywordTerms` in `src/tools/shared/filters.ts`).
 - **Every result keeps its canonical `url`.** A result a user cannot cite back
   to islam.zmo.de is a regression.
-- **Read-only stays read-only.** No tool writes to the archive.
+- **Read-only stays read-only.** No tool writes to the collection.
 - **`manifest.json` and the tool surface stay in sync.** The fixture tests
   derive the expected tool list from the manifest.
 

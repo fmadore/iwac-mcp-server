@@ -93,7 +93,7 @@ export function registerPrompts(server: Server): void {
     {
       title: "IWAC research workflow",
       description:
-        "Run a structured, source-cited investigation of the IWAC archive at a chosen depth (brief or " +
+        "Run a structured, source-cited investigation of the IWAC collection at a chosen depth (brief or " +
         "extended), following the five-phase method: scope, search, read, triangulate, synthesise.",
       argsSchema: z.object({
         question: z.string().describe("The research question, in any language"),
@@ -122,7 +122,7 @@ export function registerPrompts(server: Server): void {
                 `${LANGUAGE_RULE}\n\n${CITATION_RULE}\n\n${COVERAGE_RULE}\n\n` +
                 "Counting is not fetching: use `total_matches` and the distribution tools to answer " +
                 "how much / when / what tone, and reserve full-text reads for the triaged finalists. " +
-                "Finish with 3-4 follow-up questions the archive could actually answer." +
+                "Finish with 3-4 follow-up questions the collection could actually answer." +
                 (extended ? "" : " Mention that an extended analysis is available if they want more depth."),
             },
           },

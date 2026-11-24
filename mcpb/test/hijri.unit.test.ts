@@ -21,7 +21,7 @@ describe("resolveHijriMonth", () => {
     assert.equal(resolveHijriMonth("12").n, 12);
   });
 
-  it("accepts the academic transliteration the archive uses", () => {
+  it("accepts the academic transliteration the collection uses", () => {
     assert.equal(resolveHijriMonth("Ramadan").n, 9);
     assert.equal(resolveHijriMonth("Dhu al-Hijja").n, 12);
     assert.equal(resolveHijriMonth("Muharram").n, 1);

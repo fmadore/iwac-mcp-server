@@ -45,7 +45,7 @@ In scope:
 
 Out of scope:
 
-- The content of the archive itself. IWAC is published material, and the tools
+- The content of the collection itself. IWAC is published material, and the tools
   are read-only by design — the server has no write path to the dataset. Requests
   about the *content* (takedowns, corrections, rights) belong on
   [islam.zmo.de](https://islam.zmo.de/s/westafrica/), not here.

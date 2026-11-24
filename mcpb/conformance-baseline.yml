@@ -11,7 +11,7 @@
 #
 # Triage, 28 October 2026: every entry is a check that calls the suite's own
 # reference fixtures (test_* tools, prompts and test:// resources, or
-# diagnostic hooks). This read-only archive server does not and should not
+# diagnostic hooks). This read-only collection server does not and should not
 # expose them. IWAC's own prompts, completion, resources and resource templates
 # are covered by test/fixture-client.test.mjs and test/fixture-server.test.mjs.
 #

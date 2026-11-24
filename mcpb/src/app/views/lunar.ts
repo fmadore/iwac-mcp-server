@@ -5,7 +5,7 @@ import type { LunarPayload } from "../../viewContract.js";
 // Hijri year drifts ~11 days against the Gregorian, so over the collection's
 // 1961-2025 range a single lunar month smears across all twelve Gregorian ones:
 // on `temporal` the Ramadan signal is spread so thin it is invisible. Pooling
-// by lunar month instead concentrates it, and the archive's observance rhythm —
+// by lunar month instead concentrates it, and the collection's observance rhythm —
 // Ramadan, Dhu al-Hijja (hajj and Tabaski), Shawwal (Korité) — appears.
 //
 // FORM. Twelve fixed named categories whose job is magnitude against a

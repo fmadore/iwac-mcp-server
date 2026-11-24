@@ -210,7 +210,7 @@ interactive charts rather than JSON.
 `granularity="lunar_month"` it pools every year into the twelve lunar months —
 the one bucket a Gregorian axis structurally cannot produce, because the Hijri
 year drifts ~11 days annually and so smears each observance across all twelve
-Gregorian months. Over the 16,579 fully-dated articles the archive's rhythm is
+Gregorian months. Over the 16,579 fully-dated articles the collection's rhythm is
 plain: Ramadan +73%, Dhu al-Hijja +68% (hajj and Tabaski) and Shawwal +42%
 (Korité) against an even split, while Rabi' I (Maouloud) sits flat. `search_articles`
 and `search_publications` take `hijri_month` (1–12 or a name in either
@@ -233,7 +233,7 @@ e.g. `https://islam.zmo.de/s/afrique_ouest/item/28576`.
 
 ## About the collection
 
-IWAC is a digital archive focused on Islam and Muslims in West Africa:
+IWAC is a digital collection focused on Islam and Muslims in West Africa:
 
 - **16,700+ newspaper articles** from Benin, Burkina Faso, Côte d'Ivoire, Niger,
   and Togo, 1961 to the present (mostly French), each with an AI abstract. The
@@ -372,7 +372,7 @@ ran, take the per-version DOI from the
 
 If the software helped you reach a finding, please cite the
 [collection itself](https://islam.zmo.de/s/westafrica/) as well — that is where
-the archival work lives.
+the curatorial work lives.
 
 ## License
 
@@ -381,5 +381,5 @@ the archival work lives.
 ## Related
 
 - [IWAC Hugging Face Dataset](https://huggingface.co/datasets/fmadore/islam-west-africa-collection)
-- [IWAC Digital Archive](https://islam.zmo.de/s/westafrica/)
+- [IWAC digital collection](https://islam.zmo.de/s/westafrica/)
 - [Desktop Extensions spec (MCPB)](https://github.com/modelcontextprotocol/mcpb)

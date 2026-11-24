@@ -163,7 +163,7 @@ export function registerResearchTools(server: Server): void {
       annotations: annotate(),
       _meta: CHARTS_UI_META,
       description:
-        "Selection workbench: items, concordance, coverage, compare (requires comparison), attention, aliases, or paginated manifest/CSL-JSON/BibTeX exports. Exact filters intersect. limit/offset also page compare/coverage/attention cells. Coverage measures archive availability. Exports identify this page and dataset snapshot; compare snapshot IDs across pages. Schema discovery: iwac://datasets/{subset}.",
+        "Selection workbench: items, concordance, coverage, compare (requires comparison), attention, aliases, or paginated manifest/CSL-JSON/BibTeX exports. Exact filters intersect. limit/offset also page compare/coverage/attention cells. Coverage measures collection availability. Exports identify this page and dataset snapshot; compare snapshot IDs across pages. Schema discovery: iwac://datasets/{subset}.",
       inputSchema: z.strictObject({
         mode: z.enum(["items", "concordance", "coverage", "compare", "attention", "aliases", ...EXPORT_MODES]).default("items"),
         subset: z.enum(ALL_SUBSETS as [Subset, ...Subset[]]).default("articles"),
