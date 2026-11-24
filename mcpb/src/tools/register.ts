@@ -25,6 +25,9 @@ import { registerPrompts } from "../prompts.js";
 import { errorResult, type Server } from "./_shared.js";
 import { config } from "../config.js";
 import { allowedTools } from "../toolProfiles.js";
+import { MAX_INPUT_STRING_CHARS, overlongString } from "./shared/limits.js";
+
+export { MAX_INPUT_STRING_CHARS, overlongString };
 
 /** Register all IWAC tools, resources and prompts, grouped by domain. */
 function registerAll(server: Server): void {
@@ -56,32 +59,6 @@ function registerAll(server: Server): void {
  */
 export const ALWAYS_LOAD = new Set(["search", "fetch", "get_collection_stats"]);
 const ALWAYS_LOAD_META_KEY = "anthropic/alwaysLoad";
-
-/**
- * Longest string any argument may carry. Not advertised as `maxLength` in the
- * schemas: ~150 string fields would add ~900 tokens to every turn, past the
- * footprint ceiling, for a bound no legitimate call comes near (the longest
- * real inputs are semantic queries describing a photograph). Checked here, once,
- * for every tool and nested field, before any query runs.
- */
-export const MAX_INPUT_STRING_CHARS = 2_000;
-
-/** The path of the first string in `value` longer than `max`, if any. */
-export function overlongString(value: unknown, max = MAX_INPUT_STRING_CHARS, path = ""): string | undefined {
-  if (typeof value === "string") return value.length > max ? path || "(argument)" : undefined;
-  if (Array.isArray(value)) {
-    for (const [i, item] of value.entries()) {
-      const hit = overlongString(item, max, `${path}[${i}]`);
-      if (hit) return hit;
-    }
-  } else if (value && typeof value === "object") {
-    for (const [key, item] of Object.entries(value)) {
-      const hit = overlongString(item, max, path ? `${path}.${key}` : key);
-      if (hit) return hit;
-    }
-  }
-  return undefined;
-}
 
 type ToolCallback = Parameters<McpServer["registerTool"]>[2];
 type ToolExtra = Parameters<ToolCallback>[1];

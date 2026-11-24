@@ -6,6 +6,7 @@ import { aggregateFilters } from "../src/tools/aggregates/shared.js";
 import { allTermsFilter, equalsFilterIfExists, likeFilterIfExists, pipeValueFilterIfExists } from "../src/tools/shared/filters.js";
 import type { Bindable } from "../src/db.js";
 import { tokenize } from "../src/tools/search.js";
+import { paginated, PAGE_CHAR_BUDGET } from "../src/tools/shared/pagination.js";
 
 test("blank keyword selections are rejected and excerpt helpers remain bounded", () => {
   for (const keyword of ["", " ", "\n\t"]) {
@@ -82,4 +83,20 @@ test("whitespace-only exact filters add no predicate instead of matching empty c
     assert.equal(where.length, 1, helper.name);
     assert.ok(String(params[0]).includes("Hadj") && !String(params[0]).includes(" Hadj"), helper.name);
   }
+});
+
+// #71: search_publications read each issue's table of contents (median 7k
+// characters), measured the page budget on it, then dropped it, so a 20-row
+// keyword page stopped after 5 to 7 rows. The row transform runs first.
+test("the page budget measures rows after the caller's transform", async () => {
+  const sql = `SELECT i AS id, repeat('x', ${Math.ceil(PAGE_CHAR_BUDGET / 5)}) AS toc FROM range(20) t(i) ORDER BY i`;
+  const limit = { value: 20, requested: 20, capped: false, max: 50 };
+  const raw = await paginated<Record<string, unknown>>("SELECT 20", [], sql, [], 0, limit);
+  assert.ok(raw.count < 20 && raw.response_limited, "untransformed rows hit the budget");
+  const shaped = await paginated<Record<string, unknown>>("SELECT 20", [], sql, [], 0, limit, (r) => {
+    delete r.toc;
+  });
+  assert.equal(shaped.count, 20);
+  assert.equal(shaped.response_limited, undefined);
+  assert.equal(shaped.has_more, false);
 });

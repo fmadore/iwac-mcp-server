@@ -13,6 +13,7 @@ import {
   countryParam,
   errorResult,
   extractMatchingTocEntries,
+  itemUrl,
   keywordExcerpts,
   noteIgnoredOffset,
   pagedBody,
@@ -84,8 +85,13 @@ export function registerPublicationTools(server: Server): void {
       if (selection.err) return errorResult(selection.err);
       const { where, params } = selection;
 
-      // With a keyword, pull the TOC too so matching entries can be extracted
-      // below; without one it is dead weight on every row.
+      // With a keyword, pull the TOC too so matching entries can be extracted;
+      // without one it is dead weight on every row. The extraction runs as the
+      // page's row transform, so the page budget measures the matching entries
+      // the caller gets, not the whole TOC (median 7k characters) it drops.
+      const needles = args.keyword_aliases?.length
+        ? [args.keyword ?? "", ...args.keyword_aliases]
+        : keywordTerms(args.keyword, args.keyword_mode);
       const env = await runListQuery<Record<string, unknown>>({
         subset: "publications",
         where,
@@ -94,18 +100,15 @@ export function registerPublicationTools(server: Server): void {
         orderBy: pubDateOrder(schema),
         limit,
         offset,
+        transform: args.keyword
+          ? (r) => {
+              const toc = r.table_of_contents ? String(r.table_of_contents) : "";
+              const matching = extractMatchingTocEntries(toc, needles);
+              delete r.table_of_contents;
+              if (matching) r.matching_toc_entries = matching;
+            }
+          : undefined,
       });
-      if (args.keyword) {
-        const needles = args.keyword_aliases?.length
-          ? [args.keyword, ...args.keyword_aliases]
-          : keywordTerms(args.keyword, args.keyword_mode);
-        for (const r of env.results) {
-          const toc = r.table_of_contents ? String(r.table_of_contents) : "";
-          const matching = extractMatchingTocEntries(toc, needles);
-          delete r.table_of_contents;
-          if (matching) r.matching_toc_entries = matching;
-        }
-      }
       if (env.total_matches === 0) Object.assign(env, await didYouMean("publications", schema, args));
       return textResult(env);
     },
@@ -176,15 +179,19 @@ export function registerPublicationTools(server: Server): void {
       const cols = selectList(schema, [
         ['"o:id"', "id", ["o:id"]],
         "title",
+        ["iwac_url", "url", ["iwac_url"]],
         "tableOfContents",
         ['"OCR"', "fulltext", ["OCR"]],
       ]);
       const row = await getById("publications", cols, args.publication_id);
       if (!row) return errorResult({ error: `Publication ${args.publication_id} not found` });
 
+      // D3: every result carries its canonical url, so a quoted issue is citable.
+      const storedUrl = typeof row.url === "string" ? row.url.trim() : "";
       const result: Record<string, unknown> = {
         id: args.publication_id,
         title: row.title ?? "",
+        url: storedUrl || itemUrl(String(args.publication_id)),
       };
       // Once per issue: a reader following next_offset through a 45-part issue
       // already has the contents from the first part.

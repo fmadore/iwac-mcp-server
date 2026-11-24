@@ -103,6 +103,9 @@ test("a linked export returns a resource link that reads the whole selection", a
     equal(JSON.parse(read.contents[0].text).length, total, "the file holds the whole selection");
     equal(JSON.parse(read.contents[1].text).provenance.snapshot_id.length, 64, "with its manifest");
     await rejects(client.readResource({ uri: "iwac://export/csl_json/articles/not-json" }), /base64url JSON|selection/);
+    // #71: resources/read gets the same string-length guard as tools/call.
+    const overlong = Buffer.from(JSON.stringify({ keyword: "x".repeat(2_001) })).toString("base64url");
+    await rejects(client.readResource({ uri: `iwac://export/csl_json/articles/${overlong}` }), /keyword exceeds 2000 characters/);
   });
 });
 

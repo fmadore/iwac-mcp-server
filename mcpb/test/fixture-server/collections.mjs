@@ -13,7 +13,12 @@ export async function collectionChecks({ call }) {
     },
   });
   await call("get_publication_fulltext", { publication_id: 203, keyword: "pelerinage" }, {
-    check: (p) => (p.match_count >= 1 ? null : "unaccented keyword found nothing in publication OCR"),
+    check: (p) => {
+      if (p.match_count < 1) return "unaccented keyword found nothing in publication OCR";
+      // #71 / D3: the issue a model quotes from must be citable.
+      if (!String(p.url ?? "").endsWith("/203")) return `get_publication_fulltext must carry the canonical url, got ${p.url}`;
+      return null;
+    },
   });
   // The contents come with the first part only, not again with each of an
   // issue's (up to 45) later parts.

@@ -49,6 +49,7 @@ export async function paginated<T>(
   pageParams: Bindable[],
   offset: number,
   limit: ResolvedLimit,
+  transform?: (row: T) => void,
 ): Promise<PaginationEnvelope<T>> {
   // Independent scans of the same view: run them side by side (db.ts gives
   // each its own connection) rather than paying for both in turn.
@@ -62,6 +63,9 @@ export async function paginated<T>(
   const results: T[] = [];
   let chars = 0;
   for (const row of rows as unknown as T[]) {
+    // Shape the row first: the budget must measure what the caller returns,
+    // not columns it reads and then drops (#71).
+    transform?.(row);
     const size = rowChars(row);
     if (results.length && chars + size > PAGE_CHAR_BUDGET) break;
     results.push(row);
@@ -97,13 +101,15 @@ export async function runListQuery<T = Row>(opts: {
   orderBy: string;
   limit: ResolvedLimit;
   offset: number;
+  /** Reshapes each row in place before the page budget measures it. */
+  transform?: (row: T) => void;
 }): Promise<PaginationEnvelope<T>> {
-  const { subset, where, params, cols, orderBy, limit, offset } = opts;
+  const { subset, where, params, cols, orderBy, limit, offset, transform } = opts;
   const view = viewName(subset);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const countSql = `SELECT COUNT(*) FROM ${view} ${whereSql}`;
   const pageSql = `SELECT ${cols} FROM ${view} ${whereSql} ${orderBy} LIMIT ${limit.value} OFFSET ${offset}`;
-  const env = await paginated<T>(countSql, params, pageSql, params, offset, limit);
+  const env = await paginated<T>(countSql, params, pageSql, params, offset, limit, transform);
   if (env.total_matches === 0 && where.length) env.hint = EMPTY_FILTER_HINT;
   return env;
 }

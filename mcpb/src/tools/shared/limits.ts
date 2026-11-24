@@ -52,3 +52,29 @@ export function limitWarning(limit: ResolvedLimit): Record<string, unknown> {
   };
 }
 
+/**
+ * Longest string any argument may carry. Not advertised as `maxLength` in the
+ * schemas: ~150 string fields would add ~900 tokens to every turn, past the
+ * footprint ceiling, for a bound no legitimate call comes near (the longest
+ * real inputs are semantic queries describing a photograph). Checked once, for
+ * every tool and nested field, before any query runs (wrapToolCallback in
+ * register.ts), and on the decoded selection of an iwac://export resource.
+ */
+export const MAX_INPUT_STRING_CHARS = 2_000;
+
+/** The path of the first string in `value` longer than `max`, if any. */
+export function overlongString(value: unknown, max = MAX_INPUT_STRING_CHARS, path = ""): string | undefined {
+  if (typeof value === "string") return value.length > max ? path || "(argument)" : undefined;
+  if (Array.isArray(value)) {
+    for (const [i, item] of value.entries()) {
+      const hit = overlongString(item, max, `${path}[${i}]`);
+      if (hit) return hit;
+    }
+  } else if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      const hit = overlongString(item, max, path ? `${path}.${key}` : key);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}

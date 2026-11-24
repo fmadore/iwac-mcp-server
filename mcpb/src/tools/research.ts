@@ -9,6 +9,7 @@ import { aggregateFilters, filterInputs } from "./aggregates/shared.js";
 import { bodyColumn, embeddingColumn } from "./shared/research.js";
 import { colsFor, itemUrl, TITLE_COL } from "./shared/fields.js";
 import { keywordTerms } from "./shared/filters.js";
+import { MAX_INPUT_STRING_CHARS, overlongString } from "./shared/limits.js";
 import { annotate, errorResult, type Server } from "./_shared.js";
 import { CHARTS_UI_META } from "./appUi.js";
 import { SENTIMENT_MODELS, sentimentCols } from "./shared/sentiment.js";
@@ -123,6 +124,10 @@ function registerExportResource(server: Server): void {
       } catch {
         throw new ProtocolError(INVALID_PARAMS, "The export selection is not valid base64url JSON");
       }
+      // tools/call runs this guard in wrapToolCallback; resources/read does not.
+      const overlong = overlongString(decoded);
+      if (overlong)
+        throw new ProtocolError(INVALID_PARAMS, `The export selection's ${overlong} exceeds ${MAX_INPUT_STRING_CHARS} characters`);
       const parsed = selectionSchema.safeParse(decoded);
       if (!parsed.success) throw new ProtocolError(INVALID_PARAMS, "The export selection does not match explore_corpus");
       return withRequest(context.mcpReq.signal, async () => {
