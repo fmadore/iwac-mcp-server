@@ -255,7 +255,12 @@ try {
   if (noAuth.headers.has("access-control-allow-origin")) fail("an Origin-less request should get no CORS headers");
   const corsParseError = await fetch(`${BASE}/mcp`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}`, Origin: ALLOWED_ORIGIN },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${TOKEN}`,
+      Origin: ALLOWED_ORIGIN,
+    },
     body: "not json",
   });
   if (corsParseError.status !== 400) fail(`parse error with Origin should 400, got ${corsParseError.status}`);
@@ -306,8 +311,9 @@ try {
     }
   }
 
-  // The v2 handler owns protocol/media validation. These raw checks guard the
-  // adapter boundary around it, including the local pre-parsing of JSON bodies.
+  // The v2 handler owns body reading and protocol/media validation. These raw
+  // checks guard that boundary: a non-JSON body with a non-JSON type is a 415
+  // (not a parse error), and invalid JSON never reflects the request.
   const wrongMediaType = await fetch(`${BASE}/mcp`, {
     method: "POST",
     headers: {
@@ -315,19 +321,19 @@ try {
       Accept: "application/json, text/event-stream",
       Authorization: `Bearer ${TOKEN}`,
     },
-    body: "{}",
+    body: "not json at all",
   });
   if (wrongMediaType.status !== 415) fail(`non-JSON MCP POST should 415, got ${wrongMediaType.status}`);
 
   const parseSentinel = "not-json-DO_NOT_REFLECT";
   const invalidJson = await fetch(`${BASE}/mcp`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${TOKEN}` },
     body: parseSentinel,
   });
   const invalidJsonBody = await invalidJson.text();
   if (invalidJson.status !== 400) fail(`invalid JSON should 400, got ${invalidJson.status}`);
-  if (!invalidJsonBody.includes('"code":-32700') || !invalidJsonBody.includes('"message":"Parse error"')) {
+  if (!invalidJsonBody.includes('"code":-32700') || !invalidJsonBody.includes("Parse error")) {
     fail(`invalid JSON should return a stable JSON-RPC parse error, got ${invalidJsonBody.slice(0, 200)}`);
   }
   if (invalidJsonBody.includes(parseSentinel)) fail("parse error reflected attacker-controlled request text");

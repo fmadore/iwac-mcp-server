@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ensureView, query, queryScalarSingle, viewName } from "../../db.js";
 import type { Subset } from "../../config.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
-import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
+import { COUNTRIES, errorResult, sourceYears, toolMeta, validateEnum, type Server } from "../_shared.js";
 import { aggregateFilters, filterInputs, withScope } from "./shared.js";
 
 const TOPIC_OUTPUT = z.object({
@@ -116,7 +116,7 @@ export function registerTopicsTools(server: Server): void {
           const topN = Math.max(1, Math.min(15, args.top_n ?? 8));
           const leading = rows.slice(0, topN).map((r) => String(r.label));
           const perYear = await query(
-            `SELECT NULLIF(substr(CAST(pub_date AS VARCHAR), 1, 4), '') AS bucket,
+            `SELECT ${sourceYears().bucket} AS bucket,
                     lda_topic_label AS label, COUNT(*) AS c
              FROM ${viewName(subset)} ${topicWhereSql}
              GROUP BY ALL ORDER BY bucket`,

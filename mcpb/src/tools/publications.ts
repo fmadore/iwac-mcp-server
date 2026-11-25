@@ -1,5 +1,6 @@
 import { aggregateFilters, exactInput } from "./aggregates/shared.js";
 import { chartResult } from "./shared/chartResults.js";
+import { MAX_INPUT_STRING_CHARS } from "./shared/limits.js";
 import { z } from "zod";
 import { ensureView, getById, query, selectList, viewName, type Bindable } from "../db.js";
 import { config } from "../config.js";
@@ -21,6 +22,7 @@ import {
   pubDateOrder,
   resolveLimit,
   runListQuery,
+  sourceYears,
   didYouMean,
   keywordTerms,
   textOffsetParam,
@@ -138,8 +140,7 @@ export function registerPublicationTools(server: Server): void {
       const params: Bindable[] = [];
       pipeValueFilterIfExists(schema, where, params, "country", country.canonical);
       const dateCols = schema.has("pub_date")
-        ? `, MIN(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS earliest_year,` +
-          ` MAX(TRY_CAST(substr("pub_date", 1, 4) AS INTEGER)) AS latest_year`
+        ? `, MIN(${sourceYears().first}) AS earliest_year,` + ` MAX(${sourceYears().last}) AS latest_year`
         : "";
       const whereSql = `WHERE ${where.join(" AND ")}`;
       const rows = await query(
@@ -200,7 +201,6 @@ export function registerPublicationTools(server: Server): void {
 
       const ocr = (row.fulltext as string | null) ?? "";
       if (!ocr.trim()) {
-        result.fulltext = null;
         result.note = "No OCR text available for this publication";
         return textResult(result);
       }
@@ -236,7 +236,7 @@ export function registerPublicationTools(server: Server): void {
         "Vendredi, 130 of 695 Islam Info issues): use search_publications for the rest. Rows show the first " +
         `600 characters of each table. Query in any language. ${SEMANTIC_NOTE}`,
       inputSchema: z.strictObject({
-        query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
+        query: z.string().trim().min(1).max(MAX_INPUT_STRING_CHARS).describe("Natural-language query, any language"),
         country: countryParam(),
         limit: z.number().int().optional().describe("Default 10, max 50"),
       }),

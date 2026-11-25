@@ -188,7 +188,7 @@ export function registerSentimentTools(server: Server): void {
             error: `This dataset revision has no ${f.column} column, so ${f.field} cannot be filtered`,
           });
         }
-        where.push(foldedEquals(f.column));
+        where.push(foldedEquals(q(f.column)));
         params.push(f.value);
       }
       // Asked for and unavailable is an error, not a dropped clause: the whole

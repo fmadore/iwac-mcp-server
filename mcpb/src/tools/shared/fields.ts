@@ -278,8 +278,8 @@ export const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
   ],
 
   index: [
-    ...ID_URL(["detail", "fetch", "summary", "list"]),
-    { expr: '"Titre"', alias: "title", requires: ["Titre"], views: ["detail", "fetch", "summary", "list"], searchable: true },
+    ...ID_URL(["fetch", "summary", "list"]),
+    { expr: '"Titre"', alias: "title", requires: ["Titre"], views: ["fetch", "summary", "list"], searchable: true },
     // Pipe-separated aliases — the columns that make a search for "Dahomey"
     // resolve to "Bénin". Carried in search results only.
     {
@@ -289,18 +289,18 @@ export const SUBSET_FIELDS: Record<Subset, SubsetField[]> = {
       views: ["summary"],
       searchable: true,
     },
-    { expr: '"Type"', alias: "type", requires: ["Type"], views: ["detail", "fetch", "summary"] },
-    { expr: "frequency", views: ["detail", "fetch", "summary", "list"] },
-    { expr: "first_occurrence", views: ["detail", "fetch", "summary"] },
-    { expr: "last_occurrence", views: ["detail", "fetch", "summary"] },
+    { expr: '"Type"', alias: "type", requires: ["Type"], views: ["fetch", "summary"] },
+    { expr: "frequency", views: ["fetch", "summary", "list"] },
+    { expr: "first_occurrence", views: ["fetch", "summary"] },
+    { expr: "last_occurrence", views: ["fetch", "summary"] },
     // The uncountried lists (list_subjects) omit this; the country-filtered ones
     // return it so the caller can see WHY an entry matched.
-    { expr: "countries", views: ["detail", "fetch", "summary", "listCountries"] },
+    { expr: "countries", views: ["fetch", "summary", "listCountries"] },
     {
       expr: '"Description"',
       alias: "description",
       requires: ["Description"],
-      views: ["detail", "fetch", "summary", "list"],
+      views: ["fetch", "summary", "list"],
       body: true,
       searchable: true,
     },

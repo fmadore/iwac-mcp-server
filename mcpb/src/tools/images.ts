@@ -8,6 +8,7 @@
 // 768-dim space as the text embeddings, so a French text query retrieves photos
 // directly (semantic_search_images) without any caption to match against.
 import { z } from "zod";
+import { MAX_INPUT_STRING_CHARS } from "./shared/limits.js";
 import { ensureView, type Bindable } from "../db.js";
 import { config } from "../config.js";
 import { requireSemanticFilters, runSemanticSearchTool, SEMANTIC_NOTE } from "./_semantic.js";
@@ -122,7 +123,7 @@ export function registerImageTools(server: Server): void {
         "photograph itself, not against a caption, so it works even though only 2 of the 30 images have one. " +
         SEMANTIC_NOTE,
       inputSchema: z.strictObject({
-        query: z.string().trim().min(1).max(8192).describe("Description of the visual content, any language"),
+        query: z.string().trim().min(1).max(MAX_INPUT_STRING_CHARS).describe("Description of the visual content, any language"),
         country: countryParam({ nigeria: true }),
         limit: z.number().int().optional().describe("Default 10, max 30"),
       }),

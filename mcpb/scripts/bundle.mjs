@@ -78,6 +78,58 @@ const stubZodLocales = {
   },
 };
 
+// --- Dead third-party code in the UI bundle --------------------------------
+// The chart iframe imports `Protocol` from ext-apps, which pulls in
+// @modelcontextprotocol/client. That package declares no `sideEffects`, so
+// esbuild keeps every chunk it reaches, including OAuth, `Client`, discovery
+// and a Cloudflare Workers schema validator the iframe never runs (~70 KB).
+// Marking the package's own files side-effect-free lets tree-shaking drop
+// them. Redirecting the package to a shim is not an option: `Protocol` lives in
+// a hashed chunk under a mangled name and would break on every SDK release.
+// UI build only: the server bundle does not import the client at all.
+const RESOLVING = Symbol("iwac-client-side-effects");
+const clientSideEffectFree = {
+  name: "client-side-effect-free",
+  setup(build) {
+    build.onResolve({ filter: /.*/ }, async (args) => {
+      if (args.pluginData?.[RESOLVING]) return null;
+      const fromClient = /[\\/]@modelcontextprotocol[\\/]client[\\/]/.test(args.importer);
+      if (!fromClient && !args.path.startsWith("@modelcontextprotocol/client")) return null;
+      const resolved = await build.resolve(args.path, {
+        kind: args.kind,
+        importer: args.importer,
+        resolveDir: args.resolveDir,
+        pluginData: { [RESOLVING]: true },
+      });
+      if (resolved.errors.length || !/[\\/]@modelcontextprotocol[\\/]client[\\/]/.test(resolved.path)) return null;
+      return { path: resolved.path, sideEffects: false };
+    });
+  },
+};
+
+// Two zod modules the iframe never calls survive because zod's index
+// re-exports them: the explicit `z.compile()` API and `z.fromJSONSchema()`
+// (~42 KB together). Each is replaced by a module with the same exports that
+// throws if ever reached, so a future use fails loudly instead of silently.
+const ZOD_UNUSED = {
+  "/zod/v4/core/compile.js":
+    'const off=()=>{throw new Error("zod compile() is stubbed out of the chart bundle by scripts/bundle.mjs")};' +
+    'export const INVALID=Symbol.for("zod.compile.invalid");export class ZodCompileAsyncError extends Error{}' +
+    "export class ZodCompileUnsupportedError extends Error{}export const compile=off,withParser=off,compileFn=off;",
+  "/zod/v4/classic/from-json-schema.js":
+    'export function fromJSONSchema(){throw new Error("zod fromJSONSchema() is stubbed out of the chart bundle by scripts/bundle.mjs")}',
+};
+const stubUnusedZod = {
+  name: "stub-unused-zod",
+  setup(build) {
+    build.onLoad({ filter: /(?:compile|from-json-schema)\.js$/ }, (args) => {
+      const path = args.path.replaceAll("\\", "/");
+      const key = Object.keys(ZOD_UNUSED).find((suffix) => path.endsWith(suffix));
+      return key ? { contents: ZOD_UNUSED[key], loader: "js" } : null;
+    });
+  },
+};
+
 // --- MCP App UI ------------------------------------------------------------
 // The whole chart suite is bundled to a single IIFE and inlined into ONE
 // self-contained HTML string, then injected into the server bundle as a define.
@@ -97,7 +149,7 @@ const ui = await esbuild.build({
   target: "es2020",
   minify: true,
   legalComments: "none",
-  plugins: [stubZodLocales],
+  plugins: [stubZodLocales, clientSideEffectFree, stubUnusedZod],
   define: { __IWAC_VERSION__: JSON.stringify(pkg.version) },
   write: false,
   metafile: true,

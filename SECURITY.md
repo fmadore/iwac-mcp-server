@@ -73,13 +73,19 @@ Worth knowing when assessing impact:
   OpenAI-compatible endpoint they configure; its credential stays server-side.
   `IWAC_SEMANTIC_SEARCH_ENABLED=false` removes the tools entirely.
 
-## Dependency exception reviewed 2026-10-02
+## Dependency exception reviewed 2026-11-25
 
-`@anthropic-ai/mcpb@2.1.2` uses `node-forge@1.4.0` in the development-only
-packaging/signing toolchain. [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv)
-has no patched release at this review. The production dependency audit is clean;
-`node-forge` is not included in the runtime container or server bundle. Packaging
-must use repository-controlled inputs, and this exception does not authorize
-processing untrusted certificates or archives. Recheck on each mcpb/forge update
-and remove the exception when a compatible fix exists. Do not force an unrelated
-major upgrade or suppress all audit findings to hide this one.
+`@anthropic-ai/mcpb@2.1.2`, the development-only packaging and signing
+toolchain, nests its own `zod@3` (it requires `^3.25.67`), which is affected by
+[GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
+(memory exhaustion while validating oversized constrained collections). 2.1.2 is
+the latest mcpb release, so no fix is available through it. The nested copy never
+ships: the server bundle inlines the top-level `zod@4.6.7`, which is not
+affected, and the runtime container installs neither. CI therefore audits the
+runtime tree only (`npm audit --omit=dev`), which is clean. Packaging must use
+repository-controlled inputs. Recheck on each mcpb update and remove this
+exception when it moves to a fixed zod. Do not force an unrelated major upgrade
+or suppress all audit findings to hide this one.
+
+The earlier `node-forge` exception (GHSA-86w9-cpqp-85rv, reviewed 2026-10-02) is
+lifted: the lockfile now resolves `node-forge@1.4.4`, which no advisory affects.

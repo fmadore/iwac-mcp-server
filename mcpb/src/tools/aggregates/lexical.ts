@@ -3,7 +3,7 @@ import { chartResult } from "../shared/chartResults.js";
 import { z } from "zod";
 import { ensureView, q, query, queryScalarSingle, viewName } from "../../db.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
-import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
+import { COUNTRIES, errorResult, sourceYears, toolMeta, validateEnum, type Server } from "../_shared.js";
 import { aggregateFilters, filterInputs, withScope } from "./shared.js";
 
 const GROUP_FIELDS = ["year", "newspaper", "country"] as const;
@@ -65,14 +65,14 @@ export function registerLexicalTools(server: Server): void {
       const { echo } = filters;
       return withScope("articles", filters, Boolean(args.keyword), async ({ params, whereSql }) => {
         const groupExpr =
-          groupBy === "year" ? `NULLIF(substr(CAST(pub_date AS VARCHAR), 1, 4), '')` : `NULLIF(trim(${q(groupBy)}), '')`;
+          groupBy === "year" ? sourceYears().bucket : `NULLIF(trim(${q(groupBy)}), '')`;
 
         // Readability is French-lexicon based, so a Dendi or English item scores
         // as "hard" for reasons that have nothing to do with its prose. Excluding
         // it from THAT metric only is the honest fix: MATTR is a type-token ratio
         // and needs no lexicon, so it stays valid for every language.
         const frenchOnly = schema.has("language")
-          ? `CASE WHEN coalesce(NULLIF(trim(language), ''), 'Français') ILIKE '%français%' THEN "Lisibilite_OCR" END`
+          ? `CASE WHEN strip_accents(lower(coalesce(NULLIF(trim(language), ''), 'Français'))) LIKE '%francais%' THEN "Lisibilite_OCR" END`
           : `"Lisibilite_OCR"`;
 
         const selects = present
@@ -100,7 +100,7 @@ export function registerLexicalTools(server: Server): void {
             ? queryScalarSingle<number | bigint>(
                 `SELECT COUNT(*) FROM ${viewName("articles")} ${whereSql}${whereSql ? " AND" : " WHERE"} ` +
                   `"Lisibilite_OCR" IS NOT NULL AND NULLIF(trim(language), '') IS NOT NULL ` +
-                  `AND language NOT ILIKE '%français%'`,
+                  `AND strip_accents(lower(language)) NOT LIKE '%francais%'`,
                 params,
               )
             : 0,

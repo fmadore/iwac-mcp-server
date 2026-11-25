@@ -15,6 +15,8 @@ import { completable } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { FULLTEXT_PROMPT_RULE } from "./coverage.js";
 import type { Server } from "./tools/_shared.js";
+import { registeredToolNames } from "./tools/register.js";
+import { VIEW_TOOLS } from "./viewContract.js";
 
 const CITATION_RULE =
   "Cite every IWAC item with the full `url` from its result row, rendered as a markdown link — " +
@@ -28,7 +30,7 @@ const LANGUAGE_RULE =
 
 const COVERAGE_RULE =
   "Disclose coverage limits in the write-up: Niger is thin (one newspaper, 2018 on), Nigeria has no press " +
-  "articles at all (audiovisual and photographs only), the press is ~96% francophone, AI sentiment is " +
+  "articles at all (only audiovisual and academic references), the press is ~96% francophone, AI sentiment is " +
   `model-derived rather than editorial ground truth, and ${FULLTEXT_PROMPT_RULE}`;
 
 // Hosts stop a turn after ~20 tool calls ("Claude reached its tool-use limit"),
@@ -43,17 +45,22 @@ const CALL_BUDGET_RULE =
   "that decides whether to read at all. Do not run a family of aggregate tools over the same filter to " +
   "see what turns up; pick the one whose numbers carry the argument.";
 
-// The 13 UI-bearing tools already render a chart for free (see tools/appUi.ts).
-// Rebuilding those numbers as an artifact spends calls on a duplicate, and a
-// host with no MCP Apps support renders nothing at all, so the figures have to
-// survive in prose either way. Mirrors SKILL.md "Charts and Visuals".
-const VISUALS_RULE =
-  "CHARTS: get_collection_stats, get_country_comparison, get_newspaper_stats, get_temporal_distribution, " +
-  "get_sentiment_distribution, get_topic_distribution, get_field_distribution, get_cooccurrence, " +
-  "get_place_distribution, get_lexical_metrics, get_semantic_map, get_similar_items and list_periodicals " +
-  "render their own interactive chart at no extra cost on hosts that support it. Never rebuild those " +
-  "numbers as an artifact or analysis chart, and never call one of these tools just to produce a picture. " +
-  "Quote the figures in prose so the answer also stands where nothing renders.";
+// The UI-bearing tools already render a chart for free (VIEW_TOOLS, checked
+// against tools/appUi.ts by the protocol test). Rebuilding those numbers as an
+// artifact spends calls on a duplicate, and a host with no MCP Apps support
+// renders nothing at all, so the figures have to survive in prose either way.
+// Only registered ones are named: a tool profile can leave some out.
+// Mirrors SKILL.md "Charts and Visuals".
+function visualsRule(tools: ReadonlySet<string>): string {
+  const charts = VIEW_TOOLS.filter((name) => tools.has(name));
+  if (!charts.length) return "";
+  const named = charts.length > 1 ? `${charts.slice(0, -1).join(", ")} and ${charts.at(-1)}` : charts[0];
+  return (
+    `CHARTS: ${named} render their own interactive chart at no extra cost on hosts that support it. ` +
+    "Never rebuild those numbers as an artifact or analysis chart, and never call one of these tools just to " +
+    "produce a picture. Quote the figures in prose so the answer also stands where nothing renders.\n\n"
+  );
+}
 
 const BRIEF_STEPS =
   "1. SCOPE in one parallel batch, calling only what the question needs (get_collection_stats, " +
@@ -118,7 +125,7 @@ export function registerPrompts(server: Server): void {
                 `Research this question using the IWAC MCP tools: ${question}\n\n` +
                 `Depth: ${extended ? "EXTENDED" : "BRIEF"}.\n\n` +
                 `${extended ? EXTENDED_STEPS : BRIEF_STEPS}\n\n` +
-                `${CALL_BUDGET_RULE}\n\n${VISUALS_RULE}\n\n` +
+                `${CALL_BUDGET_RULE}\n\n${visualsRule(registeredToolNames())}` +
                 `${LANGUAGE_RULE}\n\n${CITATION_RULE}\n\n${COVERAGE_RULE}\n\n` +
                 "Counting is not fetching: use `total_matches` and the distribution tools to answer " +
                 "how much / when / what tone, and reserve full-text reads for the triaged finalists. " +

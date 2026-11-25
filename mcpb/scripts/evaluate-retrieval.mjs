@@ -18,7 +18,7 @@ if (!Array.isArray(judgments) || !judgments.length) throw new Error("Provide a n
 const client = new Client({ name: "iwac-retrieval-evaluation", version: "1.0" }),
   transport = new StdioClientTransport({
     command: process.execPath,
-    args: [new URL("../server/index.js", import.meta.url).pathname],
+    args: [fileURLToPath(new URL("../server/index.js", import.meta.url))],
     env: { ...process.env, IWAC_SEMANTIC_SEARCH_ENABLED: "true" },
     stderr: "inherit",
   });
@@ -28,7 +28,7 @@ try {
   for (const example of judgments) {
     const subset = example.subset ?? "articles";
     if (
-      !["articles", "publications", "images"].includes(subset) ||
+      !["articles", "publications", "references", "images"].includes(subset) ||
       typeof example.query !== "string" ||
       !Array.isArray(example.relevant_ids) ||
       !example.relevant_ids.length
@@ -42,7 +42,7 @@ try {
     });
     if (response.isError) throw new Error(response.content[0]?.text ?? "Retrieval failed");
     const payload = response.structuredContent ?? JSON.parse(response.content[0].text);
-    const results = payload.results ?? payload.articles ?? payload.publications ?? payload.images ?? [];
+    const results = payload.results ?? payload.articles ?? payload.publications ?? payload.references ?? payload.images ?? [];
     const ids = results.map((r) => String(r.id).split(":").at(-1));
     const hits = ids.filter((id) => relevant.has(id)).length;
     const dcg = ids.reduce((v, id, i) => v + (relevant.has(id) ? 1 / Math.log2(i + 2) : 0), 0),

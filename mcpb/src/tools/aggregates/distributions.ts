@@ -5,7 +5,7 @@ import { ensureView, q, query, queryOne, queryScalarSingle, viewName } from "../
 import type { Subset } from "../../config.js";
 import { itemAt } from "../../checked.js";
 import { CHARTS_UI_META, VIEW } from "../appUi.js";
-import { COUNTRIES, errorResult, toolMeta, validateEnum, type Server } from "../_shared.js";
+import { COUNTRIES, errorResult, sourceYears, toolMeta, validateEnum, type Server } from "../_shared.js";
 import { AGG_SUBSETS, aggregateFilters, filterInputs, withScope, explode, PIPE_FIELDS } from "./shared.js";
 
 /**
@@ -120,7 +120,7 @@ export function registerDistributionsTools(server: Server): void {
 
         if (args.over_time && schema.has("pub_date")) {
           const perYear = await query(
-            `SELECT NULLIF(substr(CAST(pub_date AS VARCHAR), 1, 4), '') AS bucket, COUNT(*) AS total,
+            `SELECT ${sourceYears().bucket} AS bucket, COUNT(*) AS total,
                     COUNT(*) FILTER (WHERE NULLIF(trim(${q(field)}), '') IS NOT NULL) AS with_value
              FROM ${viewName(subset)} ${whereSql}
              GROUP BY 1 ORDER BY 1`,

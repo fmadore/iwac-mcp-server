@@ -69,8 +69,8 @@ French prose for a gate about *movement*:
 
 * **Always-on footprint**: the 39 default tool definitions (semantic search is on
   by default) plus the instructions block, which every client loads before the
-  user has typed anything: **~16.0k tokens** today (15,968, of which the
-  instructions are 827; zod's implicit safe-integer bounds are stripped from every
+  user has typed anything: **~15.7k tokens** today (15,708, of which the
+  instructions are 384; zod's implicit safe-integer bounds are stripped from every
   integer field, ~20 tokens each). Compared
   against `test/token-baseline.json` on every PR; more than 5% growth fails, and
   clearing it means either trimming the schemas or re-baselining with
@@ -106,8 +106,9 @@ before packaging. The build rejects differing package and manifest versions.
 Run it again after changing versions or source; existing local archives are not
 updated by the tag-triggered GitHub release workflow.
 
-`pack-platforms` stashes the non-target binaries out of the pack tree per OS, so
-it runs offline against whatever `install-bindings` has placed in `node_modules`.
+`pack-platforms` copies each target's runtime packages and native binaries into a
+staging directory and packs that, so it runs offline against whatever
+`install-bindings` has placed in `node_modules`.
 `pack-mcpb` still exists for a quick host-only single bundle during development.
 
 Pack the research skill (a separate release asset — zips the repo-root
@@ -260,9 +261,9 @@ answered, other methods get `405` with `Allow`. Built in `src/serverCard.ts`.
 - Full-text coverage: this is the **public** projection of the dataset, which
   masks OCR per row by `OCR_is_public` (~45% of articles, ~86% of publications
   carry full text at the October 2026 revision). Titles, subjects and AI
-  abstracts are present for every article, but sentiment scoring lags
-  ingestion: the newest ~4,400 articles carry no sentiment yet. Nothing is
-  invisible, but a keyword count is a floor rather than a census.
+  abstracts are present for every article, but sentiment coverage is uneven:
+  the newest ~4,400 articles carry one vote (`claude-haiku-5-5`) and no
+  consensus. Nothing is invisible, but a keyword count is a floor rather than a census.
   `get_collection_stats` reports the live ratio as `fulltext_coverage`, and the
   handshake instructions tell clients to disclose it.
 - Queries: all tools use parameterised SQL against DuckDB. The query layer

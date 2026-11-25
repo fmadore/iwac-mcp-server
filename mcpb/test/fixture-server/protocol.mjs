@@ -261,6 +261,16 @@ export async function modernEraChecks({ fixtures, reporter }, { instructions, pr
     if (!modernResources.resources.some((r) => r.uri === "ui://iwac/charts.html")) {
       modernFail("the ui:// chart resource is missing on the modern era");
     }
+    // The chart resources' sandbox domain follows the client's URL, so their
+    // reads must not carry the server's public default; the template list may.
+    for (const uri of ["ui://iwac/charts.html", "ui://iwac/charts-wide.html"]) {
+      const read = await modern.readResource({ uri });
+      if (read.cacheScope !== "private" || read.ttlMs !== 3_600_000)
+        modernFail(`${uri} should be cached privately for an hour, got ttlMs=${read.ttlMs} cacheScope=${read.cacheScope}`);
+    }
+    const templates = await modern.listResourceTemplates();
+    if (templates.ttlMs !== 3_600_000 || templates.cacheScope !== "public")
+      modernFail(`resources/templates/list should be public for an hour, got ttlMs=${templates.ttlMs} cacheScope=${templates.cacheScope}`);
     const modernPrompts = await modern.listPrompts();
     if (modernPrompts.prompts.length !== promptNames.length) {
       modernFail(`modern era advertises ${modernPrompts.prompts.length} prompts, legacy era ${promptNames.length}`);

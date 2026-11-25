@@ -48,7 +48,6 @@ function matchesDarkMedia(): boolean {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 }
 
-export const isDark = (): boolean => dark;
 
 /** Categorical colours, in the order series should consume them. */
 export const palette = (): string[] => [...(dark ? BRAND.dark : BRAND.light), ...PALETTE_REST];

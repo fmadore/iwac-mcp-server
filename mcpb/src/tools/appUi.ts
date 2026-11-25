@@ -43,6 +43,15 @@ export const UI_MIME_TYPE = "text/html;profile=mcp-app";
 export const CHARTS_UI_URI = "ui://iwac/charts.html";
 
 /**
+ * The chart resources are static, but their `_meta.ui.domain` is computed from
+ * the URL each client connected through (uiDomain.ts: `/mcp` and `/mcp/` give
+ * different hosts), so a shared cache must not serve one caller's copy to
+ * another. Private, an hour; this per-resource hint wins over the server's
+ * public `resources/read` default.
+ */
+const UI_CACHE_HINT = { ttlMs: 3_600_000, cacheScope: "private" } as const;
+
+/**
  * The same document under a second URI, for views that need the whole screen
  * (the semantic map). Claude reads `preferredDisplayMode` from the resource,
  * not the tool, so a hint on the shared resource would push every small
@@ -116,7 +125,7 @@ export function registerAppResources(server: Server): void {
   server.registerResource(
     "iwac-charts",
     CHARTS_UI_URI,
-    { title: "IWAC charts", description, mimeType: UI_MIME_TYPE, _meta: { ui: { prefersBorder: true } } },
+    { title: "IWAC charts", description, mimeType: UI_MIME_TYPE, cacheHint: UI_CACHE_HINT, _meta: { ui: { prefersBorder: true } } },
     async () => ({ contents: [{ uri: CHARTS_UI_URI, mimeType: UI_MIME_TYPE, text: html, _meta: uiContentMeta() }] }),
   );
   server.registerResource(
@@ -126,6 +135,7 @@ export function registerAppResources(server: Server): void {
       title: "IWAC charts (full screen)",
       description: `${description} This copy asks Claude to open full screen, for views that need the width.`,
       mimeType: UI_MIME_TYPE,
+      cacheHint: UI_CACHE_HINT,
       _meta: { ui: { prefersBorder: true } },
     },
     async () => ({

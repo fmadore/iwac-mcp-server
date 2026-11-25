@@ -199,15 +199,16 @@ export function yearRangeFilter(
   column = "pub_date",
 ): void {
   if (!schema.has(column)) return;
-  const yearExpr = `TRY_CAST(substr(${q(column)}, 1, 4) AS INTEGER)`;
+  // Overlap, as dateInterval reads it: "1995/1997" is in 1996.
+  const years = sourceYears(column);
   const fy = parseYear(dateFrom);
   const ty = parseYear(dateTo);
   if (fy !== undefined) {
-    where.push(`${yearExpr} >= ?`);
+    where.push(`${years.last} >= ?`);
     params.push(fy);
   }
   if (ty !== undefined) {
-    where.push(`${yearExpr} <= ?`);
+    where.push(`${years.first} <= ?`);
     params.push(ty);
   }
 }
@@ -292,7 +293,7 @@ export function validateDateBounds(dateFrom?: string, dateTo?: string): DateVali
 /** Parse one ISO source-date component without assigning false precision. */
 function datePartBounds(raw: string): { start: string; end: string } {
   const validDay = `(regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}-[0-9]{2}') OR
-    (regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})?')
+    (regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}(:[0-9]{2})?)?')
       AND TRY_CAST(${raw} AS TIMESTAMP) IS NOT NULL))`;
   const start = `CASE WHEN substr(${raw}, 1, 4) = '0000' THEN NULL
     WHEN regexp_full_match(${raw}, '[0-9]{4}') THEN TRY_CAST(${raw} || '-01-01' AS DATE)
@@ -303,6 +304,22 @@ function datePartBounds(raw: string): { start: string; end: string } {
     WHEN regexp_full_match(${raw}, '[0-9]{4}-[0-9]{2}') THEN last_day(TRY_CAST(${raw} || '-01' AS DATE))
     ELSE (${start}) END`;
   return { start, end };
+}
+
+/**
+ * The first and last calendar year a source date covers, read through
+ * dateInterval, so every year-level grouping and filter treats a cross-year
+ * slash range ("1995/1997") and an unparseable value the same way. `bucket` is
+ * the first year as a 4-character string (the key year charts group by); all
+ * three are NULL for a date that does not parse.
+ */
+export function sourceYears(column = "pub_date"): { first: string; last: string; bucket: string } {
+  const { start, end } = dateInterval(column);
+  return {
+    first: `year(${start})`,
+    last: `year(${end})`,
+    bucket: `lpad(CAST(year(${start}) AS VARCHAR), 4, '0')`,
+  };
 }
 
 /** Partial source dates and slash-separated ranges denote inclusive intervals.

@@ -340,7 +340,7 @@ be overwritten; use a new version for a new release.
 
 ## Roadmap
 
-See [TODO.md](TODO.md). Near-term: submit to the Anthropic extension directory
+See [TODO.md](TODO.md). Near-term: submit to Anthropic's Connectors Directory
 and sign the bundle with a production code-signing cert.
 
 ## How to cite

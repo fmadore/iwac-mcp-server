@@ -291,9 +291,13 @@ only module that knows more than one chart exists.
   hand-rolled spiral placement is feasible but nothing in the suite needs it yet.
 - **Bounded-region drill-down on the map.** Clicking a country filters; there is
   no lasso or box select, and adding one means real hit-testing.
-- **Decoded-script headroom.** With the view tools (below) the decoded UI
-  script is 496.1 KB against its 500 KB gate, so about 3.9 KB remain. The next
-  SDK minor or a new view will need a size pass before it fits.
+- **Decoded-script headroom.** Reclaimed after v6.3.1 (#74): the decoded UI
+  script went from 497.7 KB to 382.9 KB of its 500 KB gate once
+  `scripts/bundle.mjs` marked `@modelcontextprotocol/client` side-effect-free
+  (its OAuth, `Client` and Workers validator chunks were never run) and stubbed
+  zod's unused `compile` and `fromJSONSchema` modules. If an SDK release
+  starts relying on top-level side effects in the client package, the browser
+  test is what will catch it.
 - **Host fonts.** The app ignores `styles.variables` (including `--font-sans`)
   and never calls `applyHostFonts`. Colours and type deliberately mirror the
   IwacVisualizations module, and a host's `@font-face` or `@import` would need a

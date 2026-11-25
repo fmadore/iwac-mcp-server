@@ -241,7 +241,7 @@ export function buildModelContext(payload: BasePayload, options: ViewOptions, re
       const largest = filters.sort((a, b) => bytes(b) - bytes(a))[0] ?? {};
       const key = Object.keys(largest).at(-1);
       if (key) { delete largest[key]; mark("selection.filters"); }
-      else { summary.title = "IWAC display"; delete summary.truncated_fields; }
+      else summary.title = "IWAC display";
     }
     summary.truncated_fields = [...omitted].slice(0, 12);
   }

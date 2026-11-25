@@ -36,12 +36,15 @@ const RESOLVED_INSTRUCTIONS = buildInstructions({
  * keeps a host's prompt cache warm across calls. `public` because nothing in
  * the lists varies per caller: the factory reads no `authInfo`, and the only
  * thing that changes the tool set (semantic search) is a process-level env var.
+ * The two chart resources are the exception for reads (their sandbox domain
+ * follows the client's URL), so they carry their own private hint (appUi.ts).
  */
 // Live dataset resources override the read default with a zero-TTL cache hint.
 const CACHE_HINTS = {
   "tools/list": { ttlMs: 3_600_000, cacheScope: "public" },
   "prompts/list": { ttlMs: 3_600_000, cacheScope: "public" },
   "resources/list": { ttlMs: 3_600_000, cacheScope: "public" },
+  "resources/templates/list": { ttlMs: 3_600_000, cacheScope: "public" },
   "resources/read": { ttlMs: 3_600_000, cacheScope: "public" },
   "server/discover": { ttlMs: 3_600_000, cacheScope: "public" },
 } as const;

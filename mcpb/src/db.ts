@@ -424,9 +424,15 @@ export async function queryInChunks(
 ): Promise<void> {
   await withConnection(async (conn) => {
     const result = await conn.stream(sql, params as DuckDBValue[]);
-    for await (const rows of result.yieldRowObjectJs()) {
-      await onRows(rows as Row[]);
-      await yieldToEventLoop();
+    // Closed whatever happens: a stream abandoned because `onRows` threw
+    // would otherwise leave the pooled connection with an open result.
+    try {
+      for await (const rows of result.yieldRowObjectJs()) {
+        await onRows(rows as Row[]);
+        await yieldToEventLoop();
+      }
+    } finally {
+      result.closeSync();
     }
   });
 }

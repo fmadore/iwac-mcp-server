@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { config } from "../config.js";
+import { MAX_INPUT_STRING_CHARS } from "./shared/limits.js";
 import { ensureView, type Bindable } from "../db.js";
 import { EMBEDDING_COLUMNS } from "../embeddingContract.js";
 import { requireSemanticFilters, runSemanticSearchTool, SEMANTIC_NOTE } from "./_semantic.js";
@@ -116,7 +117,7 @@ export function registerReferenceTools(server: Server): void {
         "Semantic search over academic references by title + abstract, across languages. Only references with an " +
         `abstract (about half) are covered; use search_references for the rest. ${SEMANTIC_NOTE}`,
       inputSchema: z.strictObject({
-        query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
+        query: z.string().trim().min(1).max(MAX_INPUT_STRING_CHARS).describe("Natural-language query, any language"),
         reference_type: z.string().optional().describe("French type label, substring (e.g. Thèse de doctorat)"),
         country: countryParam({ nigeria: true }),
         language: z.string().optional().describe("e.g. Français | Anglais"),

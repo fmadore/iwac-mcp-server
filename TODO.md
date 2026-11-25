@@ -223,8 +223,8 @@
   awaits approval, and the published 2.1.0 carries the same SDK source as the
   `v2.1.0` tag. Resource 191.4 → 193.2 KB, decoded script 487.8 → 492.3 KB (gate
   500 KB, about 7.7 KB left). The WebMCP bridge is off (`webMcpBridge: false`):
-  the view registers no app-side tools, and the browser suite checks it
-  advertises no `tools` capability. See docs/mcp-apps-roadmap.md §7.
+  (at the time the view registered no app-side tools; v6.2.0 added the four view
+  tools, which use the Apps channel rather than WebMCP). See docs/mcp-apps-roadmap.md §7.
 
 - [x] **Migrate to MCP TypeScript SDK v2 / protocol 2026-07-28** — done
   2026-07-29. `@modelcontextprotocol/server` 2.0.0 went stable 2026-07-27, four

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { query } from "../src/db.js";
 import { keywordExcerpts } from "../src/tools/shared/text.js";
 import { aggregateFilters } from "../src/tools/aggregates/shared.js";
-import { allTermsFilter, equalsFilterIfExists, likeFilterIfExists, pipeValueFilterIfExists } from "../src/tools/shared/filters.js";
+import { allTermsFilter, equalsFilterIfExists, likeFilterIfExists, pipeValueFilterIfExists, sourceYears, yearRangeFilter } from "../src/tools/shared/filters.js";
 import type { Bindable } from "../src/db.js";
 import { tokenize } from "../src/tools/search.js";
 import { paginated, PAGE_CHAR_BUDGET } from "../src/tools/shared/pagination.js";
@@ -39,6 +39,33 @@ test("all shared selections apply date intervals at the requested precision", as
       "1995", "1995-06", "1995-06-15", "1995-06-15T12:30:00Z", "1995-04/1995-06", "1995-06-19/1995-07-01",
     ], subset);
   }
+});
+
+test("year groupings and year filters read source dates as dateInterval does", async () => {
+  const years = sourceYears();
+  const rows = await query(`SELECT pub_date, ${years.bucket} AS bucket, ${years.first} AS first, ${years.last} AS last FROM (VALUES
+    ('1995'), ('1995-06-15'), ('1995/1997'), ('1995-12-30/1996-01-02'), ('2020-01-01 00:00:00+01'), ('30/12/1995'), ('')
+    ) t(pub_date)`);
+  assert.deepEqual(
+    rows.map((r) => [r.pub_date, r.bucket, r.first === null ? null : Number(r.first), r.last === null ? null : Number(r.last)]),
+    [
+      ["1995", "1995", 1995, 1995],
+      ["1995-06-15", "1995", 1995, 1995],
+      ["1995/1997", "1995", 1995, 1997],
+      ["1995-12-30/1996-01-02", "1995", 1995, 1996],
+      // DuckDB prints a TIMESTAMPTZ offset as +HH.
+      ["2020-01-01 00:00:00+01", "2020", 2020, 2020],
+      // Not ISO: no year at all, rather than the substring "30/1".
+      ["30/12/1995", null, null, null],
+      ["", null, null, null],
+    ],
+  );
+  // A year filter overlaps the interval: a 1995-1997 range is in 1996.
+  const where: string[] = [];
+  const params: Bindable[] = [];
+  yearRangeFilter(new Set(["pub_date"]), where, params, "1996", "1996");
+  const hits = await query(`SELECT pub_date FROM (VALUES ('1995'), ('1995/1997'), ('1996-03'), ('1997')) t(pub_date) WHERE ${where.join(" AND ")}`, params);
+  assert.deepEqual(hits.map((r) => r.pub_date), ["1995/1997", "1996-03"]);
 });
 
 test("country_raw selects a grouped country combination without widening to its members", async () => {

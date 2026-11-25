@@ -1,5 +1,6 @@
 import { aggregateFilters, exactInput } from "./aggregates/shared.js";
 import { z } from "zod";
+import { MAX_INPUT_STRING_CHARS } from "./shared/limits.js";
 import { ensureView, } from "../db.js";
 import { config } from "../config.js";
 import { requireSemanticFilters, runSemanticSearchTool, SEMANTIC_NOTE } from "./_semantic.js";
@@ -142,7 +143,7 @@ export function registerArticleTools(server: Server): void {
       ...toolMeta("Semantic search for articles"),
       description: `Semantic search over article title + full text, including articles whose OCR is not public. Query in any language. ${SEMANTIC_NOTE}`,
       inputSchema: z.strictObject({
-        query: z.string().trim().min(1).max(8192).describe("Natural-language query, any language"),
+        query: z.string().trim().min(1).max(MAX_INPUT_STRING_CHARS).describe("Natural-language query, any language"),
         country: countryParam(),
         newspaper: z.string().optional(),
         date_from: z.string().optional().describe("YYYY-MM-DD (or YYYY)"),

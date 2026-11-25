@@ -16,8 +16,6 @@
 
 # Local test scripts & fixtures
 /smoke-test.mjs
-/probe-cols.mjs
-/download-all.mjs
 
 # Container, lint and CI config: the desktop bundle runs none of them
 /Dockerfile
@@ -49,6 +47,13 @@ node_modules/rimraf/
 # ~53 MB of BPE ranks, used only by the token budget test: larger unpacked than
 # everything else the bundle ships put together.
 node_modules/gpt-tokenizer/
+# Test and UI-build packages: the browser suite, the DOM harness, the MCP client
+# the tests drive the server with, and the Apps SDK (inlined into the chart UI).
+node_modules/playwright/
+node_modules/playwright-core/
+node_modules/linkedom/
+node_modules/@modelcontextprotocol/client/
+node_modules/@modelcontextprotocol/ext-apps/
 
 # Dev metadata
 .gitignore

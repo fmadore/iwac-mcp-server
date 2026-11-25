@@ -87,7 +87,7 @@ List the 214 curated subject terms sorted by frequency.
 
 ### list_locations
 List the 683 geographic locations from the index, ranked by frequency.
-- `country` (optional, exact name) — selects places **mentioned in records from that country, not located there** (so Beninese sources surface La Mecque, Côte d'Ivoire, etc.); `frequency` is the entry's collection-wide total, not a per-country count. The response adds a `note` restating this. Nigeria returns nothing (index frequency derives from articles/publications/references).
+- `country` (optional, exact name) — selects places **mentioned in records from that country, not located there** (so Beninese sources surface La Mecque, Côte d'Ivoire, etc.); `frequency` is the entry's collection-wide total, not a per-country count. The response adds a `note` restating this. Nigeria returns only the few entries its academic references and audiovisual records mention (index frequency counts articles, publications, references and audiovisual).
 - `limit` (default 50, max 200), `offset`
 
 ### list_persons
@@ -109,7 +109,7 @@ Primary search tool for the ~16,700 newspaper articles.
 - `keyword` (optional): every word must occur in **title + OCR + AI abstracts, French and English** (does NOT search subject/spatial — use the `subject` parameter for curated tags). An English term can therefore match a French article via its English summary
 - `country` (optional): exact name — Benin | Burkina Faso | Côte d'Ivoire | Niger | Togo
 - `newspaper` (optional): substring match
-- `subject` (optional): substring match on the pipe-separated curated tags
+- `subject` (optional): exact match on one of the pipe-separated curated tags (accent- and case-insensitive); a partial tag returns 0 rows without an error, so take values from `list_subjects`
 - `date_from` / `date_to` (optional): `YYYY-MM-DD` or `YYYY` (day precision)
 - `hijri_month` / `hijri_year` (optional) *(v1.3.0+)*: Islamic (Umm al-Qura) lunar date. `hijri_month` takes 1–12 or a name in either transliteration (`Ramadan`, `Chaabane`, `Chawwal`, `Dhou al-hijja`), accent- and case-folded; a misspelling errors with `valid_values`. Matches only articles with a complete `YYYY-MM-DD` (99%). This is how you read the items behind a `granularity="lunar_month"` peak — and it beats keyword-searching an observance name, which finds items *mentioning* it rather than items *published during* it.
 - `with_description` (optional, boolean): include each article's ~500-char AI abstract (`description_ai`) — ~125 tokens/row, pair with limit ≤ 10
@@ -135,7 +135,7 @@ Search the ~5,000 authority records by name.
 ### search_by_sentiment
 Filter articles by **`claude-haiku-5-5`** sentiment labels (exact match, accents optional; the default model since server 6.0.0, `gpt-5-6-luna` before). One model's reading, not a consensus — say so when reporting, and use `get_sentiment_distribution(model="all")` to see how far the other five agree.
 
-- `disputed` (optional, validated) *(v3.5.0+)*: `polarite` | `centralite` | `subjectivite` — keep only the articles the panel **split on** for that field. French field names, as stored; the English spellings error with `valid_values`. This is how you read the contested cases rather than merely counting them: `disputed="polarite"` returns the 1,835 articles where no majority formed, which are exactly the ones a single model's label would misrepresent as settled. Combines with the country, subject and date filters.
+- `disputed` (optional, validated) *(v3.5.0+)*: `polarite` | `centralite` | `subjectivite` — keep only the articles the panel **split on** for that field. French field names, as stored; the English spellings error with `valid_values`. This is how you read the contested cases rather than merely counting them: `disputed="polarite"` returns the 1,835 articles where no majority formed, which are exactly the ones a single model's label would misrepresent as settled. Combines with the country and subject filters; this tool takes no date filter (a `date_from` is rejected), so bound dates with `search_articles` instead.
 - `polarity` (optional): Très positif | Positif | Neutre | Négatif | Très négatif | Non applicable
 - `centrality` (optional): Très central | Central | Secondaire | Marginal | Non abordé
 - `subjectivity` (optional): Très objectif | Plutôt objectif | Mixte | Plutôt subjectif | Très subjectif. Filterable since v2.0.0, when generation 2 turned this field from a 1-5 rating into a closed label vocabulary — a numeric value now errors. Unscored where the model answered `Non abordé`, so this filter excludes those rows too. It is the weakest of the three scales: use it to *find* articles to read, not to count them
@@ -265,7 +265,7 @@ Detailed index entry. **Raw dataset columns, French names** (Titre, Titre altern
 ### get_temporal_distribution *(v0.9.0+)*
 Counts of matching items per year (or month) — one call replaces paging through search results for any trend question. Also useful in Phase 1 to scope a topic's timeline before searching.
 - `subset` (optional, validated): articles (default) | publications | references | documents | audiovisual | images
-- `granularity` (optional, validated): year (default) | month | **lunar_month** *(v1.3.0+)* — items dated only to a year keep a bare-year key even at month granularity
+- `granularity` (optional, validated): year (default) | month | **lunar_month** *(v1.3.0+)* — at month granularity, items dated only to a year are left out of the buckets and counted in `imprecise_date_count`
 - `calendar` (optional, validated) *(v1.3.0+)*: gregorian (default) | hijri
 - `keyword` (optional): every word over the subset's text fields, quoted phrases as written (same rule as the subset's search tool; `keyword_mode: "literal"` for one exact substring)
 - `country` / `newspaper` / `subject` / `date_from` / `date_to` (optional): same semantics as the subset's search tool

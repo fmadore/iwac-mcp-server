@@ -52,6 +52,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { config, isLoopbackOrigin } from "./config.js";
 import { warmEncoder } from "./onnxEncoder.js";
 import { within } from "./shutdown.js";
+import { registeredToolNames } from "./tools/register.js";
 import {
   etagMatches,
   SERVER_CARD_MEDIA_TYPE,
@@ -82,7 +83,8 @@ const CORS_EXPOSE_HEADERS = "Mcp-Protocol-Version, Mcp-Session-Id, WWW-Authentic
 /** How long a browser may cache a preflight (Chromium caps it at 2 hours). */
 const CORS_MAX_AGE_SECONDS = "7200";
 
-/** Cap on request body size — MCP JSON-RPC payloads are tiny; larger is abuse. */
+/** Cap on request body size: MCP JSON-RPC payloads are tiny; larger is abuse. The SDK
+ * enforces it (Content-Length pre-check and a streaming cap), answering 413. */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 /** How long a SIGTERM waits for in-flight requests before exiting anyway. */
@@ -95,35 +97,6 @@ const SHARED_WORK_STOP_MS = 1_500;
 /** A URL setting as it may be logged: any `user:password@` part removed. */
 export function redactCredentials(value: string): string {
   return value.replace(/(\/\/)[^/@\s]*@/g, "$1***@");
-}
-
-/** Tagged error so the catch-all can answer 413 instead of a generic parse error. */
-class BodyTooLargeError extends Error {
-  constructor() {
-    super("Request body too large");
-  }
-}
-
-function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on("data", function onData(chunk: Buffer) {
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        // Stop consuming (backpressure bounds memory) but do NOT destroy the
-        // socket here — the response side still has to deliver the 413; the
-        // `Connection: close` on that response tears the connection down.
-        req.removeListener("data", onData);
-        req.pause();
-        reject(new BodyTooLargeError());
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
 }
 
 /** JSON-RPC error envelope (id null — these are pre-dispatch transport errors). */
@@ -256,11 +229,17 @@ export function startHttpServer(createServer: () => McpServer): void {
     typeof header === "string" && timingSafeEqual(createHash("sha256").update(header).digest(), expectedDigest);
 
   // One handler for the process; it builds a server per request from the factory.
+  // The SDK reads the body itself: a Content-Length pre-check and a streaming
+  // cap answer 413 with `Connection: close`, a wrong content type 415, and
+  // invalid JSON a fixed 400 -32700 that never reflects the body. Both layers
+  // take the cap, since the adapter's bound applies first.
   const mcpHandler = createMcpHandler(createServer, {
     responseMode: "json",
+    maxRequestBodySize: MAX_BODY_BYTES,
     onerror: (err) => console.error("[iwac] mcp handler error:", err),
   });
   const nodeHandler = toNodeHandler(mcpHandler, {
+    maxRequestBodySize: MAX_BODY_BYTES,
     onerror: (err) => console.error("[iwac] node adapter error:", err),
   });
 
@@ -345,20 +324,10 @@ export function startHttpServer(createServer: () => McpServer): void {
       return;
     }
 
-    // Read and cap the body here rather than letting the adapter drain the
-    // stream, so an oversized payload still gets a 413 instead of being
-    // buffered whole. The parsed value is handed to the adapter as its
-    // pre-parsed third argument, exactly as an Express body parser would.
-    let body: unknown;
-    if (req.method === "POST") {
-      const raw = await readBody(req);
-      body = raw.length ? JSON.parse(raw) : undefined;
-    }
-
     // The chart view's sandbox host is derived from the URL this client typed
     // (src/uiDomain.ts); the resource handler reads it from this scope.
     const connectorUrl = publicUrl !== undefined && config.uiDomain ? connectorUrlFor(publicUrl, path) : undefined;
-    await withConnectorUrl(connectorUrl, () => nodeHandler(req, res, body));
+    await withConnectorUrl(connectorUrl, () => nodeHandler(req, res));
   }
 
   const server = http.createServer((req, res) => {
@@ -367,13 +336,6 @@ export function startHttpServer(createServer: () => McpServer): void {
         // Mid-write failure: nothing coherent can be sent — close the socket
         // instead of leaving the client hanging until its own timeout.
         res.destroy();
-      } else if (err instanceof BodyTooLargeError) {
-        sendJson(res, 413, rpcError(-32600, "Request body too large"), { Connection: "close" });
-      } else if (err instanceof SyntaxError) {
-        // JSON.parse messages may echo attacker-controlled request fragments;
-        // return the stable JSON-RPC wording and keep those details out of the
-        // response. The request body itself is enough for local diagnostics.
-        sendJson(res, 400, rpcError(-32700, "Parse error"));
       } else {
         console.error("[iwac] HTTP request error:", err);
         sendJson(res, 500, rpcError(-32603, "Internal error"));
@@ -411,6 +373,10 @@ export function startHttpServer(createServer: () => McpServer): void {
     );
     // A shared endpoint should not make its first semantic search wait for the
     // encoder's one-time download; a desktop install fetches it only if used.
-    if (config.semanticSearchEnabled && config.embeddingProvider === "onnx" && !config.offline) warmEncoder();
+    // Only when a semantic tool is registered: the search and analysis
+    // profiles register none, and would download the weights for nothing.
+    const semantic = [...registeredToolNames()].some((name) => name.startsWith("semantic_search_"));
+    if (semantic && config.semanticSearchEnabled && config.embeddingProvider === "onnx" && !config.offline)
+      warmEncoder();
   });
 }

@@ -29,8 +29,11 @@ permissions:
 env:
   ONNXRUNTIME_NODE_INSTALL: skip
 
+# The event is part of the group: a push to main and the weekly drift run both
+# run on refs/heads/main, and sharing one group let either cancel the other,
+# losing the drift alarm without a failure.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -58,8 +61,9 @@ jobs:
         run: npm ci
 
       # Runtime dependencies only: what ships in the bundles and the image.
-      # The development tree carries one advisory without a fix, in a copy of
-      # zod nested inside the @anthropic-ai/mcpb packer, which never ships.
+      # The development tree carries one advisory without a fix, in the zod@3
+      # nested inside the @anthropic-ai/mcpb packer, which never ships
+      # (SECURITY.md, "Dependency exception").
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
 
@@ -84,8 +88,8 @@ jobs:
 
             const readme = fs.readFileSync("../README.md", "utf8");
             const cited = [
-              ["README (APA)", readme.match(/\(Version ([\d.]+)\) \[Computer software\]/)?.[1]],
-              ["README (BibTeX)", readme.match(/^\s*version\s*=\s*\{([\d.]+)\},?\s*$/m)?.[1]],
+              ["README (APA)", readme.match(/\(Version ([\d.]+(?:-[\w.-]+)?)\) \[Computer software\]/)?.[1]],
+              ["README (BibTeX)", readme.match(/^\s*version\s*=\s*\{([\d.]+(?:-[\w.-]+)?)\},?\s*$/m)?.[1]],
             ];
             for (const [what, got] of cited) if (got !== pkg) fail(what, got);
           '

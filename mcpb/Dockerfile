@@ -28,11 +28,19 @@ ENV NODE_ENV=production \
     IWAC_SEMANTIC_SEARCH_ENABLED=true \
     ONNXRUNTIME_NODE_INSTALL=skip \
     PORT=8000
-# Native DuckDB and onnxruntime remain external to the server bundle; only
-# onnxruntime's Linux binaries are kept.
+# Native DuckDB and onnxruntime remain external to the server bundle, so they
+# are the only runtime packages kept: the MCP SDK (with the hono server it
+# brings), zod and the tokenizer are inlined into server/index.js
+# (scripts/bundle.mjs), and nothing external depends on them. Of onnxruntime's binaries only the target's Linux build
+# stays (TARGETARCH is set by BuildKit: amd64 -> x64, arm64 -> arm64).
+ARG TARGETARCH
 COPY mcpb/package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force \
-    && find node_modules/onnxruntime-node/bin/napi-v6 -mindepth 1 -maxdepth 1 ! -name linux -exec rm -rf {} +
+    && rm -rf node_modules/@modelcontextprotocol node_modules/zod node_modules/@huggingface/tokenizers \
+       node_modules/hono node_modules/@hono \
+    && ort_arch="$([ "$TARGETARCH" = "arm64" ] && echo arm64 || echo x64)" \
+    && find node_modules/onnxruntime-node/bin/napi-v6 -mindepth 1 -maxdepth 1 ! -name linux -exec rm -rf {} + \
+    && find node_modules/onnxruntime-node/bin/napi-v6/linux -mindepth 1 -maxdepth 1 ! -name "$ort_arch" -exec rm -rf {} +
 COPY --from=build /app/mcpb/server ./server
 RUN mkdir -p /cache && chown node:node /cache
 EXPOSE 8000

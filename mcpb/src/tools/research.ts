@@ -8,7 +8,7 @@ import { ensureView, q, query, queryScalarSingle, viewName } from "../db.js";
 import { aggregateFilters, filterInputs } from "./aggregates/shared.js";
 import { bodyColumn, embeddingColumn } from "./shared/research.js";
 import { colsFor, itemUrl, TITLE_COL } from "./shared/fields.js";
-import { keywordTerms } from "./shared/filters.js";
+import { keywordTerms, sourceYears } from "./shared/filters.js";
 import { MAX_INPUT_STRING_CHARS, overlongString } from "./shared/limits.js";
 import { annotate, errorResult, type Server } from "./_shared.js";
 import { CHARTS_UI_META } from "./appUi.js";
@@ -41,7 +41,6 @@ const output = z.object({
   metrics: rowSchema.optional(),
   selections: z.array(rowSchema).optional(),
   overlap: z.number().optional(),
-  omitted_cells: z.number().optional(),
   total_cells: z.number().optional(),
   source_exact_field: z.string().optional(),
   export: rowSchema.optional(),
@@ -343,7 +342,7 @@ export function registerResearchTools(server: Server): void {
         if (!schema.has("pub_date")) return errorResult({ error: `No publication date in ${subset}` });
         const source = schema.has("newspaper") ? "newspaper" : schema.has("country") ? "country" : TITLE_COL[subset];
         const rows = await query(
-          `SELECT COALESCE(NULLIF(TRIM(${q(source)}), ''), '(missing)') AS source, COALESCE(NULLIF(regexp_extract(pub_date, '^(\\d{4})', 1), ''), '(undated)') AS year, ${metrics} FROM ${v} WHERE ${whereSql(f.where)} GROUP BY 1, 2 ORDER BY total DESC, 1, 2`,
+          `SELECT COALESCE(NULLIF(TRIM(${q(source)}), ''), '(missing)') AS source, COALESCE(${sourceYears().bucket}, '(undated)') AS year, ${metrics} FROM ${v} WHERE ${whereSql(f.where)} GROUP BY 1, 2 ORDER BY total DESC, 1, 2`,
           f.params,
         );
         return pagedCells(

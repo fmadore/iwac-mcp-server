@@ -4,15 +4,16 @@ Source material for answering capability questions in plain language ("what can 
 
 ## What the collection is
 
-The Islam West Africa Collection (IWAC, <https://islam.zmo.de>; in French, Collection Islam Afrique de l'Ouest, CIAO) is a curated digital collection documenting Islam and Muslim life in francophone West Africa — Burkina Faso, Côte d'Ivoire, Benin, Togo and Niger (plus Nigerian audiovisual recordings) — from the 1960s to the 2020s. Where most digitisation projects in African studies focus on manuscripts, IWAC preserves the region's **print culture**: six decades of press coverage, and the publications Muslim communities produced about themselves.
+The Islam West Africa Collection (IWAC, <https://islam.zmo.de>; in French, Collection Islam Afrique de l'Ouest, CIAO) is a curated digital collection documenting Islam and Muslim life in francophone West Africa — Burkina Faso, Côte d'Ivoire, Benin, Togo and Niger (plus Nigerian audiovisual recordings and scholarship) — from the 1960s to the 2020s. Where most digitisation projects in African studies focus on manuscripts, IWAC preserves the region's **print culture**: six decades of press coverage, and the publications Muslim communities produced about themselves.
 
-Six kinds of material:
+Seven kinds of material:
 
 - **~16,700 newspaper articles** (mainstream press, five countries) — a continuous, dated record of Muslim life: religious celebrations, the hajj, mosque inaugurations, association politics, debates on laïcité and Islamic education, women and youth, security.
 - **~1,500 Islamic publications** — 25 periodicals produced by associations, mosques and schools (Islam Info, An-Nasr Vendredi, Plume Libre, ASSALAM, Le CERFIste…): the community's own voice, with concerns and theological positions often absent from the mainstream press.
-- **~5,000 index records** — curated authority entries for persons, organizations, places, events and subjects, linked to the articles that mention them.
-- **867 academic references** — scholarship on Islam in the region, mostly in French and English, with some other languages.
+- **~6,300 index records** — curated authority entries for persons, organizations, places, events and subjects, linked to the articles that mention them.
+- **~960 academic references** — scholarship on Islam in the region, mostly in French and English, with some other languages.
 - **26 association documents** (reports, flyers — mostly Burkina Faso) and **~1,800 audiovisual items**: mainly francophone web video from Burkina Faso, Togo and Benin (broadcast reports, association and campus recordings, 2020s), plus 47 deposited Nigerian recordings in Hausa and Arabic.
+- **A small set of photographs** (30 so far), searchable by description and by meaning.
 
 ## Why the press matters (talking points)
 

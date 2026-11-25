@@ -1,9 +1,9 @@
-# Research workbench (v3.8)
+# Research workbench (introduced in v3.8)
 
 The workbench connects an analytical selection to its source records. It uses the
-same DuckDB corpus and self-contained MCP App as the existing tools. There are
-35 default tools and three optional semantic-query tools; `explore_corpus` is the
-only new tool. No external chart service is required.
+same DuckDB corpus and self-contained MCP App as the existing tools. It added one
+tool, `explore_corpus`, to what is now a set of 39 (four of them semantic search,
+which an operator can turn off). No external chart service is required.
 
 ## Selections
 
