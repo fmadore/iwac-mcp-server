@@ -6,6 +6,15 @@ full notes, which are also its GitHub Release body, live in
 Git history and on the [releases page](https://github.com/fmadore/iwac-mcp-server/releases).
 [docs/decisions.md](docs/decisions.md) records the decisions in force.
 
+## 6.3.1 (2026-11-25)
+
+Bug fixes: the country polarity chart gives its scored denominator, lunar charts
+keep zero-match groups and their grouping across calendar switches, shares keep
+their decimals, every heatmap cell is reachable from the assistant's view tools,
+a search during the encoder download says to retry, shutdown no longer leaves a
+stale cache lock, and the private mirror no longer exempts loopback origins.
+[Notes](docs/releases/v6.3.1.md).
+
 ## 6.3.0 (2026-11-24)
 
 Fixes that change what a researcher gets back: `search` honours quoted phrases
