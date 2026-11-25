@@ -6,6 +6,13 @@ full notes, which are also its GitHub Release body, live in
 Git history and on the [releases page](https://github.com/fmadore/iwac-mcp-server/releases).
 [docs/decisions.md](docs/decisions.md) records the decisions in force.
 
+## 6.3.2 (2026-11-25)
+
+A lighter chart view (decoded script 497.7 to 382.9 KB), corrected skill and
+prompt guidance for models, the SDK reading HTTP request bodies, CI and Docker
+image fixes, one rule for reading source years, and an in-range security update
+for `hono`. [Notes](docs/releases/v6.3.2.md).
+
 ## 6.3.1 (2026-11-25)
 
 Bug fixes: the country polarity chart gives its scored denominator, lunar charts
