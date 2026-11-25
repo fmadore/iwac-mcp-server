@@ -51,6 +51,7 @@ import http from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { config, isLoopbackOrigin } from "./config.js";
 import { warmEncoder } from "./onnxEncoder.js";
+import { within } from "./shutdown.js";
 import {
   etagMatches,
   SERVER_CARD_MEDIA_TYPE,
@@ -86,6 +87,15 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 /** How long a SIGTERM waits for in-flight requests before exiting anyway. */
 const SHUTDOWN_GRACE_MS = 8_000;
+
+/** After the grace period, how long shared work (a download holding the cache
+ * lock) gets to abort and release it. Docker's SIGKILL comes at 10 s. */
+const SHARED_WORK_STOP_MS = 1_500;
+
+/** A URL setting as it may be logged: any `user:password@` part removed. */
+export function redactCredentials(value: string): string {
+  return value.replace(/(\/\/)[^/@\s]*@/g, "$1***@");
+}
 
 /** Tagged error so the catch-all can answer 413 instead of a generic parse error. */
 class BodyTooLargeError extends Error {
@@ -190,7 +200,7 @@ export function startHttpServer(createServer: () => McpServer): void {
   } = config;
   if (invalidHttpOrigins.length > 0) {
     console.error(
-      `[iwac] FATAL: IWAC_MCP_ALLOWED_ORIGINS contains invalid origins: ${invalidHttpOrigins.join(", ")}. ` +
+      `[iwac] FATAL: IWAC_MCP_ALLOWED_ORIGINS contains invalid origins: ${invalidHttpOrigins.map(redactCredentials).join(", ")}. ` +
         "Use comma-separated HTTP(S) origins without paths, queries, fragments, credentials, or wildcards, " +
         "or `*` on its own to allow every origin.",
     );
@@ -233,7 +243,7 @@ export function startHttpServer(createServer: () => McpServer): void {
   const { served: serverCard, publicUrl, invalidPublicUrl } = serverCardFromEnv();
   if (invalidPublicUrl !== undefined) {
     console.error(
-      `[iwac] FATAL: IWAC_MCP_PUBLIC_URL is not a usable public endpoint: ${invalidPublicUrl}. ` +
+      `[iwac] FATAL: IWAC_MCP_PUBLIC_URL is not a usable public endpoint: ${redactCredentials(invalidPublicUrl)}. ` +
         "Use the absolute http(s) URL clients connect to (for example https://islam.zmo.de/mcp), " +
         "without credentials, a query or a fragment, or leave it unset to publish a card without remotes.",
     );
@@ -282,13 +292,18 @@ export function startHttpServer(createServer: () => McpServer): void {
 
     // Browsers always send Origin on cross-origin fetches. An absent header is
     // normal for server-to-server MCP clients; a present one must be explicitly
-    // trusted, or be a loopback page (a browser sets Origin itself, so only a
-    // page served from this machine can claim one; the AMIRA server and the MCP
-    // conformance suite expect local development clients to connect). Never
-    // reflect it or fall back to Host — either would defeat the DNS-rebinding
-    // protection this check exists to provide.
+    // trusted, or be a loopback page over the public mirror. A loopback origin
+    // is a page served from the VISITOR's own machine (any local web server
+    // they run), not from this server's host; the AMIRA server and the MCP
+    // conformance suite expect local development clients to connect. Over the
+    // private mirror that is the same threat `*` is refused for at startup
+    // (untrusted local HTML reading restricted text through a proxy that adds
+    // the token), so there loopback origins must be listed like any other.
+    // Never fall back to Host: that would defeat the DNS-rebinding protection
+    // this check exists to provide.
     const origin = req.headers.origin;
-    if (origin !== undefined && !anyOrigin && !allowedOrigins.has(origin) && !isLoopbackOrigin(origin)) {
+    const loopbackAllowed = !config.privateDataset && origin !== undefined && isLoopbackOrigin(origin);
+    if (origin !== undefined && !anyOrigin && !allowedOrigins.has(origin) && !loopbackAllowed) {
       sendJson(res, 403, rpcError(-32000, "Forbidden: Origin is not allowed"), {
         Vary: "Origin",
       });
@@ -376,9 +391,11 @@ export function startHttpServer(createServer: () => McpServer): void {
   const drain = () => {
     if (draining) return;
     draining = true;
+    // Grace exhausted: still give shared work a bounded moment to abort, so a
+    // download's `finally` releases the cache lock instead of leaving it for
+    // the next start.
     setTimeout(() => {
-      void stopSharedWork();
-      process.exit(0);
+      void within(stopSharedWork(), SHARED_WORK_STOP_MS).finally(() => process.exit(0));
     }, SHUTDOWN_GRACE_MS).unref();
     server.close(() => {
       void Promise.all([stopSharedWork(), mcpHandler.close()]).finally(() => process.exit(0));

@@ -2,7 +2,7 @@ import { narrowSelection, selectionFrom } from "../../selection.js";
 import type { AttentionPayload, ComparisonPayload, CoveragePayload, ReaderPayload, RecordsPayload, ResearchPayload } from "../../viewContract.js";
 import { csv, empty, panels, type ViewContext, type ViewResult } from "../shell.js";
 import { heatmapMatrix, columns } from "../svg.js";
-import { esc, fmtInt } from "../theme.js";
+import { esc, fmtInt, fmtShare } from "../theme.js";
 
 type Row = Record<string, unknown>;
 const data = <R extends Row>(p: ResearchPayload<R>): R[] => p.rows ?? [];
@@ -238,6 +238,7 @@ export function comparisonView(p: ComparisonPayload): ViewResult {
           ),
         })),
         mode: "grouped",
+        format: fmtShare,
         ariaLabel: `Selection shares by ${field} (%)`,
       }),
     };
@@ -249,7 +250,7 @@ export function comparisonView(p: ComparisonPayload): ViewResult {
     body: `${columns({
       categories: years,
       series: ["A", "B"].map((label) => ({ label, values: years.map((year) => 100 * (temporal.rows.find((r) => r.selection === label && r.year === year)?.share ?? 0)) })),
-      mode: "grouped", ariaLabel: "Two selections as a share of the archived corpus per year (%)",
+      mode: "grouped", format: fmtShare, ariaLabel: "Two selections as a share of the archived corpus per year (%)",
     })}<details><summary>Yearly counts and denominators</summary>${table(["Selection", "Year", "Count", "Archived corpus", "Share"], temporal.rows.map((r) => [r.selection, r.year, r.count, r.denominator, r.share]))}</details>`,
   }]) : "";
   return {

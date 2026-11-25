@@ -6,6 +6,7 @@ import { attachSkills } from "./tools/skills.js";
 import { SERVER_ICON } from "./serverIcon.js";
 import { startHttpServer } from "./http.js";
 import { stopSharedWork } from "./request.js";
+import { guardedShutdown } from "./shutdown.js";
 import { config } from "./config.js";
 import { FULLTEXT_INSTRUCTIONS } from "./coverage.js";
 import { buildInstructions } from "./instructions.js";
@@ -88,6 +89,10 @@ export function createServer(): McpServer {
   return server;
 }
 
+/** How long a stdio shutdown waits for shared work to abort and release the
+ * cache lock before exiting regardless. Hosts kill a lingering server soon. */
+const STDIO_SHUTDOWN_DEADLINE_MS = 5_000;
+
 function runStdio(): void {
   // `serveStdio` owns the transport AND the era decision: the opening exchange
   // decides whether the connection speaks 2026-07-28 (`server/discover`, no
@@ -98,11 +103,18 @@ function runStdio(): void {
   const handle = serveStdio(createServer, {
     onerror: (err) => console.error("[iwac] stdio error:", err),
   });
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      void Promise.allSettled([stopSharedWork(), handle.close()]).finally(() => process.exit(0));
-    });
-  }
+  // A host normally ends a stdio server by closing its stdin, which on Windows
+  // is the only signal there is. The transport closing does not abort a
+  // download in progress (the first-run dataset or encoder fetch), which would
+  // keep the process alive and, if it is then killed, leave the cache lock
+  // behind. So stdin EOF stops shared work exactly as the signals do.
+  const shutdown = guardedShutdown(
+    () => Promise.allSettled([stopSharedWork(), handle.close()]),
+    STDIO_SHUTDOWN_DEADLINE_MS,
+  );
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, shutdown);
+  process.stdin.once("end", shutdown);
+  process.stdin.once("close", shutdown);
   console.error(
     `[iwac] IWAC MCP server running on stdio ` +
       `(dataset: ${config.datasetRepo}, cache: ${config.cacheDir}, semantic: ${config.semanticSearchEnabled})`,

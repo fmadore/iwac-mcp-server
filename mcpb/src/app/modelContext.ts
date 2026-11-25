@@ -134,7 +134,16 @@ export function buildModelContext(payload: BasePayload, options: ViewOptions, re
         filters: selection(source.filters, `comparison.${index}.filters`),
       };
     }));
-  } else add("selection", selection(payload.filters ?? result.chips, "selection"));
+  } else {
+    // The selection comes from the payload, never from the view's chips: chips
+    // are display-only (a reader's `id`, the semantic map's `coloured_by`), and
+    // reading them flagged every opened source as a truncated selection. The
+    // two list views that carry their one filter as `country_filter` map it.
+    const countryFilter = payload.country_filter;
+    const filters =
+      payload.filters ?? (typeof countryFilter === "string" && countryFilter ? { country: countryFilter } : undefined);
+    add("selection", selection(filters, "selection"));
+  }
 
   if (Object.keys(datasets).length) add("dataset", { ...dataset, datasets });
 

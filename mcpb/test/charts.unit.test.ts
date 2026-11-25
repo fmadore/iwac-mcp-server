@@ -20,7 +20,7 @@ import {
 import { BASEMAP, BASEMAP_BOUNDS } from "../src/app/basemap.js";
 import { project2d } from "../src/pca.js";
 import { csv, csvCell } from "../src/app/shell.js";
-import { fmtInt, THOUSANDS_SEP } from "../src/app/theme.js";
+import { fmtInt, fmtShare, THOUSANDS_SEP } from "../src/app/theme.js";
 import { carryFilters, temporalView } from "../src/app/views/temporal.js";
 import { topicsView } from "../src/app/views/topics.js";
 import { VIEWS } from "../src/app/views/index.js";
@@ -159,6 +159,28 @@ describe("chart kernel", () => {
     assert.equal(THOUSANDS_SEP, " ", "the separator should be a narrow no-break space");
     assert.equal(fmtInt(7), "7");
     assert.equal(fmtInt(-1200), `-1${THOUSANDS_SEP}200`);
+  });
+
+  it("share charts keep their decimals and % sign on the axis and in tooltips", () => {
+    assert.equal(fmtShare(0.4), "0.4%");
+    assert.equal(fmtShare(0.25), "0.25%");
+    assert.equal(fmtShare(12.34), "12.3%");
+    assert.equal(fmtShare(50), "50%");
+    const markup = columns({ categories: ["2001", "2002"], series: [{ label: "A", values: [1.6, 0.8] }], format: fmtShare, ariaLabel: "x" });
+    assert.ok(markup.includes("1.6%"), "peak share lost its decimal");
+    assert.ok(!/>1<\/text>/.test(markup), "axis rounded a share to an integer");
+    const normalised = temporalView({
+      view: "temporal", normalize_by: "scope", group_by: "country",
+      distribution_by_group: { Benin: { "2001": 1 } }, denominators: { Benin: { "2001": 64 } },
+    });
+    assert.ok(normalised.body.includes("1.6%"), "normalised temporal tooltip lost its decimals");
+  });
+
+  it("a chart with clickable marks is a group, a static chart an img", () => {
+    const clickable = horizontalBar({ items: [{ label: "A", value: 1 }], clickable: true, ariaLabel: "x" });
+    const static_ = horizontalBar({ items: [{ label: "A", value: 1 }], ariaLabel: "x" });
+    assert.match(clickable, /^<svg[^>]* role="group"/);
+    assert.match(static_, /^<svg[^>]* role="img"/);
   });
 
   it("the temporal view carries filters forward and discloses undated items", () => {

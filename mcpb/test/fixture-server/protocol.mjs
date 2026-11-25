@@ -108,6 +108,16 @@ export async function handshakeChecks({ root, client, fail }) {
     if (t?._meta?.ui?.resourceUri !== "ui://iwac/charts.html")
       fail(`${n} should declare the chart UI in _meta, got ${JSON.stringify(t?._meta)}`);
   }
+  // The view's show_result accepts exactly the tools that declare a view (plus
+  // fetch), so the allowlist in viewContract.ts must follow the server.
+  {
+    const source = readFileSync(path.join(import.meta.dirname, "..", "..", "src", "viewContract.ts"), "utf8");
+    const block = source.match(/export const VIEW_TOOLS = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
+    const allowed = [...block.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+    const declared = tools.tools.filter((t) => t._meta?.ui?.resourceUri?.startsWith("ui://iwac/")).map((t) => t.name).sort();
+    if (allowed.join() !== declared.join())
+      fail(`VIEW_TOOLS (${allowed.join(", ")}) does not match the tools declaring a view (${declared.join(", ")})`);
+  }
   const toolCount = expectedToolCount();
   if (tools.tools.length !== toolCount) {
     fail(`expected ${toolCount} tools with semantic off, got ${tools.tools.length}: ${names.join(", ")}`);

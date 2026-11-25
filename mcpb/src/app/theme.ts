@@ -188,6 +188,17 @@ export function fmtNum(n: number, places = 2): string {
 
 export const fmtPct = (t: number): string => `${fmtNum(t * 100, 1)}%`;
 
+/**
+ * A share already on the 0..100 scale (the normalised temporal, lunar and
+ * research charts). Two places under 1% and one above, trailing zeros dropped:
+ * an axis whose peak is 1.6% must read 0.4/0.8/1.2/1.6, not 0/0/1/1/1, and a
+ * tooltip must keep its decimals and its % sign.
+ */
+export function fmtShare(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  return `${fmtNum(v, Math.abs(v) < 1 ? 2 : 1)}%`;
+}
+
 /** Truncate for an axis label, keeping the ellipsis inside the budget. */
 export function clip(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, Math.max(1, max - 1))}…`;

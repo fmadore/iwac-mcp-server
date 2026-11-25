@@ -93,6 +93,9 @@ export function addOverviewCases(CASES) {
       // The chart must name the model that judged, not just "AI".
       if (!markup.includes("gpt-5-6-luna")) return "polarity chart did not name its model";
       if (!markup.includes("Polarity shown for 1 of 2")) return "did not disclose partial polarity coverage";
+      // The share is of the scored articles, and the chart must say how many.
+      if (!markup.includes("4 000 of 4 000 articles scored")) return "did not show the scored denominator";
+      if (markup.includes("every article")) return "still claims every article was scored";
       return null;
     },
   ]);

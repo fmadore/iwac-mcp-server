@@ -7,9 +7,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
-import { config, parseAllowedOrigins, parseMemoryLimit } from "../src/config.js";
+import { ALL_SUBSETS, config, parseAllowedOrigins, parseMemoryLimit } from "../src/config.js";
 import { allowDirectoriesForTests, duckdbTempDir, ensureView, query, sandboxStatements } from "../src/db.js";
-import { runSharedWork, waitForDataset, waitForSharedWork, withRequest } from "../src/request.js";
+import { runSharedWork, waitForDataset, waitForPreparation, waitForSharedWork, withRequest } from "../src/request.js";
 import { errorResult } from "../src/tools/_shared.js";
 import { PROGRESS_INTERVAL_MS, progressReporter, wrapToolCallback } from "../src/tools/register.js";
 import { at, must } from "./_must.js";
@@ -37,9 +37,14 @@ after(async () => {
 
 const sqlPath = (p: string) => `'${p.replaceAll("\\", "/").replaceAll("'", "''")}'`;
 
+/** A directory the sandbox allows (it allows the subset directories, not the
+ * bare cache dir), for parquet the tests write and remove again. */
+const scratchDir = path.join(cacheDir, "audiovisual");
+await fs.mkdir(scratchDir, { recursive: true });
+
 /** One small parquet file's bytes, written and read back inside the sandbox. */
 async function parquetBytes(sql = `SELECT 1 AS "o:id", 'x' AS title`): Promise<Buffer> {
-  const file = path.join(cacheDir, `fixture-${Math.random().toString(36).slice(2)}.parquet`);
+  const file = path.join(scratchDir, `fixture-${Math.random().toString(36).slice(2)}.parquet`);
   await query(`COPY (${sql}) TO ${sqlPath(file)} (FORMAT parquet)`);
   const bytes = await fs.readFile(file);
   await fs.rm(file);
@@ -58,11 +63,21 @@ const payload = (result: unknown) =>
 
 describe("DuckDB sandbox", () => {
   it("reads parquet under the cache dir and refuses files outside it", async () => {
-    const file = path.join(cacheDir, "inside.parquet");
+    const file = path.join(scratchDir, "inside.parquet");
     await query(`COPY (SELECT 42 AS answer) TO ${sqlPath(file)} (FORMAT parquet)`);
     // Both separators: hf.ts hands DuckDB forward slashes on Windows.
     assert.deepEqual(await query(`SELECT answer FROM read_parquet([${sqlPath(file)}])`), [{ answer: 42 }]);
     assert.deepEqual(await query(`SELECT answer FROM read_parquet('${file.replace(/'/g, "''")}')`), [{ answer: 42 }]);
+    await fs.rm(file);
+    // The private mirror's cache sits inside the public one; a public
+    // instance must not reach it.
+    const privateDir = path.join(cacheDir, "private-full", "articles");
+    await fs.mkdir(privateDir, { recursive: true });
+    await assert.rejects(
+      query(`COPY (SELECT 1 AS x) TO ${sqlPath(path.join(privateDir, "restricted.parquet"))} (FORMAT parquet)`),
+      /Permission Error/,
+    );
+    await assert.rejects(query(`SELECT * FROM read_parquet(${sqlPath(path.join(privateDir, "restricted.parquet"))})`), /Permission Error/);
     // A file of this repository: outside the cache and the temp dir. Without
     // the sandbox this read succeeds.
     const outside = path.resolve("package.json");
@@ -84,9 +99,12 @@ describe("DuckDB sandbox", () => {
     }
     const statements = sandboxStatements(cacheDir, duckdbTempDir());
     const allowed = must(statements.find((s) => s.startsWith("SET GLOBAL allowed_directories")), "allowed_directories");
-    // Exactly the cache dir and the spill dir in it, as resolved, native paths.
+    // Exactly the subset dirs and the spill dir, as resolved, native paths;
+    // never the bare cache dir, which would reach a private-full/ beside them.
     const literal = (p: string) => `'${path.resolve(p).replaceAll("'", "''")}'`;
-    assert.equal(allowed, `SET GLOBAL allowed_directories = [${literal(cacheDir)}, ${literal(duckdbTempDir())}]`);
+    const subsetDirs = ALL_SUBSETS.map((subset) => literal(path.join(cacheDir, subset)));
+    assert.equal(allowed, `SET GLOBAL allowed_directories = [${[...subsetDirs, literal(duckdbTempDir())].join(", ")}]`);
+    assert.ok(!allowed.includes(`${literal(cacheDir)}`), "the bare cache dir is not allowed");
     assert.throws(() => allowDirectoriesForTests([os.tmpdir()]), /before the first DuckDB query/, "too late once the instance is open");
   });
 
@@ -182,6 +200,26 @@ describe("a tool call that outlives its deadline", () => {
     const pending = handler({}, fakeExtra(client.signal));
     client.abort(new Error("client cancelled"));
     await assert.rejects(pending, /client cancelled/);
+  });
+
+  it("says the encoder is still being prepared when the deadline cuts its download, whichever wait fails first", async () => {
+    // What semanticSearch does: the encoder wait (in request scope) runs
+    // beside other waits on the same shared work; the deadline rejects all of
+    // them at once, and the first rejection is a bare timeout.
+    const download = runSharedWork(() => new Promise<void>((resolve) => setTimeout(resolve, 300)));
+    const handler = wrapToolCallback("t", async () => {
+      await Promise.all([
+        waitForSharedWork(download),
+        waitForPreparation("The local query encoder is still being prepared in the background. Retry in a minute.", download),
+      ]);
+      return { content: [] };
+    }, { deadlineMs: 30 });
+    const body = payload(await handler({}, fakeExtra(new AbortController().signal)));
+    assert.equal(body.code, "unavailable");
+    assert.match(String(body.error), /encoder is still being prepared/);
+    assert.doesNotMatch(String(body.error), /narrow the selection/);
+    assert.deepEqual(body.still_loading, ["query encoder"]);
+    await download;
   });
 
   it("keeps an error that already explains itself", async () => {

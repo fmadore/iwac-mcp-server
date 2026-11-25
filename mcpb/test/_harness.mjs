@@ -43,6 +43,9 @@ export function assertFreshBuild() {
     path.join(MCPB_ROOT, "scripts", "bundle.mjs"),
     path.join(MCPB_ROOT, "scripts", "collect-skills.mjs"),
     path.join(MCPB_ROOT, "package.json"),
+    // Inlined at build time too (serverCard.ts, bundle.mjs): a description,
+    // name or homepage edit needs a rebuild as much as a version bump does.
+    path.join(MCPB_ROOT, "manifest.json"),
     // The skill files are inlined into the bundle too.
     path.join(MCPB_ROOT, "..", ".agents", "skills"),
   ];

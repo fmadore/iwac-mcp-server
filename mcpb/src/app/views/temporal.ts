@@ -2,7 +2,7 @@ import type { TemporalPayload } from "../../viewContract.js";
 import { selectionFrom } from "../../selection.js";
 import { csv, empty, type ViewResult } from "../shell.js";
 import { columns, legend } from "../svg.js";
-import { esc, fmtInt } from "../theme.js";
+import { esc, fmtInt, fmtShare } from "../theme.js";
 
 export function carryFilters(p: TemporalPayload): Record<string, unknown> {
   return { ...selectionFrom(p.filters) };
@@ -55,6 +55,7 @@ export function temporalView(p: TemporalPayload): ViewResult {
             categories: buckets,
             series: groups.map((label) => ({ label, values: buckets.map((b) => value(label, b)) })),
             mode: normalized ? "grouped" : "stacked",
+            ...(normalized ? { format: fmtShare } : {}),
             ariaLabel: `${subset} per ${axis}${normalized ? ", percent of denominator" : ""}`,
           }) + (groups.length > 1 ? legend(groups) : "")
         : empty("No dated items match these filters.")) + table,

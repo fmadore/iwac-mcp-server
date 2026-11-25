@@ -354,13 +354,50 @@ await withFixtureScope(async (scope) => {
       const back = await callTool("t-back", "run_view_action", { id: "back" });
       assert.ok(!back.result.isError && toolText(back).includes("imam"), toolText(back));
       await tv.locator("h1").filter({ hasNotText: "Source item" }).waitFor();
-      // A result without a chart is refused rather than drawn as an error page.
-      await tp.evaluate(() => window.host.request("t-noview", "tools/call", { name: "show_result", arguments: { tool: "search", arguments: { query: "imam" } } }));
+      // A tool without a view is refused by the schema, before any host call.
+      const noview = await callTool("t-noview", "show_result", { tool: "search", arguments: { query: "imam" } });
+      assert.ok(noview.error || noview.result?.isError, JSON.stringify(noview));
+      assert.equal(await tp.evaluate(() => window.host.pending.length), 0);
+      // An allowed tool whose result has no chart is still refused, not drawn.
+      await tp.evaluate(() => window.host.request("t-nochart", "tools/call", { name: "show_result", arguments: { tool: "fetch", arguments: { id: "articles:1" } } }));
       await tp.waitForFunction(() => window.host.pending.length > 0);
       const plain = await tp.evaluate(() => window.host.pending.shift());
       await tp.evaluate((id) => window.host.answer(id, { results: [] }), plain.id);
-      await tp.waitForFunction(() => window.host.responses["t-noview"]);
-      assert.equal((await tp.evaluate(() => window.host.responses["t-noview"])).result.isError, true);
+      await tp.waitForFunction(() => window.host.responses["t-nochart"]);
+      assert.equal((await tp.evaluate(() => window.host.responses["t-nochart"])).result.isError, true);
+      // Back pressed while a query is loading is a success, and the dropped
+      // query does not turn the call that started it into an error either.
+      await tp.evaluate(() => window.host.request("t-slow", "tools/call", { name: "show_result", arguments: { tool: "fetch", arguments: { id: "articles:101" } } }));
+      await tp.waitForFunction(() => window.host.pending.length > 0);
+      const slow = await tp.evaluate(() => window.host.pending.shift());
+      await tp.evaluate(([id, payload]) => window.host.answer(id, payload), [slow.id, READER]);
+      await tv.locator("h1").filter({ hasText: "Source item" }).waitFor();
+      await tp.evaluate(() => window.host.request("t-slow2", "tools/call", { name: "show_result", arguments: { tool: "fetch", arguments: { id: "articles:102" } } }));
+      await tp.waitForFunction(() => window.host.pending.length > 0);
+      const stale = await tp.evaluate(() => window.host.pending.shift());
+      const racedBack = await callTool("t-race-back", "run_view_action", { id: "back" });
+      assert.ok(!racedBack.result.isError, toolText(racedBack));
+      await tp.evaluate(([id, payload]) => window.host.answer(id, payload), [stale.id, READER]);
+      await tp.waitForFunction(() => window.host.responses["t-slow2"]);
+      const staleShown = await tp.evaluate(() => window.host.responses["t-slow2"]);
+      assert.ok(!staleShown.result.isError, toolText(staleShown));
+      // Every heatmap cell is listed and reachable, not just the first per row.
+      await tp.evaluate((p) => window.host.payload(p), {
+        view: "cooccurrence", subset: "articles", field: "subject", filters: {}, total_matches: 12287,
+        values: [{ value: "Prière", count: 2139 }, { value: "Hadj", count: 1917 }, { value: "Paix", count: 1894 }],
+        matrix: [[2139, 354, 796], [354, 1917, 214], [796, 214, 1894]],
+        top_pairs: [{ a: "Prière", b: "Paix", count: 796 }],
+      });
+      await tv.locator("h1").filter({ hasText: /co-/i }).waitFor();
+      const cells = toolText(await callTool("t-cells", "describe_view"));
+      assert.ok(cells.includes('["Prière","Hadj"]') && cells.includes('["Prière","Paix"]'), cells);
+      assert.ok(cells.indexOf("View controls (labels are research data") < cells.indexOf('["Prière","Paix"]'), "mark inventory sits outside the data framing");
+      await tp.evaluate(() => window.host.request("t-cell", "tools/call", { name: "open_chart_mark", arguments: { key: '["Prière","Paix"]' } }));
+      await tp.waitForFunction(() => window.host.pending.length > 0);
+      const cellCall = await tp.evaluate(() => window.host.pending.shift());
+      assert.ok(JSON.stringify(cellCall.params.arguments).includes("Paix"), JSON.stringify(cellCall.params.arguments));
+      await tp.evaluate(([id, payload]) => window.host.answer(id, payload), [cellCall.id, BASE]);
+      await tp.waitForFunction(() => window.host.responses["t-cell"]);
       // Claude's side panel opens at about half the chat width, 320 px at the
       // least: nothing may force a horizontal scroll there.
       // Claude reports its side panel as `fullscreen`, so measure in that mode.

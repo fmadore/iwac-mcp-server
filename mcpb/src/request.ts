@@ -17,6 +17,9 @@ interface RequestScope {
   deadline?: AbortSignal;
   /** Subsets this call stopped waiting for before their first load finished. */
   loading?: Set<Subset>;
+  /** Other one-time preparations (the query encoder) it stopped waiting for,
+   * by the sentence that tells the user what is going on. */
+  preparing?: Set<string>;
   progress?: ProgressReporter;
 }
 const scope = new AsyncLocalStorage<RequestScope>();
@@ -29,6 +32,8 @@ export const requestDeadlineExpired = (): boolean => scope.getStore()?.deadline?
 /** The subsets the current call gave up waiting on while they were still
  * downloading or loading for the first time. */
 export const datasetsStillLoading = (): Subset[] => [...(scope.getStore()?.loading ?? [])];
+/** The one-time preparations the current call gave up waiting on, as messages. */
+export const preparationsStillRunning = (): string[] => [...(scope.getStore()?.preparing ?? [])];
 const sharedWorkLifetime = new AbortController();
 const sharedJobs = new Set<Promise<unknown>>();
 // Shared jobs may legitimately have more than ten concurrent query listeners.
@@ -101,6 +106,31 @@ export async function waitForDataset<T>(subset: Subset, job: Promise<T>): Promis
     return await waitForSharedWork(job);
   } catch (err) {
     if (!settled) scope.getStore()?.loading?.add(subset);
+    throw err;
+  }
+}
+
+/**
+ * waitForDataset for any other one-time preparation, such as the query
+ * encoder's download. A caller cut off while it is still running records
+ * `message`, which the tool wrapper returns instead of a query timeout: the
+ * preparation carries on, and narrowing the selection would change nothing.
+ * Only a call in request scope records; inside shared work it just waits.
+ */
+export async function waitForPreparation<T>(message: string, job: Promise<T>): Promise<T> {
+  let settled = false;
+  void job.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+  try {
+    return await waitForSharedWork(job);
+  } catch (err) {
+    const store = scope.getStore();
+    if (!settled && store?.deadline) {
+      store.preparing ??= new Set();
+      store.preparing.add(message);
+    }
     throw err;
   }
 }

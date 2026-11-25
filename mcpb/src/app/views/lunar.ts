@@ -21,7 +21,7 @@ import type { LunarPayload } from "../../viewContract.js";
 // the work.
 import { csv, empty, panels, type ViewResult } from "../shell.js";
 import { bar } from "../svg.js";
-import { fmtInt } from "../theme.js";
+import { fmtInt, fmtShare } from "../theme.js";
 import { carryFilters } from "./temporal.js";
 
 /** Fallback if the server ever stops sending month_labels. */
@@ -72,12 +72,24 @@ function notable(values: number[], baseline: number): Set<number> {
 }
 
 export function lunarView(p: LunarPayload): ViewResult {
-  const groups = p.distribution_by_group ?? { all: p.distribution ?? {} };
+  const numerators = p.distribution_by_group ?? { all: p.distribution ?? {} };
+  // Panels come from the union of numerator AND denominator groups, as in the
+  // annual view: a country with archived scope but no match is "0 of N", and
+  // dropping its panel would read as "no data".
+  const groups: Record<string, Record<string, number>> = { ...numerators };
+  for (const group of Object.keys(p.denominators ?? {})) groups[group] ??= {};
+  const hasScope = Boolean(
+    p.normalize_by && Object.values(p.denominators ?? {}).some((m) => Object.values(m).some((v) => v > 0)),
+  );
   const dist: Record<string, number> = {};
   for (const counts of Object.values(groups))
     for (const [key, value] of Object.entries(counts)) dist[key] = (dist[key] ?? 0) + value;
   const labels = p.month_labels ?? {};
   const subset = p.subset ?? "articles";
+  const regroup = {
+    ...(p.group_by ? { group_by: p.group_by } : {}),
+    ...(p.normalize_by ? { normalize_by: p.normalize_by } : {}),
+  };
 
   // Always all twelve, in calendar order, even where a month has no items: a
   // gap in the lunar year is a finding, and dropping the bar would hide it.
@@ -89,7 +101,7 @@ export function lunarView(p: LunarPayload): ViewResult {
   const plotted = values.reduce((a, b) => a + b, 0);
   const baseline = plotted / 12;
 
-  const body = plotted
+  const body = plotted || hasScope
     ? panels(
         Object.entries(groups).map(([group, counts]) => ({
           title: group === "all" ? (p.normalize_by ? "Share of archived scope (%)" : "All selected items") : group,
@@ -105,6 +117,7 @@ export function lunarView(p: LunarPayload): ViewResult {
                 : (counts[m.key] ?? 0);
             }),
             label: p.normalize_by ? "percent" : "items",
+            ...(p.normalize_by ? { format: fmtShare } : {}),
             maxTicks: 12,
             ariaLabel: `${subset} per Hijri month: ${group}`,
             ...(!p.normalize_by
@@ -159,6 +172,8 @@ export function lunarView(p: LunarPayload): ViewResult {
             },
           ]
         : []),
+      // The calendar switches keep the question: grouping and normalisation
+      // ride along, so per-country shares never turn into pooled raw counts.
       {
         id: "gregorian",
         label: "Switch to Gregorian years",
@@ -166,6 +181,7 @@ export function lunarView(p: LunarPayload): ViewResult {
           ctx.run("get_temporal_distribution", {
             subset,
             granularity: "year",
+            ...regroup,
             ...carryFilters(p),
           }),
       },
@@ -177,6 +193,7 @@ export function lunarView(p: LunarPayload): ViewResult {
             subset,
             granularity: "year",
             calendar: "hijri",
+            ...regroup,
             ...carryFilters(p),
           }),
       },

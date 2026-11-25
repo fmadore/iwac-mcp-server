@@ -83,11 +83,11 @@ let requestedMode: DisplayMode | null = null;
  * tools read both, so they describe exactly what a person sees. */
 let currentResult: ViewResult | undefined;
 let currentActions: Action[] = [];
+/** How one follow-up query ended: its error message, or `superseded` when a
+ * newer query, Back or a new tool result took over before it answered. */
+type LoadOutcome = { error?: string; superseded?: boolean };
 /** The follow-up query in flight, so a tool that clicked a mark can wait for it. */
-let inflight: Promise<void> | undefined;
-/** Outcome of the latest follow-up query: undefined while none has run since a
- * tool reset it, null on success, otherwise the message the view showed. */
-let lastLoadError: string | null | undefined;
+let inflight: Promise<LoadOutcome> | undefined;
 /** Set by the first render; the in-flight placeholder must never replace a chart. */
 let rendered = false;
 let contextStatus: "pending" | "shared" | "failed" = "pending";
@@ -231,50 +231,59 @@ function readPayload(result: unknown): BasePayload {
  * result that has no chart, for the assistant's show_result: a person's clicks
  * only reach tools that draw.
  */
-async function load(name: string, args: Record<string, unknown>, requireView = false): Promise<void> {
+async function load(name: string, args: Record<string, unknown>, requireView = false): Promise<LoadOutcome> {
   if (!app.getHostCapabilities()?.serverTools) {
     transientError = "This host cannot open further IWAC results. Ask in the conversation to inspect this selection.";
-    lastLoadError = transientError;
     render(current);
-    return;
+    return { error: transientError };
   }
   const ticket = requests.begin();
   try {
     const result = await app.callServerTool({ name, arguments: args });
-    if (!requests.isCurrent(ticket)) {
-      lastLoadError = "A newer request replaced this one.";
-      return;
-    }
+    if (!requests.isCurrent(ticket)) return { superseded: true };
     const next = readPayload(result);
     if (next.error) throw new Error(String(next.error));
     if (requireView && !next.view) throw new Error(`${name} returned no chart view; call it directly instead.`);
     transientError = null;
-    lastLoadError = null;
     navigate(next);
+    return {};
   } catch (error) {
-    if (!requests.isCurrent(ticket)) {
-      lastLoadError = "A newer request replaced this one.";
-      return;
-    }
+    if (!requests.isCurrent(ticket)) return { superseded: true };
     transientError = (error as Error).message;
-    lastLoadError = transientError;
     render(current);
+    return { error: transientError };
   } finally {
     requests.finish(ticket);
   }
 }
 
+/** The most recent follow-up query, kept after it settles so a view tool whose
+ * click already awaited it can still read how it ended; and a count of them. */
+let latest: Promise<LoadOutcome> | undefined;
+let started = 0;
+
 /** Remember a follow-up query as the one in flight until it settles. */
-function track(work: Promise<void>): Promise<void> {
+function track(work: Promise<LoadOutcome>): Promise<LoadOutcome> {
   inflight = work;
+  latest = work;
+  started++;
   return work.finally(() => {
     if (inflight === work) inflight = undefined;
   });
 }
 
+/** Drop every query in flight (Back, a new tool result, a cancel, teardown).
+ * Clearing `inflight` and `latest` too keeps a view tool from waiting on, or
+ * reporting, a query that no longer decides what the view shows. */
+function invalidateRequests(): void {
+  requests.invalidate();
+  inflight = undefined;
+  latest = undefined;
+}
+
 const ctx: ViewContext = {
-  run(name, args) {
-    return track(load(name, args));
+  async run(name, args) {
+    await track(load(name, args));
   },
   setOption(key, value) {
     const focused = document.activeElement?.id;
@@ -417,7 +426,7 @@ function render(payload: BasePayload): void {
       id: "back",
       label: "Back",
       run: () => {
-        requests.invalidate();
+        invalidateRequests();
         const previous = history.pop();
         if (!previous) return;
         options = previous.options;
@@ -543,19 +552,41 @@ function viewState(): ViewToolResult {
 /** Run something a person could do, then report what the view shows. A
  * follow-up query it started is awaited, and its failure is the result. */
 async function act(work: () => unknown): Promise<ViewToolResult> {
-  lastLoadError = undefined;
+  let outcome: LoadOutcome = {};
+  const before = started;
   try {
     await work();
-    if (inflight) await inflight;
+    // The query this started (even one its button already awaited), or one
+    // still in flight. A query replaced by a newer one hands over to it; one
+    // dropped by Back or a new tool result ends there, and the view reports
+    // what it now shows instead of an error.
+    let pending = started !== before || inflight ? latest : undefined;
+    while (pending) {
+      outcome = await pending;
+      pending = outcome.superseded && latest !== pending ? latest : undefined;
+    }
   } catch (error) {
     return { text: `That did not work: ${(error as Error).message}`, isError: true };
   }
-  if (typeof lastLoadError === "string") return { text: `The view could not load that: ${lastLoadError}`, isError: true };
+  if (outcome.error) return { text: `The view could not load that: ${outcome.error}`, isError: true };
   return viewState();
 }
 
 function markElements(): SVGElement[] {
   return [...root.querySelectorAll<SVGElement>("[data-key]")];
+}
+
+/**
+ * A mark's key for the view tools. Every cell of a heatmap row (and every band
+ * of a stacked bar) shares its `data-key`, so a mark that also carries
+ * `data-key2` is keyed by the pair, as JSON; keyed by `data-key` alone, only
+ * the first cell of each row could be listed or opened.
+ */
+function markKey(el: Element): string | null {
+  const key = el.getAttribute("data-key");
+  if (!key) return null;
+  const key2 = el.getAttribute("data-key2");
+  return key2 === null ? key : JSON.stringify([key, key2]);
 }
 
 registerViewTools(app, {
@@ -564,7 +595,7 @@ registerViewTools(app, {
     const seen = new Set<string>();
     const marks: { key: string; label: string }[] = [];
     for (const el of markElements()) {
-      const key = el.getAttribute("data-key");
+      const key = markKey(el);
       if (!key || seen.has(key)) continue;
       seen.add(key);
       marks.push({ key, label: el.getAttribute("aria-label") ?? key });
@@ -584,7 +615,7 @@ registerViewTools(app, {
     return act(() => action.run(ctx));
   },
   openMark(key) {
-    const el = markElements().find((candidate) => candidate.getAttribute("data-key") === key);
+    const el = markElements().find((candidate) => markKey(candidate) === key);
     if (!el) return Promise.resolve({ text: `No chart mark "${key}" in this view; call describe_view.`, isError: true });
     return act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   },
@@ -598,7 +629,7 @@ registerViewTools(app, {
 // -----------------------------------------------------------------------------
 
 app.ontoolresult = (result) => {
-  requests.invalidate();
+  invalidateRequests();
   history.length = 0;
   transientError = null;
   render(readPayload(result));
@@ -619,7 +650,7 @@ app.ontoolinput = ({ arguments: args }) => {
 };
 
 app.ontoolcancelled = () => {
-  requests.invalidate();
+  invalidateRequests();
   transientError = "Request cancelled. Your previous selection is still available.";
   if (current.view) render(current);
   else root.innerHTML = empty("Request cancelled. You can try again from the conversation.");
@@ -627,7 +658,7 @@ app.ontoolcancelled = () => {
 
 app.onteardown = async () => {
   connected = false;
-  requests.invalidate();
+  invalidateRequests();
   contextSync.stop();
   return {};
 };

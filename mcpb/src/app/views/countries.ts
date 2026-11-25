@@ -50,16 +50,23 @@ export function countriesView(p: CountriesPayload): ViewResult {
   // legend, so its swatch matched nothing on the chart.
   const fallback = palette();
   const colors = labels.map((l, i) => ordinalColor(l, POLARITY_ORDER) ?? fallback[i % fallback.length] ?? "#888");
+  // Each bar is normalised over the articles the model actually labelled, which
+  // is not the country's article count: the panel's coverage trails the corpus.
+  // The denominator rides in every tooltip and in the CSV, so a share is never
+  // read as a share of all articles.
+  const scoredOf = rows.map((c) => Object.values(c.polarity ?? {}).reduce((a, b) => a + b, 0));
+  const scoredLabel = (i: number): string =>
+    `${fmtInt(scoredOf[i] ?? 0)} of ${fmtInt(rows[i]?.article_count ?? 0)} articles scored`;
   const polarity = labels.length
     ? stackedBar({
-        categories: names,
+        categories: names.map((name, i) => `${name} (${scoredLabel(i)})`),
+        axisLabels: names,
         series: labels.map((label, i) => ({
           label,
           color: colors[i],
-          values: rows.map((c) => {
-            const bucket = c.polarity ?? {};
-            const sum = Object.values(bucket).reduce((a, b) => a + b, 0);
-            return sum ? (bucket[label] ?? 0) / sum : 0;
+          values: rows.map((c, ri) => {
+            const sum = scoredOf[ri] ?? 0;
+            return sum ? (c.polarity?.[label] ?? 0) / sum : 0;
           }),
         })),
         format: fmtPct,
@@ -68,7 +75,7 @@ export function countriesView(p: CountriesPayload): ViewResult {
       }) + legend(labels, colors)
     : "";
 
-  const scored = rows.filter((c) => Object.keys(c.polarity ?? {}).length).length;
+  const scored = scoredOf.filter((v) => v > 0).length;
 
   return {
     title: "Countries compared",
@@ -83,8 +90,10 @@ export function countriesView(p: CountriesPayload): ViewResult {
         scored < rows.length &&
         `Polarity shown for ${scored} of ${rows.length} countries; the rest carry no scored articles.`,
       polarity &&
-        `Polarity is ${model}'s judgement over every article, full text or not — it is not affected by the OCR ` +
-          "coverage limit. Two other models scored the same articles and read some of them differently.",
+        `Each bar is ${model}'s reading of the articles it scored, full text or not, so it is not affected by ` +
+          "the OCR coverage limit. Scored per country: " +
+          names.map((name, i) => `${name} ${scoredLabel(i)}`).join("; ") +
+          ". The other panel models scored different sets of articles and read some of them differently.",
     ],
     actions: [
       {
@@ -95,13 +104,14 @@ export function countriesView(p: CountriesPayload): ViewResult {
             "iwac-country-comparison.csv",
             "text/csv",
             csv([
-              ["country", "articles", "newspapers", "earliest", "latest", ...labels],
-              ...rows.map((c) => [
+              ["country", "articles", "newspapers", "earliest", "latest", "articles_scored", ...labels],
+              ...rows.map((c, i) => [
                 c.country,
                 c.article_count,
                 c.newspaper_count,
                 c.date_range?.earliest,
                 c.date_range?.latest,
+                scoredOf[i] ?? 0,
                 ...labels.map((l) => c.polarity?.[l] ?? 0),
               ]),
             ]),

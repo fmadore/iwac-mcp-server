@@ -8,6 +8,30 @@
 // test because the value it mirrors lives in a devDependency.
 
 /**
+ * The server tools that draw in the chart view (their `_meta.ui.resourceUri`
+ * names a `ui://iwac/` resource). With `fetch`, whose result opens a source in
+ * the reader, they are the only tools the view's `show_result` accepts, so the
+ * model cannot spend a call on a tool that has nothing to show. A protocol test
+ * checks the list against the tools the server actually declares.
+ */
+export const VIEW_TOOLS = [
+  "explore_corpus",
+  "get_collection_stats",
+  "get_cooccurrence",
+  "get_country_comparison",
+  "get_field_distribution",
+  "get_lexical_metrics",
+  "get_newspaper_stats",
+  "get_place_distribution",
+  "get_semantic_map",
+  "get_sentiment_distribution",
+  "get_similar_items",
+  "get_temporal_distribution",
+  "get_topic_distribution",
+  "list_periodicals",
+] as const;
+
+/**
  * `_meta` key on a tool RESULT under which chart-only data travels.
  *
  * MCP Apps hands the view the whole `CallToolResult` (the spec types the
@@ -116,7 +140,7 @@ export interface Country {
 
 export interface CountriesPayload extends ChartPayloadBase {
   total_countries?: number;
-  /** Which model produced the polarity buckets — three scored the corpus. */
+  /** Which panel model produced the polarity buckets; each panel member scored its own set of articles. */
   polarity_model?: string;
   countries?: Country[];
 }

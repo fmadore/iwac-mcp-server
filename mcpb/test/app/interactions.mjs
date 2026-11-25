@@ -163,6 +163,36 @@ export async function interactionChecks({ fail, dom, rootEl, elements, outbound,
       fail("co-occurrence did not intersect both exact values");
     if (call) await answer(call, BASE);
   }
+  // A grouped, normalised lunar chart keeps a group with scope but no match
+  // (0 of N), in the chart and the CSV, and its calendar switches keep the
+  // grouping and the normalisation.
+  {
+    await renderPayload({
+      view: "lunar",
+      subset: "articles",
+      filters: { keyword: "laïcité" },
+      total_matches: 1,
+      group_by: "country",
+      normalize_by: "searchable",
+      distribution_by_group: { Benin: { "09": 1 } },
+      denominators: { Benin: { "09": 4 }, Togo: { "09": 5 } },
+    });
+    const markup = rootEl.innerHTML;
+    if (!markup.includes("Togo")) fail("lunar chart dropped a group with a denominator but no match");
+    if (!markup.includes("25%")) fail("lunar share is not formatted as a percentage");
+    const csvCall = await press("act-csv", "ui/download-file");
+    if (csvCall) {
+      const text = csvCall.params.contents[0]?.resource?.text ?? "";
+      if (!text.includes("9,Ramadan,Togo,0,5,0")) fail("lunar CSV dropped the zero-match group");
+      deliver({ jsonrpc: "2.0", id: csvCall.id, result: {} });
+      await flush();
+    }
+    const call = await press("act-gregorian");
+    const args = call?.params.arguments ?? {};
+    if (args.group_by !== "country" || args.normalize_by !== "searchable" || args.keyword !== "laïcité")
+      fail(`lunar calendar switch lost grouping, normalisation or filters: ${JSON.stringify(args)}`);
+    if (call) await answer(call, BASE);
+  }
   {
     await renderPayload({
       view: "lunar",

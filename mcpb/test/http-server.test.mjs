@@ -104,6 +104,33 @@ for (const publicUrl of ["/mcp", "https://user:secret@mcp.example.test/mcp", "ht
   const code = await new Promise((resolve) => child.on("exit", resolve));
   if (code !== 1) fail(`IWAC_MCP_PUBLIC_URL='${publicUrl}' should exit 1, exited ${code}`);
   if (!stderr.includes("IWAC_MCP_PUBLIC_URL")) fail(`'${publicUrl}' should be refused by name, got: ${stderr.slice(0, 200)}`);
+  if (stderr.includes("secret")) fail("a refused IWAC_MCP_PUBLIC_URL was logged with its credentials");
+}
+
+// --- 1e. A stdio server exits cleanly when its host closes stdin --------------
+// stdin EOF is how a host ends a stdio server (on Windows the only signal), so
+// it must run the same guarded shutdown as SIGTERM: stop shared work, release
+// the cache lock, exit 0.
+{
+  const child = spawn(process.execPath, [serverJs], {
+    env: { ...baseEnv },
+    stdio: ["pipe", "ignore", "pipe"],
+  });
+  let stderr = "";
+  const ready = new Promise((resolve) => {
+    child.stderr.on("data", (d) => {
+      stderr += d;
+      if (stderr.includes("running on stdio")) resolve();
+    });
+  });
+  await ready;
+  child.stdin.end();
+  const code = await Promise.race([
+    new Promise((resolve) => child.on("exit", resolve)),
+    new Promise((resolve) => setTimeout(() => resolve("timeout"), 8_000)),
+  ]);
+  if (code === "timeout") child.kill();
+  if (code !== 0) fail(`stdio server should exit 0 after stdin EOF, got ${code}: ${stderr.slice(-300)}`);
 }
 
 /** Wait until the server on `base` answers /health. */
@@ -610,6 +637,38 @@ try {
     }
   } finally {
     wild.kill("SIGTERM");
+  }
+}
+
+// --- 9. The private mirror does not exempt loopback origins -------------------
+// A loopback origin is a page on the VISITOR's machine, so over the private
+// mirror it must be listed like any other; a listed one still works.
+{
+  const PRIVATE_BASE = `http://127.0.0.1:${PORT + 2}`;
+  const priv = spawn(process.execPath, [serverJs, "--http"], {
+    env: {
+      ...baseEnv,
+      PORT: String(PORT + 2),
+      IWAC_MCP_BEARER_TOKEN: TOKEN,
+      IWAC_PRIVATE_DATASET: "true",
+      IWAC_ALLOW_PRIVATE_HTTP: "true",
+      IWAC_MCP_ALLOWED_ORIGINS: `${ALLOWED_ORIGIN},http://localhost:3000`,
+    },
+    stdio: ["ignore", "ignore", "inherit"],
+  });
+  try {
+    if (!(await waitHealthy(PRIVATE_BASE))) fail("private-mirror server did not become healthy within 10s");
+    else {
+      for (const [origin, expected] of [["http://localhost:5173", 403], ["http://127.0.0.1", 403], ["http://localhost:3000", 401], [ALLOWED_ORIGIN, 401]]) {
+        const res = await fetch(`${PRIVATE_BASE}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: "{}" });
+        if (res.status !== expected) fail(`private mirror: Origin ${origin} should answer ${expected}, got ${res.status}`);
+        if (expected === 403 && res.headers.has("access-control-allow-origin")) fail(`private mirror reflected unlisted ${origin}`);
+      }
+      const loopbackPreflight = await preflight(PRIVATE_BASE, "http://localhost:5173");
+      if (loopbackPreflight.status !== 403) fail(`private mirror: unlisted loopback preflight should 403, got ${loopbackPreflight.status}`);
+    }
+  } finally {
+    priv.kill("SIGTERM");
   }
 }
 

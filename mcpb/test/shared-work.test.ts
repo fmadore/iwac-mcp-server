@@ -5,7 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { config, type Subset } from "../src/config.js";
-import { withCacheLock } from "../src/cacheLock.js";
+import { ownerIsGone, withCacheLock } from "../src/cacheLock.js";
+import { redactCredentials } from "../src/http.js";
 import {
   allowDirectoriesForTests,
   ensureView,
@@ -290,6 +291,40 @@ test("identical concurrent embeddings share one provider call while cancellation
     globalThis.fetch = originalFetch;
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test("a cache lock left by a stopped process on this host is reclaimed; a live or foreign one is not", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "iwac-stale-lock-"));
+  const lock = path.join(directory, ".iwac-write-lock");
+  const plant = async (owner: Record<string, unknown>) => {
+    await fs.rm(lock, { recursive: true, force: true });
+    await fs.mkdir(lock);
+    await fs.writeFile(path.join(lock, "owner.json"), JSON.stringify(owner));
+  };
+  // A pid that cannot be running: above every OS's pid ceiling.
+  const dead = { pid: 2 ** 30, host: os.hostname(), boot: "earlier", started_at: "2026-01-01T00:00:00Z" };
+  try {
+    await plant(dead);
+    assert.equal(await withCacheLock(directory, async () => "ran"), "ran");
+    assert.deepEqual(await fs.readdir(directory), [], "the stale lock and its tomb are gone");
+    // Our own pid from an earlier boot (a container restart) is stale too.
+    await plant({ ...dead, pid: process.pid });
+    assert.equal(await withCacheLock(directory, async () => "ran"), "ran");
+    // Uncertain owners count as alive: another host, a lock without a boot id
+    // (written by an older version), or a process that exists.
+    assert.equal(ownerIsGone({ ...dead, host: "another-container" }), false);
+    assert.equal(ownerIsGone({ pid: dead.pid, started_at: dead.started_at }), false);
+    assert.equal(ownerIsGone({ ...dead, pid: process.ppid }), false);
+    assert.equal(ownerIsGone(undefined), false);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("logged URL settings drop their credentials", () => {
+  assert.equal(redactCredentials("https://user:secret@mcp.example.test/mcp"), "https://***@mcp.example.test/mcp");
+  assert.equal(redactCredentials("https://a.example, http://u:p@b.example"), "https://a.example, http://***@b.example");
+  assert.equal(redactCredentials("https://plain.example/path"), "https://plain.example/path");
 });
 
 // Keep shutdown last: it ends the process-wide shared-work lifecycle.

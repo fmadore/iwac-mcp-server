@@ -159,16 +159,25 @@ function verifyEncoder(contract: EmbeddingContract): Promise<void> {
   if (!probe) return Promise.resolve();
   const key = encoderKey(contract);
   if (probeCheck?.key !== key) {
-    const done = runSharedWork(async () => verifyProbeVector(contract, await embedQuery(probe.query)));
+    // Encoded outside the query cache: a failed probe's vector must not be
+    // served to the retry once the provider behind the same URL is fixed.
+    const done = runSharedWork(async () =>
+      verifyProbeVector(contract, await embedUncachedQuery(probe.query, contract)),
+    );
     probeCheck = { key, done };
     done.catch(() => {
       if (probeCheck?.done === done) probeCheck = undefined;
     });
   }
-  return waitForSharedWork(probeCheck.done);
+  return probeCheck.done;
 }
 
-async function embedQuery(text: string): Promise<Float32Array> {
+/**
+ * Embed one query, cached per encoder configuration. `verified` is the
+ * encoder check: a vector is cached only once it has passed, so vectors from a
+ * wrong model are never kept to rank later searches.
+ */
+async function embedQuery(text: string, verified: Promise<void>): Promise<Float32Array> {
   requestSignal()?.throwIfAborted();
   const contract = embeddingContract();
   const cacheKey = JSON.stringify([encoderKey(contract), text]);
@@ -179,6 +188,7 @@ async function embedQuery(text: string): Promise<Float32Array> {
     job = runSharedWork(async () => {
       try {
         const vector = await embedUncachedQuery(text, contract);
+        await verified;
         queryCache.set(cacheKey, vector);
         if (queryCache.size > 128)
           queryCache.delete(queryCache.keys().next().value as string);
@@ -268,10 +278,17 @@ export async function semanticSearch(opts: {
   // Independent waits: the query encoding and the check of the encoder, the
   // index (a full column read and anchor check on first use) and the caller's
   // prefilter. Awaiting them in turn made every search pay for each in sequence.
-  const [idx, , q, candidateIds] = await Promise.all([
+  //
+  // The encoder's one-time download is awaited here, in request scope, as
+  // well as inside the shared embedding job: only here does the caller's own
+  // deadline cut the wait, so a timeout during the download is reported as
+  // "still being prepared" instead of advice to narrow the selection.
+  const verified = verifyEncoder(contract);
+  const [idx, , , q, candidateIds] = await Promise.all([
     loadIndex(opts.subset, opts.embeddingColumn),
-    verifyEncoder(contract),
-    embedQuery(opts.query),
+    config.embeddingProvider === "onnx" ? encoderReady() : undefined,
+    waitForSharedWork(verified),
+    embedQuery(opts.query, verified),
     opts.candidateIds,
   ]);
   requestSignal()?.throwIfAborted();

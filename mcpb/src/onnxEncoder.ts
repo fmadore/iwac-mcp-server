@@ -18,7 +18,7 @@ import { Worker } from "node:worker_threads";
 import { config } from "./config.js";
 import type { EncoderReply, EncoderRequest } from "./encoderWorker.js";
 import { downloadVerified } from "./hf.js";
-import { requestSignal, runSharedWork, waitForSharedWork } from "./request.js";
+import { requestSignal, runSharedWork, waitForPreparation, waitForSharedWork } from "./request.js";
 import { withCacheLock } from "./cacheLock.js";
 
 export const ENCODER_MODEL = "google/embeddinggemma-2";
@@ -238,18 +238,26 @@ export function warmEncoder(): void {
   encoder().catch((err) => console.error(`[iwac] query encoder unavailable: ${(err as Error).message}`));
 }
 
-/** Wait until the encoder is downloaded and loaded. A caller that runs out of
- * time is told the download goes on, not handed a bare timeout. */
+/** What a caller that ran out of time is told while the encoder is prepared. */
+export function encoderPreparingMessage(): string {
+  return (
+    `The local query encoder (${ENCODER_MODEL}, a one-time download of ~${encoderDtype() === "fp32" ? "1.1 GB" : "350 MB"}) ` +
+    "is still being prepared in the background. Retry in a minute."
+  );
+}
+
+/**
+ * Wait until the encoder is downloaded and loaded. semanticSearch awaits it in
+ * request scope, before the shared embedding job: there the wait is cut by the
+ * caller's own deadline, which records the preparation so the tool wrapper
+ * says the download goes on instead of calling it a query timeout. Inside
+ * shared work it simply waits.
+ */
 export async function encoderReady(): Promise<void> {
   try {
-    await waitForSharedWork(encoder());
+    await waitForPreparation(encoderPreparingMessage(), encoder());
   } catch (err) {
-    if (requestSignal()?.aborted) {
-      throw new Error(
-        `The local query encoder (${ENCODER_MODEL}, a one-time download of ~${encoderDtype() === "fp32" ? "1.1 GB" : "350 MB"}) ` +
-          "is still being prepared. Retry in a minute.",
-      );
-    }
+    if (requestSignal()?.aborted) throw new Error(encoderPreparingMessage());
     throw err;
   }
 }

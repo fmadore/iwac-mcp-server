@@ -43,9 +43,11 @@ export async function projectAsync(vectors: number[][], key: string): Promise<Pr
         cleanup();
         reject(error);
       });
+      // Any exit before a message rejects (a no-op once settled), so a worker
+      // that ends cleanly without posting cannot leave the call pending.
       worker.once("exit", (code) => {
         cleanup();
-        if (code !== 0) reject(new Error(`Projection worker exited (${code})`));
+        reject(new Error(`Projection worker exited (${code}) without a result`));
       });
     });
     cache.set(key, result);

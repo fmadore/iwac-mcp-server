@@ -4,7 +4,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { ensureSubset, onSubsetDownload, parquetList } from "./hf.js";
-import { config, type Subset } from "./config.js";
+import { ALL_SUBSETS, config, type Subset } from "./config.js";
 
 let _instancePromise: Promise<DuckDBInstance> | null = null;
 const _schemas: Map<Subset, Promise<Set<string>>> = new Map();
@@ -80,8 +80,8 @@ export function allowDirectoriesForTests(dirs: readonly string[]): void {
  * IWAC_OFFLINE fixtures are found the same way, through IWAC_CACHE_DIR), and
  * nothing else touches the file system: withScope's id tables are in-memory,
  * and no COPY, EXPORT, ATTACH or INSTALL runs in the server. So external
- * access is turned off and only the cache dir and the spill dir inside it stay
- * reachable (plus `extraDirs`, which only tests pass, through
+ * access is turned off and only the cache's subset directories and the spill
+ * dir stay reachable (plus `extraDirs`, which only tests pass, through
  * allowDirectoriesForTests). Autoloading is off so a query cannot pull an
  * extension (httpfs) that would reach the network, and the lock goes LAST so
  * no statement, whichever connection runs it, can loosen any of this later.
@@ -89,6 +89,11 @@ export function allowDirectoriesForTests(dirs: readonly string[]): void {
  * Defence in depth: every user value is bound as a parameter, but a future
  * SQL-building bug should not be able to read /run/secrets, ~/.ssh or the
  * rest of the user's temp directory.
+ *
+ * The subset directories are listed one by one rather than the bare cache dir
+ * because `allowed_directories` is recursive and the private mirror caches in
+ * `<base>/private-full/`: on a machine that has run both modes, a public
+ * instance allowed `<base>` would reach the restricted full text.
  */
 export function sandboxStatements(
   cacheDir: string,
@@ -96,7 +101,8 @@ export function sandboxStatements(
   limits: { memoryLimit?: string; threads?: number } = {},
   extraDirs: readonly string[] = [],
 ): string[] {
-  const allowed = [...new Set([cacheDir, tempDir, ...extraDirs].map((dir) => path.resolve(dir)))];
+  const subsetDirs = ALL_SUBSETS.map((subset) => path.join(cacheDir, subset));
+  const allowed = [...new Set([...subsetDirs, tempDir, ...extraDirs].map((dir) => path.resolve(dir)))];
   return [
     `SET GLOBAL allowed_directories = [${allowed.map(sqlString).join(", ")}]`,
     `SET GLOBAL temp_directory = ${sqlString(path.resolve(tempDir))}`,

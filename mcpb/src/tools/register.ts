@@ -1,6 +1,7 @@
 import { provenanceSummary, requestProvenance, PROVENANCE_META_KEY } from "../provenance.js";
 import {
   datasetsStillLoading,
+  preparationsStillRunning,
   type ProgressReporter,
   REQUEST_DEADLINE_MS,
   requestDeadlineExpired,
@@ -102,8 +103,12 @@ function deadlineOutcome(clientSignal: AbortSignal | undefined, deadlineMs: numb
       "unavailable",
     );
   }
-  // A returned tool error, or one with its own message (the query encoder's
-  // "still being prepared"), already says what happened.
+  // The query encoder's one-time download (or another preparation) was still
+  // running: say so, whichever of the call's waits the deadline cut first.
+  const preparing = preparationsStillRunning();
+  if (preparing.length > 0)
+    return errorResult({ error: preparing.join(" "), still_loading: ["query encoder"] }, "unavailable");
+  // A returned tool error, or one with its own message, already says what happened.
   if (err === undefined || !isAbortLike(err)) return undefined;
   return errorResult(
     {

@@ -249,6 +249,8 @@ await withFixtureScope(async (fixtures) => {
     get_newspaper_stats: {},
     get_country_comparison: {},
     get_sentiment_distribution: {},
+    // Every panel member at once: the widest this tool answers.
+    "get_sentiment_distribution#all": { tool: "get_sentiment_distribution", args: { model: "all" } },
     get_temporal_distribution: { subset: "articles", granularity: "month", group_by: "country" },
     get_topic_distribution: { subset: "articles", top_n: BIG, over_time: true },
     get_field_distribution: { field: "subject", subset: "articles", top_n: BIG, over_time: true },
@@ -285,10 +287,13 @@ await withFixtureScope(async (fixtures) => {
     if (res.isError === true) fail(`${label} returned an error at worst-case arguments: ${body.slice(0, 200)}`);
     if (tokens > RESPONSE_CEILING) fail(`${label} worst case is ${tokens} tokens, over the ${RESPONSE_CEILING} ceiling`);
     // Nor is an empty page: worst-case arguments that match nothing measure a
-    // ~50-token envelope and pass the ceiling without testing anything.
+    // ~50-token envelope and pass the ceiling without testing anything. Tokens
+    // are measured on every block, but only the first is the payload: since
+    // v5.0.0 a second `{"provenance":...}` block follows it, so parsing the
+    // joined text always threw and silently turned this guard off.
     let parsed = null;
     try {
-      parsed = JSON.parse(body);
+      parsed = JSON.parse(res.content?.[0]?.text ?? "");
     } catch {
       // not JSON: the error check above has already spoken
     }

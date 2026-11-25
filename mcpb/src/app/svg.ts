@@ -33,13 +33,19 @@ export interface Frame {
 
 const PAD = { top: 16, right: 10, bottom: 34, left: 52 };
 
-/** Wrap chart body markup in a sized, labelled `<svg>`. */
+/**
+ * Wrap chart body markup in a sized, labelled `<svg>`. A chart with clickable
+ * marks is a `group`, not an `img`: children of `img` are presentational in
+ * ARIA, so the focusable buttons the shell makes of its marks would go
+ * unannounced. Static charts stay `img`.
+ */
 export function frame(body: string, f: Frame): string {
   const w = f.width ?? 900;
   const h = f.height ?? 300;
   const min = f.minWidth ?? 520;
+  const role = body.includes(' data-key="') ? "group" : "img";
   return (
-    `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(f.ariaLabel)}" style="min-width:${min}px">` +
+    `<svg viewBox="0 0 ${w} ${h}" role="${role}" aria-label="${esc(f.ariaLabel)}" style="min-width:${min}px">` +
     `${body}</svg>`
   );
 }

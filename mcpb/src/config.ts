@@ -85,8 +85,10 @@ export interface ParsedOrigins {
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/** True for an exact `http(s)://` loopback origin, any port: allowed without
- * configuration, since only a page served from this machine can send one. */
+/** True for an exact `http(s)://` loopback origin, any port. Over the public
+ * mirror these are allowed without configuration, for local development
+ * clients. A loopback origin is a page served from the visitor's own machine,
+ * not this server's, so the private mirror does not exempt them (http.ts). */
 export function isLoopbackOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);

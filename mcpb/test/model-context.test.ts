@@ -103,3 +103,21 @@ test("pathological escaped base fields terminate with a bounded, explicitly trun
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 11_000);
   assert.equal(result.structuredContent.truncated, true);
 });
+
+test("a reader view and a semantic map report no truncation from their display-only chips", () => {
+  const reader = buildModelContext(
+    { view: "reader", id: "articles:101", title: "Un article", url: "https://islam.zmo.de/s/afrique_ouest/item/101" },
+    {},
+    { ...view, chips: { id: "articles:101" } },
+  ).structuredContent;
+  assert.notEqual(reader.truncated, true, JSON.stringify(reader));
+  const map = buildModelContext(
+    { view: "semanticMap", subset: "articles", filters: { country: "Benin" }, color_by: "country" },
+    {},
+    { ...view, chips: { country: "Benin", coloured_by: "country" } },
+  ).structuredContent;
+  assert.notEqual(map.truncated, true, JSON.stringify(map));
+  assert.deepEqual(map.selection, { country: "Benin" });
+  const newspapers = buildModelContext({ view: "newspapers", country_filter: "Togo" }, {}, view).structuredContent;
+  assert.deepEqual(newspapers.selection, { country: "Togo" });
+});
