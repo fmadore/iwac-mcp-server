@@ -8,12 +8,13 @@
 // (`directoryRead` included) when attached.
 //
 // One thing the SDK's own catalogue does not do is list every file: it puts one
-// entry per skill in resources/list. Hosts without the extension (Claude Desktop,
-// Claude Code) find files there, and SKILL.md names its references by relative
-// path, so the references would become invisible to them. The catalogue is
-// therefore served through a small `SkillSource` over the SDK-built entries,
-// whose `listResources()` lists every file with a title and summary. The bare
-// `skill://<name>` URI is the skill's directory, as in the SDK's catalogue.
+// entry per skill in resources/list. Hosts without SEP-2640 support (older
+// clients, or workspaces where Skills over MCP is off) find files there, and
+// SKILL.md names its references by relative path, so the references would
+// become invisible to them. The catalogue is therefore served through a small
+// `SkillSource` over the SDK-built entries, whose `listResources()` lists every
+// file with a title and summary. The bare `skill://<name>` URI is the skill's
+// directory, as in the SDK's catalogue.
 // Specification: https://modelcontextprotocol.io/extensions/skills/overview
 import type { McpServer, Resource } from "@modelcontextprotocol/server";
 import {

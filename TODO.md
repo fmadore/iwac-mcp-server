@@ -275,8 +275,12 @@
     `test/fixture-server/`); worth deciding per tool rather than by
     habit, and worth re-checking once clients report whether they read it.
   - The 9 aggregate tools are **5 600 tokens, 44% of the footprint** for tools a
-    given session may never call. If MCP tool-search / progressive disclosure
-    becomes reliable across clients, they are the obvious candidates to defer.
+    given session may never call. On hosts supporting Tool Search, `register.ts`
+    now marks only `search`, `fetch` and `get_collection_stats` with
+    `anthropic/alwaysLoad: true`, so the other 36 tools (including all 9
+    aggregates) are deferred automatically (~1.7k tokens upfront instead of
+    ~15.7k); `instructions.ts` carries a compact map of deferred capabilities,
+    and `test/token-budget.test.mjs` prints both footprints.
   - `search_index` (16 770) and `search_references` (15 867) sit closest to the
     response ceiling at `limit=100`. Neither is wrong — the caller asked — but
     they are the two that a wider row would push over.
@@ -431,11 +435,11 @@
   replace manually curated search terms with data-grounded suggestions
   including actual frequencies.
 
-- [ ] **Publish the `iwac-mcp` research skill to the Claude Skills repository**
-  (it already ships as a standalone `iwac-mcp-skill.zip` release asset on every
-  tag — this item is about the Skills library specifically). Source of truth is
-  `.agents/skills/iwac-mcp/`. Related but distinct from
-  [#4](https://github.com/fmadore/iwac-mcp-server/issues/4) (adapting the skill
-  for non-Claude models). NB: the copy in the claude.ai Skills library
-  (`anthropic-skills:iwac-mcp`) predates v0.5 — replace it with
-  `.agents/skills/iwac-mcp/` or delete it.
+- [ ] **Clean up the stale copy in `anthropic-skills` (`anthropic-skills:iwac-mcp`)**
+  — it predates v0.5 and drifts from `.agents/skills/iwac-mcp/`. Now that Claude
+  and Claude Code consume Skills over MCP (`io.modelcontextprotocol/skills`)
+  natively from both the hosted endpoint and the `.mcpb`, maintaining a separate
+  copy in the Skills repository is superseded; delete the old copy so users do
+  not load an outdated workflow. (The standalone `iwac-mcp-skill.zip` release
+  asset remains as a fallback; [#4](https://github.com/fmadore/iwac-mcp-server/issues/4)
+  tracks adapting the skill for non-Claude models.)

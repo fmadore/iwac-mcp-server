@@ -6,6 +6,14 @@ full notes, which are also its GitHub Release body, live in
 Git history and on the [releases page](https://github.com/fmadore/iwac-mcp-server/releases).
 [docs/decisions.md](docs/decisions.md) records the decisions in force.
 
+## 6.3.3 (2026-11-26)
+
+Slimmer `iwac-mcp` skill for native Skills over MCP (−56% on `SKILL.md`, French
+triggers and negative trigger), profile-aware deferred-tool capability hints in
+handshake instructions, sharper BM25/regex descriptions for five index/stats
+tools, Tool Search footprint reporting in CI, and updated Skills over MCP docs.
+[Notes](docs/releases/v6.3.3.md).
+
 ## 6.3.2 (2026-11-25)
 
 A lighter chart view (decoded script 497.7 to 382.9 KB), corrected skill and

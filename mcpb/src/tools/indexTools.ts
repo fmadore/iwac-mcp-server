@@ -96,7 +96,8 @@ export function registerIndexTools(server: Server): void {
     {
       ...toolMeta("Get index entry details"),
       description:
-        "Get full details of an index entry by id (raw dataset columns, French names — Titre, Prénom, Coordonnées…).",
+        "Get full details of an authority index record (person, place, organisation, event, subject) by id " +
+        "(raw dataset columns, French names — Titre, Prénom, Coordonnées…).",
       inputSchema: z.strictObject({ entry_id: z.number().int() }),
     },
     async ({ entry_id }) => {
@@ -108,9 +109,9 @@ export function registerIndexTools(server: Server): void {
   );
 
   // === list_subjects / list_locations / list_persons =======================
-  registerIndexListTool(server, "list_subjects", "Sujets", false, 50, 200);
-  registerIndexListTool(server, "list_locations", "Lieux", true, 50, 200);
-  registerIndexListTool(server, "list_persons", "Personnes", true, 50, 200);
+  registerIndexListTool(server, "list_subjects", "Sujets", "curated subject tags (sujets / themes)", false, 50, 200);
+  registerIndexListTool(server, "list_locations", "Lieux", "geographic locations and places (lieux)", true, 50, 200);
+  registerIndexListTool(server, "list_persons", "Personnes", "persons and public figures (personnes)", true, 50, 200);
 }
 
 // -----------------------------------------------------------------------------
@@ -127,6 +128,7 @@ function registerIndexListTool(
   server: Server,
   name: "list_subjects" | "list_locations" | "list_persons",
   indexType: string,
+  englishLabel: string,
   withCountry: boolean,
   defaultLimit: number,
   maxLimit: number,
@@ -146,7 +148,7 @@ function registerIndexListTool(
 
   const meta = {
     ...toolMeta(`List ${typeLower} from the index`),
-    description: `List ${typeLower} from the IWAC index, sorted by frequency (most-referenced first).${countrySemantics}`,
+    description: `List ${englishLabel} from the IWAC index, sorted by frequency (most-referenced first).${countrySemantics}`,
   };
   const commonSchema = {
     limit: z.number().int().optional().describe(`Default ${defaultLimit}, max ${maxLimit}`),

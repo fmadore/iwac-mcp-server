@@ -105,8 +105,11 @@ await withFixtureScope(async (fixtures) => {
     .sort((a, b) => b.total - a.total);
 
   const toolTotal = rows.reduce((s, r) => s + r.total, 0);
+  const alwaysLoadTools = tools.filter((tool) => tool._meta?.["anthropic/alwaysLoad"] === true);
+  const alwaysLoadTotal = alwaysLoadTools.reduce((s, tool) => s + perTool[tool.name], 0);
   const instructionsTokens = t(instructions);
   const footprint = toolTotal + instructionsTokens;
+  const deferredFootprint = alwaysLoadTotal + instructionsTokens;
 
   console.log(`\ntool definitions  ${String(toolTotal).padStart(6)} tokens over ${tools.length} tools`);
   console.log(`  descriptions    ${String(rows.reduce((s, r) => s + r.desc, 0)).padStart(6)}`);
@@ -115,6 +118,7 @@ await withFixtureScope(async (fixtures) => {
   console.log(`instructions      ${String(instructionsTokens).padStart(6)}`);
   console.log(`prompts (${prompts.length}) + resources (${resources.length})  ${t(prompts) + t(resources)} (listed lazily by most clients — not gated)`);
   console.log(`ALWAYS-ON         ${String(footprint).padStart(6)} / ${FOOTPRINT_CEILING} ceiling`);
+  console.log(`  with tool search ${String(deferredFootprint).padStart(5)} tokens (${alwaysLoadTools.length} alwaysLoad tools + instructions)`);
 
   console.log("\n  most expensive definitions:");
   for (const r of rows.slice(0, 8)) {

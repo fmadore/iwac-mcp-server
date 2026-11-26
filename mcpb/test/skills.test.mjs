@@ -126,10 +126,11 @@ await withFixtureScope(async (fixtures) => {
   }
 
   // --- what a host without the extension sees ----------------------------------------
-  // Claude Desktop and Claude Code do not speak SEP-2640: they list resources and
-  // read them by URI. SKILL.md names its references by relative path, so EVERY
-  // file must be listed, not only SKILL.md (the SDK's own catalogue lists one entry
-  // per skill), and each must say what it is.
+  // Hosts without SEP-2640 support (older clients, or workspaces where Skills
+  // over MCP is off) list resources and read them by URI. SKILL.md names its
+  // references by relative path, so EVERY file must be listed, not only
+  // SKILL.md (the SDK's own catalogue lists one entry per skill), and each must
+  // say what it is.
   const resources = (await client.listResources()).resources;
   const uris = resources.map((r) => r.uri);
   if (new Set(uris).size !== uris.length) fail("resources/list contains duplicate URIs");

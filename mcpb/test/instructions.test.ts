@@ -65,6 +65,8 @@ describe("server instructions", () => {
     it(`name only registered tools (${label(mode)})`, () => {
       for (const tool of [...SEMANTIC_TOOLS, "explore_corpus", "get_temporal_distribution"])
         assert.equal(text.includes(tool), mode.tools.has(tool), tool);
+      assert.equal(text.includes("filtered subset search/reading"), mode.tools.has("search_articles"));
+      assert.equal(text.includes("6-model sentiment"), mode.tools.has("get_sentiment_distribution"));
       const semanticRegistered = SEMANTIC_TOOLS.some((tool) => mode.tools.has(tool));
       assert.equal(text.includes("embedding endpoint"), semanticRegistered && mode.externalEncoder);
     });

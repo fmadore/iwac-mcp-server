@@ -227,7 +227,7 @@ export function registerStatsTools(server: Server): void {
     "get_newspaper_stats",
     {
       ...toolMeta("Newspaper statistics"),
-      description: "Per-newspaper article counts and date ranges.",
+      description: "Per-newspaper press outlet article counts and publication date ranges, filterable by country (journaux / media titles).",
       _meta: CHARTS_UI_META,
       inputSchema: z.strictObject({
         country: countryParam(),

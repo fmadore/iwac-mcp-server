@@ -85,35 +85,34 @@ Remove-Item -Recurse -Force "$env:APPDATA\Claude\Claude Extensions\local.mcpb.*.
 Your downloaded data is **not** affected — the cache lives in `~/.iwac-mcp/`,
 outside the extension folder, so a reinstall does not re-download it.
 
-### 2. Add the research skill — strongly recommended
+### 2. The research skill — included automatically
 
-The optional **`iwac-mcp` skill** teaches Claude *how* to use the tools well: a
+The bundled **`iwac-mcp` skill** teaches Claude *how* to use the tools well: a
 structured research workflow, a francophone search strategy, source citations
 with confidence grading, and awareness of the collection's gaps. With it, Claude
 chooses the right tool and search terms on the first pass and returns a cited
 synthesis instead of a raw data dump.
 
-Download `iwac-mcp-skill.zip` from the same release, then in Claude Desktop open
-**Customize → Skills → + → Create skill → Upload a skill** and select the zip.
-
-This is the supported way to add the skill, and the one to use. An installed
-skill is matched against your question automatically, before any tool runs.
+Every build embeds the skill and publishes it via **Skills over MCP**
+([SEP-2640](https://modelcontextprotocol.io/extensions/skills/overview),
+`io.modelcontextprotocol/skills`). On Claude plans where Skills over MCP is
+active (Pro, Max, Ultra by default; Team once enabled by an admin) and in Claude
+Code, **the skill is discovered and updated automatically** — nothing extra to
+upload. If you previously uploaded `iwac-mcp-skill.zip` by hand, remove the old
+copy under **Customize → Skills** (or `~/.claude/skills/iwac-mcp/`) so Claude
+does not load a stale duplicate.
 
 <details>
-<summary>The server also serves the skill as <code>skill://</code> resources</summary>
+<summary>Fallback: manual <code>.zip</code> install and <code>skill://</code> resources</summary>
 
-Every build embeds the skill and exposes it as MCP resources:
-`skill://iwac-mcp/SKILL.md` and its four `skill://iwac-mcp/references/…` files,
-each listed with a title and a short summary. A client that has not installed
-the skill can read it from the server instead. Nothing is loaded until
-something asks for it.
+If your client or workspace does not have Skills over MCP enabled yet, download
+`iwac-mcp-skill.zip` from the same release, then in Claude Desktop open
+**Customize → Skills → + → Create skill → Upload a skill** and select the zip.
 
-The server implements the [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
-(SEP-2640) through the MCP SDK and declares it as `io.modelcontextprotocol/skills`.
-A host that supports it can discover the skill with `skills/list` / `skills/get`,
-browse it with `resources/directory/read` (`skill://iwac-mcp` is the skill's
-directory), and check each file against the manifest's byte sizes and SHA-256
-digests. Other clients read the ordinary resources.
+The server also lists `skill://iwac-mcp/SKILL.md` and its four
+`skill://iwac-mcp/references/…` files in ordinary `resources/list`, each with a
+title and short summary, so clients without the Skills extension can still read
+them via `resources/read`. Nothing is loaded until requested.
 
 </details>
 
@@ -132,7 +131,8 @@ settings; every other tool works without it.
 ## Claude on the web (custom connector)
 
 The hosted endpoint also works as a Claude **custom connector**, on claude.ai
-and in Claude Desktop, with nothing to install. Add it under **Customize >
+and in Claude Desktop, with nothing to install — and ships the `iwac-mcp`
+research skill automatically via Skills over MCP. Add it under **Customize >
 Connectors** with this URL and no authentication:
 
 ```

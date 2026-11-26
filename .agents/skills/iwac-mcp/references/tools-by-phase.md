@@ -1,6 +1,6 @@
 # IWAC MCP Tools by Research Phase
 
-39 tools (4 of them semantic search, which an operator can turn off) organized by the workflow phase where they are most useful. Server **v0.8.0+**: **all keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Server **v0.9.0+** adds `get_temporal_distribution` (counts per year/month — use it for any "how did coverage evolve" question instead of paging through searches).
+39 tools (4 of them semantic search, which an operator can turn off) organized by the workflow phase where they are most useful. **All keyword/filter matching is accent- and case-insensitive**; result rows use short English keys (`id`, `date`, `polarity`, `centrality`, `subjectivity`, `description_ai`, `url`) and omit empty fields. List/search tools return a pagination envelope — `count`, `total_matches`, `offset`, `limit` (applied), `has_more`, `next_offset`, plus `requested_limit` + `limit_warning` when you exceed a tool's max. Enumerated filters (`country`, `polarity`, `centrality`, `index_type`, and on the temporal tool `subset`, `granularity`, `group_by`) are **validated**: an invalid value returns `{error, valid_values}` (`isError`) instead of a silent zero-result. Use `get_temporal_distribution` (counts per year/month/lunar month) for any "how did coverage evolve" question instead of paging through searches.
 
 ## Cross-Collection Entry Points
 
@@ -33,7 +33,9 @@ returned `limit`/`has_more`; a page export never represents all matches.
   hash and offsets only when reliable. Metadata-only matches need not have body
   contexts. Contexts are leads to read, not replacements for their source.
 - Exports retain selected IDs/URLs, filters and dataset provenance. Preserve the
-  manifest companion; compare snapshots before joining pages. Citation metadata
+  manifest companion; compare snapshots before joining pages. Pass `link: true`
+  to export a whole selection (up to 5,000 items) as a single `iwac://export/…`
+  resource link instead of 50-item pages in the conversation. Citation metadata
   is served as stored, with missing fields omitted and author names kept literal.
 - Read resource `iwac://datasets` for the subset catalogue and
   `iwac://datasets/{subset}` for live columns, availability and provenance.

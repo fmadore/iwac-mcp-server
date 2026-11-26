@@ -19,12 +19,12 @@ full connection walkthrough (Claude Desktop and ChatGPT).
 ## Install
 
 Each [release](https://github.com/fmadore/iwac-mcp-server/releases) ships a
-server bundle **for your operating system** plus a research-skill `.zip`. The
-`.mcpb` gives Claude the data and tools; the `.zip` adds a research skill that
-teaches Claude *how* to use them. Install the server first, then **install the
-skill too — strongly recommended** for getting the most out of the tools: it
-makes Claude search and synthesize far more efficiently, with fewer wasted
-queries.
+server bundle **for your operating system** plus a fallback research-skill
+`.zip`. The server embeds the [`iwac-mcp` research skill](.agents/skills/iwac-mcp/SKILL.md)
+and serves it natively via **Skills over MCP** (`io.modelcontextprotocol/skills`),
+so Claude (Pro/Max/Ultra, Team opt-in) and Claude Code receive the workflow
+automatically with no separate install. The standalone `.zip` remains available
+for clients without Skills over MCP support.
 
 ### 1. The MCP server — pick the bundle for your OS
 
@@ -89,18 +89,51 @@ everyone who can query a private instance can access its full text. HTTP mode
 therefore refuses to start in private mode unless `IWAC_ALLOW_PRIVATE_HTTP=true`
 is also set, and both transports log which dataset they serve at startup.
 
-### 2. The research skill — `iwac-mcp-skill.zip` (strongly recommended)
+### 2. The research skill — served natively via Skills over MCP
 
 The [`iwac-mcp` skill](.agents/skills/iwac-mcp/SKILL.md) wraps the raw tools in a
 structured research workflow: a five-phase methodology, francophone search
 strategy, source attribution with confidence grading, and bias/coverage caveats.
 **It makes the server far more efficient to use** — Claude picks the right tool
 and search terms on the first pass (fewer wasted queries), searches French
-sources properly, and returns a cited synthesis instead of a raw tool dump. You
-can run the tools without it, but you'll get more out of every query with it
-installed.
+sources properly, and returns a cited synthesis instead of a raw tool dump.
 
-Download the latest [iwac-mcp-skill.zip](https://github.com/fmadore/iwac-mcp-server/releases/latest/download/iwac-mcp-skill.zip), then:
+#### Automatic delivery (`skill://`, SEP-2640)
+
+Every build embeds the research skill — desktop bundles and the Docker image
+alike — and serves it through the MCP SDK's implementation of the
+[Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
+(SEP-2640, `io.modelcontextprotocol/skills`). Clients supporting **Skills over
+MCP** (including Claude on Pro/Max/Ultra, Team plans with the beta enabled, and
+Claude Code) discover the skill automatically via `skills/list` and
+`skills/get`, load it on demand, browse supporting references with
+`resources/directory/read`, and verify every file against the manifest's SHA-256
+digests — **no separate skill upload needed**, and updates arrive whenever the
+server updates.
+
+> **Upgrading from a manual `.zip` install?** Remove the older copy from
+> **Customize → Skills** (Claude Desktop) or `~/.claude/skills/iwac-mcp/`
+> (Claude Code) so Claude does not see a stale duplicate alongside the
+> server-delivered skill.
+
+Clients without the extension still see every file in `resources/list`, each
+with a title and a one-line summary, and read it with ordinary `resources/read`:
+
+| Resource | Content |
+| --- | --- |
+| `skill://iwac-mcp/SKILL.md` | Research workflow |
+| `skill://iwac-mcp/references/…` | Four reference files, read on demand |
+| `skill://iwac-mcp` | The skill's directory, for `resources/directory/read` |
+
+The bare `skill://iwac-mcp` URI is a directory, no longer the JSON catalogue
+that releases up to v4.1.0 served there; `skills/list` carries the same sizes
+and digests. Skill content is a build-time snapshot; editing the source requires
+a rebuild.
+
+#### Manual fallback — `iwac-mcp-skill.zip`
+
+For clients or workspaces where Skills over MCP is not yet enabled, download the
+latest [iwac-mcp-skill.zip](https://github.com/fmadore/iwac-mcp-server/releases/latest/download/iwac-mcp-skill.zip):
 
 - **Claude Desktop** — open **Customize → Skills → + → Create skill → Upload a
   skill** and select the zip. (Or unzip it into `~/.claude/skills/` and restart
@@ -121,34 +154,6 @@ Download the latest [iwac-mcp-skill.zip](https://github.com/fmadore/iwac-mcp-ser
   Both land the skill at `~/.claude/skills/iwac-mcp/`. The repository source of
   truth is `.agents/skills/iwac-mcp/`; keep project-local copies there rather
   than duplicating the same skill under `.claude/`.
-
-  Installing it this way is still worth doing: an installed skill is matched
-  against your question automatically, before any tool is called.
-
-#### The server also serves the skill (`skill://`)
-
-Every build embeds the research skill, including the Docker image, and serves it
-through the MCP SDK's implementation of the
-[Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
-(SEP-2640, `io.modelcontextprotocol/skills`). Clients supporting it discover the
-skill through `skills/list` and `skills/get`, browse it with
-`resources/directory/read`, and check every file they read against the
-manifest's SHA-256 digests. Clients without the extension see every file in
-`resources/list`, each with a title and a one-line summary, and read it with
-ordinary `resources/read`:
-
-| Resource | Content |
-| --- | --- |
-| `skill://iwac-mcp/SKILL.md` | Research workflow |
-| `skill://iwac-mcp/references/…` | Four reference files, read on demand |
-| `skill://iwac-mcp` | The skill's directory, for `resources/directory/read` |
-
-The bare `skill://iwac-mcp` URI is a directory, no longer the JSON catalogue
-that releases up to v4.1.0 served there; `skills/list` carries the same sizes
-and digests. Skill
-content is a build-time snapshot; editing the source requires a rebuild. The
-release zip remains available for clients that install skills locally. Remote
-clients can read the same workflow without downloading a release artifact.
 
 ## What it gives Claude
 
@@ -349,7 +354,7 @@ Machine-readable metadata lives in [CITATION.cff](CITATION.cff) — GitHub's
 **Cite this repository** button (sidebar) renders it as APA or BibTeX with the
 current version filled in. In text:
 
-> Madore, F. (2026). *IWAC MCP Server* (Version 6.3.2) [Computer software].
+> Madore, F. (2026). *IWAC MCP Server* (Version 6.3.3) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21805837
 
 ```bibtex
@@ -357,7 +362,7 @@ current version filled in. In text:
   author    = {Madore, Frédérick},
   title     = {{IWAC MCP Server}},
   year      = {2026},
-  version   = {6.3.2},
+  version   = {6.3.3},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21805837},
   url       = {https://github.com/fmadore/iwac-mcp-server},
